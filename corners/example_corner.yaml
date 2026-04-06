@@ -1,0 +1,15 @@
+# Example corner configuration
+# Copy and modify for your specific PVT corner
+
+corner_name: ss_0p45v_m40c
+vdd: "0.450"
+temperature: "-40"
+
+# File paths
+model_file: "/path/to/ss_model.spi"
+waveform_file: "/path/to/std_wv.spi"
+netlist_dir: "/path/to/LPE/netlists/"
+
+# Simulation parameters (override global defaults)
+pushout_per: "0.4"
+num_samples: 5000

@@ -1,0 +1,97 @@
+# Template Registry
+# Maps (cell_pattern, arc_type, rel_pin, rel_dir, constr_dir) -> template .sp file
+#
+# Matching rules:
+#   - Patterns use fnmatch syntax (*, ?, [seq])
+#   - First match wins (most specific patterns should come first)
+#   - "any" matches all values for that field
+#   - User can always bypass with --template /path/to/custom.sp
+
+templates:
+
+  # ============================================================
+  # HOLD templates - sequential cells
+  # ============================================================
+
+  # SYNC2 cells
+  - pattern: "*SYNC2*"
+    arc_type: hold
+    rel_pin: CP
+    rel_dir: fall
+    constr_dir: rise
+    template: hold/template__hold__sync2__CP__fall__rise.sp
+
+  - pattern: "*SYNC2*"
+    arc_type: hold
+    rel_pin: CP
+    rel_dir: rise
+    constr_dir: fall
+    template: hold/template__hold__sync2__CP__rise__fall.sp
+
+  # Generic DFF hold (CP-triggered)
+  - pattern: "*DFF*"
+    arc_type: hold
+    rel_pin: CP
+    rel_dir: rise
+    constr_dir: any
+    template: hold/template__hold__CP__rise.sp
+
+  - pattern: "*DFF*"
+    arc_type: hold
+    rel_pin: CP
+    rel_dir: fall
+    constr_dir: any
+    template: hold/template__hold__CP__fall.sp
+
+  # Generic hold fallback
+  - pattern: "*"
+    arc_type: hold
+    rel_pin: any
+    rel_dir: rise
+    constr_dir: fall
+    template: hold/template__hold__generic__rise__fall.sp
+
+  - pattern: "*"
+    arc_type: hold
+    rel_pin: any
+    rel_dir: fall
+    constr_dir: rise
+    template: hold/template__hold__generic__fall__rise.sp
+
+  # ============================================================
+  # DELAY templates - combinational and sequential
+  # ============================================================
+
+  # Generic delay (rise output)
+  - pattern: "*"
+    arc_type: delay
+    rel_pin: any
+    rel_dir: rise
+    constr_dir: any
+    template: delay/template__delay__generic__rise.sp
+
+  # Generic delay (fall output)
+  - pattern: "*"
+    arc_type: delay
+    rel_pin: any
+    rel_dir: fall
+    constr_dir: any
+    template: delay/template__delay__generic__fall.sp
+
+  # ============================================================
+  # SLEW templates
+  # ============================================================
+
+  - pattern: "*"
+    arc_type: slew
+    rel_pin: any
+    rel_dir: rise
+    constr_dir: any
+    template: slew/template__slew__generic__rise.sp
+
+  - pattern: "*"
+    arc_type: slew
+    rel_pin: any
+    rel_dir: fall
+    constr_dir: any
+    template: slew/template__slew__generic__fall.sp

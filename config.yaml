@@ -1,0 +1,41 @@
+# deckgen global configuration
+# Paths can be overridden by corner configs or CLI arguments
+
+# Default paths (override per corner in corners/*.yaml)
+waveform_file: ""
+netlist_dir: ""
+model_file: ""
+
+# Template registry
+template_registry: template_registry.yaml
+
+# Simulation defaults
+num_samples: 5000
+pushout_per: "0.4"
+pushout_dir: POSITIVE
+spice_options: "runlvl=6 ACCURATE=1 BRIEF=1 MODSRH=1 gmindc=1e-15 gdcpath=1e-15 method=gear converge=100 pode_check=0 autostop post=0 NOMOD=1 MEASDGT=7 measform=1 measfile=1 statfl=1 MCBRIEF=5 sampling_method=lhs"
+
+# Timing parameter defaults (multiples of max_slew)
+timing:
+  delay:
+    constrained_pin_t01: "0"
+    constrained_pin_t02: "30 * max_slew"
+    related_pin_t01: "10 * max_slew"
+    related_pin_t02: "20 * max_slew"
+    related_pin_t03: "50 * max_slew"
+  hold:
+    constrained_pin_t01: "0 * max_slew"
+    constrained_pin_t02: "16 * max_slew"
+    related_pin_t01: "1 * max_slew"
+    related_pin_t02: "11 * max_slew"
+    related_pin_t03: "21 * max_slew"
+    related_pin_t04: "31 * max_slew"
+    related_pin_t05: "41 * max_slew"
+    related_pin_t06: "41 * max_slew + constr_pin_offset"
+    related_pin_t07: "61 * max_slew"
+  slew:
+    constrained_pin_t01: "0"
+    constrained_pin_t02: "30 * max_slew"
+    related_pin_t01: "10 * max_slew"
+    related_pin_t02: "20 * max_slew"
+    related_pin_t03: "50 * max_slew"
