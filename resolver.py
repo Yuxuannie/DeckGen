@@ -87,8 +87,8 @@ class TemplateResolver:
         Returns:
             int: >0 = full match (higher = more specific), -1 = partial match, 0 = no match
         """
-        # arc_type must match exactly
-        if entry['arc_type'] != arc_type:
+        # arc_type must match (or entry says "any")
+        if entry['arc_type'] != 'any' and entry['arc_type'] != arc_type:
             return 0
 
         score = 0
