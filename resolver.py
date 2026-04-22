@@ -14,7 +14,15 @@ import os
 import re
 import sys
 import fnmatch
-import yaml
+
+try:
+    import yaml
+except ImportError:
+    sys.exit(
+        "Error: PyYAML is required.\n"
+        "Install with:  pip install pyyaml\n"
+        "Note: the package name is 'pyyaml', not 'yaml'."
+    )
 
 
 class ResolutionError(Exception):

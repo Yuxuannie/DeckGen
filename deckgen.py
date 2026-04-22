@@ -33,7 +33,14 @@ Usage examples:
 import argparse
 import os
 import sys
-import yaml
+try:
+    import yaml
+except ImportError:
+    sys.exit(
+        "Error: PyYAML is required.\n"
+        "Install with:  pip install pyyaml\n"
+        "Note: the package name is 'pyyaml', not 'yaml'."
+    )
 
 from resolver import resolve_all, ResolutionError
 from deck_builder import build_deck, build_mc_deck
