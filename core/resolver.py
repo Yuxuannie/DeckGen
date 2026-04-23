@@ -357,3 +357,117 @@ def resolve_all(cell_name, arc_type, rel_pin, rel_dir, constr_pin, constr_dir,
     }
 
     return arc_info
+
+
+def resolve_all_from_collateral(
+    cell_name, arc_type, rel_pin, rel_dir, constr_pin, constr_dir, probe_pin,
+    node, lib_type, corner_name,
+    collateral_root='collateral',
+    overrides=None,
+    template_override=None,
+    netlist_override=None,
+    pins_override=None,
+    waveform_override=None,
+):
+    """Non-cons orchestrator: pull everything from the collateral manifest.
+
+    This is the new MCQC-parity entry point. Existing resolve_all() stays
+    unchanged for the legacy single-arc CLI path.
+    """
+    from core.collateral import CollateralStore, CollateralError
+    from core.parsers.chartcl import chartcl_parse_all
+    from core.parsers.template_tcl import parse_template_tcl_full
+    from core.arc_info_builder import build_arc_info
+
+    overrides = overrides or {}
+
+    # 1. Load store + corner
+    store = CollateralStore(collateral_root, node, lib_type)
+    corner = store.get_corner(corner_name)
+
+    # 2. Parse template.tcl (full)
+    tpl_tcl_path = corner['template_tcl']
+    if not tpl_tcl_path or not os.path.isfile(tpl_tcl_path):
+        raise CollateralError(
+            f"No template.tcl for corner '{corner_name}'")
+    template_info = parse_template_tcl_full(tpl_tcl_path)
+
+    # 3. Parse char*.tcl for this arc_type
+    char_path = store.pick_char_file(corner_name, arc_type)
+    if char_path and os.path.isfile(char_path):
+        variant = 'mpw' if arc_type in ('mpw', 'min_pulse_width') else 'general'
+        chartcl = chartcl_parse_all(char_path, variant=variant)
+    else:
+        chartcl = None
+
+    # 4. Resolve model file (.inc) via chartcl
+    include_file = store.pick_model_file(corner_name, arc_type) or ''
+
+    # 5. Find the matching arc entry in template_info
+    arc = _find_matching_arc(template_info, cell_name, arc_type,
+                             rel_pin, rel_dir)
+    if arc is None:
+        raise ResolutionError(
+            f"No matching arc in template.tcl for cell={cell_name} "
+            f"arc_type={arc_type} rel_pin={rel_pin}/{rel_dir}")
+
+    cell_info = template_info['cells'].get(cell_name, {
+        'pinlist': '', 'output_pins': [],
+        'delay_template': None, 'constraint_template': None,
+        'mpw_template': None, 'si_immunity_template': None,
+    })
+
+    # 6. Netlist
+    if netlist_override:
+        netlist_path = netlist_override
+        netlist_pins = pins_override or _extract_pins_safe(netlist_override)
+    else:
+        netlist_dir = corner.get('netlist_dir')
+        if netlist_dir:
+            try:
+                nr = NetlistResolver(netlist_dir)
+                netlist_path, netlist_pins = nr.resolve(cell_name)
+            except ResolutionError:
+                netlist_path = ''
+                netlist_pins = pins_override or ''
+        else:
+            netlist_path = ''
+            netlist_pins = pins_override or ''
+
+    # 7. Waveform
+    waveform_file = waveform_override or overrides.get(
+        'waveform_file', '/server/default/stdvs_wv.spi')
+
+    # 8. Hand off to arc_info_builder
+    return build_arc_info(
+        arc=arc, cell_info=cell_info,
+        template_info=template_info, chartcl=chartcl,
+        corner=corner,
+        netlist_path=netlist_path, netlist_pins=netlist_pins,
+        include_file=include_file, waveform_file=waveform_file,
+        overrides=overrides)
+
+
+def _find_matching_arc(template_info, cell_name, arc_type, rel_pin, rel_dir):
+    """Scan template_info['arcs'] for a match on (cell, arc_type, rel_pin, rel_dir)."""
+    for arc in template_info.get('arcs', []):
+        if (arc.get('cell') == cell_name
+                and arc.get('arc_type') == arc_type
+                and arc.get('rel_pin') == rel_pin
+                and arc.get('rel_pin_dir') == rel_dir):
+            return arc
+    return None
+
+
+def _extract_pins_safe(netlist_path):
+    try:
+        nr = NetlistResolver(os.path.dirname(netlist_path))
+        stem = os.path.splitext(os.path.basename(netlist_path))[0]
+        for s in ('_c_qa', '_c'):
+            if stem.endswith(s):
+                stem = stem[:-len(s)]
+                break
+        _, pins = nr.resolve(stem)
+        return pins
+    except ResolutionError:
+        return ''
