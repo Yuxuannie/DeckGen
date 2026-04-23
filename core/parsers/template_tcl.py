@@ -192,3 +192,126 @@ def _format_load(value):
     if value < 1e3:
         return f'{value:g}p'
     return f'{value:g}p'
+
+
+# ---------------------------------------------------------------------------
+# Full parser -- extends parse_template_tcl with cells + arcs + templates.
+# Used by core.arc_info_builder for MCQC-parity arc_info composition.
+# ---------------------------------------------------------------------------
+
+_DEFINE_CELL_RE = re.compile(
+    r'define_cell\s+"([^"]+)"\s*\{((?:[^{}]|\{[^{}]*\})*)\}',
+    flags=re.DOTALL)
+_DEFINE_ARC_RE = re.compile(
+    r'define_arc\s*\{((?:[^{}]|\{[^{}]*\})*)\}',
+    flags=re.DOTALL)
+# Matches  key : "quoted";  or  key : {braced};  or  key : bare_token;
+_FIELD_COLON_RE = re.compile(
+    r'(\w+)\s*:\s*(?:"([^"]*)"|\{([^}]*)\}|([^;\s][^;]*?))\s*;')
+# Matches  key { braced }  (no colon, no semicolon -- used by pinlist/output_pins)
+_FIELD_BRACE_RE = re.compile(r'(\w+)\s*\{([^}]*)\}')
+
+
+def _parse_block_fields(block_body):
+    """Parse key-value pairs from a define_cell or define_arc body.
+
+    Handles:
+      - key : "quoted";
+      - key : { braced };
+      - key : bare_token;
+      - key { braced }   (no colon -- pinlist, output_pins style)
+    """
+    fields = {}
+    # First pass: colon-style fields (these are authoritative)
+    for m in _FIELD_COLON_RE.finditer(block_body):
+        key = m.group(1)
+        quoted, braced, bare = m.group(2), m.group(3), m.group(4)
+        if quoted is not None:
+            fields[key] = quoted
+        elif braced is not None:
+            fields[key] = braced.strip()
+        else:
+            fields[key] = (bare or '').strip()
+    # Second pass: bare brace fields (only if key not already captured)
+    for m in _FIELD_BRACE_RE.finditer(block_body):
+        key = m.group(1)
+        if key not in fields:
+            fields[key] = m.group(2).strip()
+    return fields
+
+
+def parse_template_tcl_full(path):
+    """Full MCQC-style template.tcl parse.
+
+    Returns:
+        {
+          'templates': {...},                    # from parse_template_tcl
+          'cells':     {name: {
+              'pinlist':              str,
+              'output_pins':          list[str],
+              'delay_template':       str or None,
+              'constraint_template':  str or None,
+              'mpw_template':         str or None,
+              'si_immunity_template': str or None,
+          }},
+          'arcs':      [{
+              'cell':        str,
+              'arc_type':    str,
+              'pin':         str,
+              'pin_dir':     str,
+              'rel_pin':     str,
+              'rel_pin_dir': str,
+              'when':        str,
+              'lit_when':    str,
+              'probe_list':  list[str],
+              'vector':      str,
+              'metric':      str,     # default ''
+              'metric_thresh': str,   # default ''
+          }],
+          'global':    {...}  # from parse_template_tcl
+        }
+    """
+    base = parse_template_tcl(path)
+
+    with open(path, 'r') as f:
+        content = f.read()
+
+    cells = {}
+    for m in _DEFINE_CELL_RE.finditer(content):
+        name = m.group(1)
+        body = m.group(2)
+        f = _parse_block_fields(body)
+        cells[name] = {
+            'pinlist':              f.get('pinlist', ''),
+            'output_pins':          f.get('output_pins', '').split(),
+            'delay_template':       f.get('delay_template')       or None,
+            'constraint_template':  f.get('constraint_template')  or None,
+            'mpw_template':         f.get('mpw_template')         or None,
+            'si_immunity_template': f.get('si_immunity_template') or None,
+        }
+
+    arcs = []
+    for m in _DEFINE_ARC_RE.finditer(content):
+        body = m.group(1)
+        f = _parse_block_fields(body)
+        arcs.append({
+            'cell':         f.get('cell', ''),
+            'arc_type':     f.get('arc_type', ''),
+            'pin':          f.get('pin', ''),
+            'pin_dir':      f.get('pin_dir', ''),
+            'rel_pin':      f.get('rel_pin', ''),
+            'rel_pin_dir':  f.get('rel_pin_dir', ''),
+            'when':         f.get('when', ''),
+            'lit_when':     f.get('lit_when', ''),
+            'probe_list':   f.get('probe_list', '').split(),
+            'vector':       f.get('vector', ''),
+            'metric':       f.get('metric', ''),
+            'metric_thresh': f.get('metric_thresh', ''),
+        })
+
+    return {
+        'templates': base['templates'],
+        'cells':     cells,
+        'arcs':      arcs,
+        'global':    base['global'],
+    }
