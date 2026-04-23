@@ -363,3 +363,43 @@ Key points:
 - **Signed commits:** the repo has `commit.gpgsign=true` globally. Normal
   commits work; if you hit signing errors, check `/tmp/code-sign` is
   available, or locally set `git config --local commit.gpgsign false`.
+
+---
+
+## Point 2a -- Done
+
+Non-cons collateral dataset + resolvers (MCQC parity). Spec:
+`docs/superpowers/specs/2026-04-23-point2a-non-cons-collateral-design.md`.
+Plan: `docs/superpowers/plans/2026-04-23-point2a-non-cons-collateral.md`.
+
+Delivered:
+- `collateral/{node}/{lib_type}/` layout (user manually populated) + auto-
+  generated `manifest.json`
+- `core/parsers/chartcl.py` -- faithful port of MCQC ChartclParser
+- `core/parsers/chartcl_helpers.py` -- read_chartcl, parse_chartcl_for_cells,
+  parse_chartcl_for_inc
+- `core/parsers/template_tcl.py::parse_template_tcl_full` -- cells + arcs +
+  templates
+- `core/collateral.CollateralStore` -- auto-rescan on staleness
+- `core/arc_info_builder.build_arc_info` -- MCQC-parity arc_info for non-cons
+  arcs
+- `core/resolver.resolve_all_from_collateral`
+- `core/deck_builder` -- expanded `$VAR` substitutions
+- `core/batch` + `deckgen.py` -- `--node`, `--lib_type`, `--rescan`
+- `tools/scan_collateral.py` -- manifest generator
+
+---
+
+## Point 2b -- Constraint Parity (open)
+
+Builds on 2a. Required for hold/setup/mpw/si_immunity arcs.
+
+- [ ] 3D constraint detection (5x5x5) and deck expansion (1 -> 3 decks with
+      `-2`/`-3`/`-4` suffixes per MCQC)
+- [ ] `define_index` override matching in `parse_template_tcl_full` -- per-
+      (pin, rel_pin, when) overrides of index_1/index_2
+- [ ] SIS template sidecar parser -- `Template_sis/*.sis` -> per-pintype
+      `{PINTYPE}_GLITCH_HIGH_THRESHOLD` / `_LOW_THRESHOLD` fields
+- [ ] Per-arc `metric` / `metric_thresh` extraction
+- [ ] Constraint-arc verification against MCQC
+- [ ] (optional) MPW skip logic (MB/SYNC/CKL cell arc filtering)
