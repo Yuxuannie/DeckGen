@@ -34,7 +34,8 @@ _TEMPLATES_DIR = os.path.normpath(
 # Public API
 # ---------------------------------------------------------------------------
 
-def plan_jobs(arc_ids, corner_names, files, overrides=None):
+def plan_jobs(arc_ids, corner_names, files, overrides=None,
+              node=None, lib_type=None, collateral_root='collateral'):
     """Resolve all arc x corner combinations into a job list without writing files.
 
     Args:
@@ -54,6 +55,10 @@ def plan_jobs(arc_ids, corner_names, files, overrides=None):
         errors: list of fatal error strings (bad arc/corner syntax etc.)
     """
     overrides = overrides or {}
+    if node and lib_type:
+        return _plan_jobs_from_collateral(
+            arc_ids, corner_names, node, lib_type,
+            collateral_root, overrides)
     files = files or {}
 
     try:
@@ -257,7 +262,8 @@ def execute_jobs(jobs, output_dir, nominal_only=False, num_samples=5000, files=N
 
 
 def run_batch(arc_ids, corner_names, files, overrides=None, output_dir='.',
-              selected_ids=None, nominal_only=False, num_samples=5000):
+              selected_ids=None, nominal_only=False, num_samples=5000,
+              node=None, lib_type=None, collateral_root='collateral'):
     """High-level batch runner: plan then execute.
 
     Args:
@@ -269,11 +275,16 @@ def run_batch(arc_ids, corner_names, files, overrides=None, output_dir='.',
         selected_ids: if given, only execute jobs whose id is in this set
         nominal_only: skip MC generation
         num_samples:  Monte Carlo sample count
+        node:         process node string (enables collateral mode)
+        lib_type:     library type subdir (required with node)
+        collateral_root: root directory for collateral files
 
     Returns:
         (jobs, results, errors)
     """
-    jobs, errors = plan_jobs(arc_ids, corner_names, files, overrides)
+    jobs, errors = plan_jobs(arc_ids, corner_names, files, overrides,
+                              node=node, lib_type=lib_type,
+                              collateral_root=collateral_root)
 
     if selected_ids is not None:
         id_set = set(selected_ids)
@@ -327,3 +338,72 @@ def _job_to_arc_info(job, files):
         'PUSHOUT_PER': job.get('pushout_per', '0.4'),
         'NUM_SAMPLES': job.get('num_samples', 5000),
     }
+
+
+def _plan_jobs_from_collateral(arc_ids, corner_names, node, lib_type,
+                                collateral_root, overrides):
+    """Collateral-backed planning. Returns (jobs, errors).
+
+    For each (arc_id, corner) pair, calls resolve_all_from_collateral and
+    produces a job dict compatible with execute_jobs.
+    """
+    from core.parsers.arc import parse_arc_identifier
+    from core.resolver import resolve_all_from_collateral, ResolutionError
+
+    jobs = []
+    errors = []
+    job_id = 0
+
+    for arc_id in arc_ids:
+        arc_id = arc_id.strip()
+        if not arc_id:
+            continue
+        arc = parse_arc_identifier(arc_id)
+        if arc is None:
+            errors.append(f"Cannot parse arc identifier: {arc_id!r}")
+            continue
+
+        for corner_name in corner_names:
+            corner_name = corner_name.strip()
+            if not corner_name:
+                continue
+            job_id += 1
+            try:
+                arc_info = resolve_all_from_collateral(
+                    cell_name=arc['cell_name'],
+                    arc_type=arc['arc_type'],
+                    rel_pin=arc['rel_pin'],
+                    rel_dir=arc['rel_dir'],
+                    constr_pin=overrides.get('constr_pin', arc['rel_pin']),
+                    constr_dir=overrides.get('constr_dir', arc['rel_dir']),
+                    probe_pin=arc['probe_pin'],
+                    node=node, lib_type=lib_type, corner_name=corner_name,
+                    collateral_root=collateral_root,
+                    overrides=overrides,
+                )
+                jobs.append({
+                    'id': job_id,
+                    'arc_id': arc_id,
+                    'corner': corner_name,
+                    'cell': arc['cell_name'],
+                    'arc_type': arc['arc_type'],
+                    'vdd': arc_info['VDD_VALUE'],
+                    'temperature': arc_info['TEMPERATURE'],
+                    'template': None,
+                    'arc_info': arc_info,
+                    'warnings': [],
+                    'error': None,
+                })
+            except ResolutionError as e:
+                jobs.append({
+                    'id': job_id,
+                    'arc_id': arc_id,
+                    'corner': corner_name,
+                    'cell': arc['cell_name'],
+                    'arc_type': arc['arc_type'],
+                    'error': str(e),
+                    'arc_info': None,
+                    'warnings': [],
+                })
+
+    return jobs, errors
