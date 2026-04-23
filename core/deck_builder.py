@@ -95,7 +95,7 @@ def _build_substitution_map(arc_info, slew, load, max_slew):
     )
 
     sub = {
-        'HEADER_INFO': header,
+        'HEADER_INFO': arc_info.get('HEADER_INFO', header),
         'CELL_NAME': arc_info['CELL_NAME'],
         'REL_PIN': arc_info['REL_PIN'],
         'CONSTR_PIN': arc_info['CONSTR_PIN'],
@@ -106,11 +106,26 @@ def _build_substitution_map(arc_info, slew, load, max_slew):
         'INCLUDE_FILE': arc_info.get('INCLUDE_FILE', ''),
         'VDD_VALUE': arc_info.get('VDD_VALUE', ''),
         'TEMPERATURE': arc_info.get('TEMPERATURE', ''),
-        'OUTPUT_LOAD': output_load,
-        'INDEX_1_VALUE': constr_slew,
-        'INDEX_2_VALUE': rel_slew,
-        'MAX_SLEW': max_slew or rel_slew or '1n',
+        'OUTPUT_LOAD': arc_info.get('OUTPUT_LOAD', output_load) or output_load,
+        'INDEX_1_VALUE': arc_info.get('INDEX_1_VALUE', constr_slew) or constr_slew,
+        'INDEX_2_VALUE': arc_info.get('INDEX_2_VALUE', rel_slew) or rel_slew,
+        'MAX_SLEW': arc_info.get('MAX_SLEW', '') or max_slew or rel_slew or '1n',
         'PUSHOUT_PER': arc_info.get('PUSHOUT_PER', '0.4'),
+        # MCQC-parity substitutions (Point 2a)
+        'WHEN':             arc_info.get('WHEN', ''),
+        'LIT_WHEN':         arc_info.get('LIT_WHEN', ''),
+        'VECTOR':           arc_info.get('VECTOR', ''),
+        'SIDE_PIN_STATES':  arc_info.get('SIDE_PIN_STATES', ''),
+        'DONT_TOUCH_PINS':  arc_info.get('DONT_TOUCH_PINS', ''),
+        'OUTPUT_PINS':      arc_info.get('OUTPUT_PINS', ''),
+        'TEMPLATE_PINLIST': arc_info.get('TEMPLATE_PINLIST', ''),
+        'INDEX_1_INDEX':    arc_info.get('INDEX_1_INDEX', ''),
+        'INDEX_2_INDEX':    arc_info.get('INDEX_2_INDEX', ''),
+        'INDEX_3_INDEX':    arc_info.get('INDEX_3_INDEX', ''),
+        'GLITCH':           arc_info.get('GLITCH', ''),
+        'PUSHOUT_DIR':      arc_info.get('PUSHOUT_DIR', ''),
+        'TEMPLATE_DECK':    arc_info.get('TEMPLATE_DECK', ''),
+        'TEMPLATE_TCL':     arc_info.get('TEMPLATE_TCL', ''),
     }
     return sub
 
