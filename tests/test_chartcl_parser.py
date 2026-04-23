@@ -33,3 +33,22 @@ class TestParseSetVarGeneral:
         p = ChartclParser(os.path.join(FIX, 'general_set_vars.tcl'))
         p.parse_set_var()
         assert p.vars['constraint_delay_degrade'] == '0.4'
+
+
+class TestParseSetVarMpw:
+    def test_mpw_input_threshold_found(self):
+        p = ChartclParser(os.path.join(FIX, 'mpw_set_vars.tcl'), variant='mpw')
+        p.parse_set_var()
+        assert p.vars['mpw_input_threshold'] == '0.5'
+
+    def test_sentinel_stops_parsing(self):
+        p = ChartclParser(os.path.join(FIX, 'mpw_set_vars.tcl'), variant='mpw')
+        p.parse_set_var()
+        assert 'this_must_be_ignored' not in p.vars
+
+    def test_mpw_vars_found(self):
+        p = ChartclParser(os.path.join(FIX, 'mpw_set_vars.tcl'), variant='mpw')
+        p.parse_set_var()
+        assert p.vars['constraint_glitch_peak'] == '0.05'
+        assert p.vars['constraint_delay_degrade'] == '0.3'
+        assert p.vars['constraint_output_load'] == '1'
