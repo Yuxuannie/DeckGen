@@ -1,0 +1,4 @@
+# Collateral data (manifest.json and README are committed; raw data is gitignored)
+collateral/*/*/Char/
+collateral/*/*/Template/
+collateral/*/*/Netlist/
