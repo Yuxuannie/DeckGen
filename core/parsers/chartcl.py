@@ -141,3 +141,44 @@ class ChartclParser:
         for line in self.content_lines:
             if 'set_config_opt -type lvf smc_degrade' in line:
                 self.vars['smc_degrade'] = line.split()[-1].strip()
+
+    _AMD_GLITCH_RE = re.compile(
+        r'set_config_opt -type \{\*hold\*\}(.*\n){1,2}.*'
+        r'glitch_high_threshold([ \w\.]+\n)+\}',
+        flags=re.DOTALL)
+
+    def parse_amd_glitch_high_threshold(self):
+        """Parse AMD-specific glitch thresholds.
+
+        MCQC parity: builds self.vars['amd_glitch'] composite dict with
+        keys {default_glitch, hold_glitch, cell_glitch, cells}.
+        """
+        self.vars.setdefault('amd_glitch', {}).setdefault('cells', [])
+
+        # Forward scan for 'set glitch_low_threshold' lines -> default_glitch
+        for line in self.content_lines:
+            if line.strip().startswith('set glitch_low_threshold'):
+                self.vars['amd_glitch']['default_glitch'] = line.split()[-1].strip()
+
+        # Scan for set_config_opt -type {*hold*} blocks
+        for match in self._AMD_GLITCH_RE.finditer(self.content_raw):
+            self.process_amd_raw_glitch(match.group(0))
+
+    def process_amd_raw_glitch(self, glitch):
+        """Parse one set_config_opt block line-by-line."""
+        lines = [line.strip() for line in glitch.split('\n')]
+        is_cell_glitch = False
+        for line in lines:
+            if '-cell' in line:
+                self.vars['amd_glitch']['cells'] = self.process_amd_glitch_cell(line)
+                is_cell_glitch = True
+            elif 'glitch_low_threshold' in line and is_cell_glitch:
+                self.vars['amd_glitch']['cell_glitch'] = line.split()[-1]
+            elif 'glitch_low_threshold' in line and not is_cell_glitch:
+                self.vars['amd_glitch']['hold_glitch'] = line.split()[-1]
+
+    def process_amd_glitch_cell(self, line):
+        """Extract cell list from '-cell {cell1 cell2 cell3}'."""
+        left = line.index('{')
+        right = line.index('}')
+        return line[left + 1:right].strip().split()

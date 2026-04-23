@@ -104,3 +104,17 @@ class TestAmdSmcDegrade:
         p = ChartclParser(os.path.join(FIX, 'smc_degrade.tcl'))
         p.parse_amd_smc_degrade()
         assert p.vars['smc_degrade'] == '0.25'
+
+
+class TestAmdGlitch:
+    def test_amd_glitch_cells_extracted(self):
+        p = ChartclParser(os.path.join(FIX, 'amd_glitch.tcl'))
+        p.parse_amd_glitch_high_threshold()
+        assert 'amd_glitch' in p.vars
+        assert set(p.vars['amd_glitch']['cells']) == {'AND2X1', 'AND2X2', 'OR2X1'}
+
+    def test_amd_glitch_default_glitch(self):
+        p = ChartclParser(os.path.join(FIX, 'amd_glitch.tcl'))
+        p.parse_amd_glitch_high_threshold()
+        # 'set glitch_low_threshold 0.05' -> default_glitch
+        assert p.vars['amd_glitch']['default_glitch'] == '0.05'
