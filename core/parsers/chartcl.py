@@ -94,3 +94,17 @@ class ChartclParser:
                 self.vars[splited[1]] = splited[2].replace('index_', '')
             elif line.startswith('set_var mpw_input_threshold'):
                 self.vars[splited[-2]] = splited[-1]
+
+    _COND_LOAD_RE = re.compile(
+        r'if.{0,50}\{.{0,10}string compare.{0,10}"(\w{0,50})".{0,50}'
+        r'constraint_output_load.{0,10}index_(\w{0,2})',
+        flags=re.DOTALL)
+
+    def parse_condition_load(self):
+        """Per-cell constraint_output_load overrides.
+
+        MCQC parity: last-match wins; values stored as strings.
+        Regex copied verbatim from MCQC 1-general/chartcl_helper/parser.py.
+        """
+        for cell, index in self._COND_LOAD_RE.findall(self.content_raw):
+            self.conditions.setdefault(cell, {})['OUTPUT_LOAD'] = index

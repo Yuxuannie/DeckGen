@@ -52,3 +52,23 @@ class TestParseSetVarMpw:
         assert p.vars['constraint_glitch_peak'] == '0.05'
         assert p.vars['constraint_delay_degrade'] == '0.3'
         assert p.vars['constraint_output_load'] == '1'
+
+
+class TestParseConditionLoad:
+    def test_three_cells_found(self):
+        p = ChartclParser(os.path.join(FIX, 'conditions_load.tcl'))
+        p.parse_condition_load()
+        assert set(p.conditions.keys()) == {'DFFQ1', 'SYNC2DFF', 'LAT1'}
+
+    def test_output_load_indices(self):
+        p = ChartclParser(os.path.join(FIX, 'conditions_load.tcl'))
+        p.parse_condition_load()
+        assert p.conditions['DFFQ1']['OUTPUT_LOAD'] == '2'
+        assert p.conditions['SYNC2DFF']['OUTPUT_LOAD'] == '3'
+        assert p.conditions['LAT1']['OUTPUT_LOAD'] == '1'
+
+    def test_values_are_strings(self):
+        p = ChartclParser(os.path.join(FIX, 'conditions_load.tcl'))
+        p.parse_condition_load()
+        for cell in p.conditions:
+            assert isinstance(p.conditions[cell]['OUTPUT_LOAD'], str)
