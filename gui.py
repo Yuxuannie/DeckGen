@@ -1,537 +1,632 @@
 #!/usr/bin/env python3
 """
-gui.py - Browser-based GUI for deckgen.
+gui.py - Browser-based GUI for deckgen v0.3.
 
-Launches a small local web server with a form UI for generating SPICE decks.
-Opens automatically in the default browser.
+Two-column layout: left = inputs (targets, corners, files, overrides),
+right = job table, log, SPICE preview.
 
 Usage:
-    python gui.py [--port 8585]
+    python gui.py [--port 8585] [--no-browser]
 """
 
+import argparse
 import http.server
 import json
 import os
 import sys
-import webbrowser
-import urllib.parse
 import threading
-import argparse
+import webbrowser
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
 
-from core.resolver import (
-    resolve_all, ResolutionError, TemplateResolver, NetlistResolver, load_yaml
-)
-from core.deck_builder import build_deck, build_mc_deck
-from core.writer import write_nominal_and_mc, get_deck_dirname, write_deck
+from core.resolver import ResolutionError, TemplateResolver
+from core.deck_builder import build_deck
+from core.parsers.arc import parse_arc_identifier, parse_arc_list
+from core.parsers.corner import parse_corner_name, parse_corner_list
+from core.batch import plan_jobs, execute_jobs, _job_to_arc_info
 
+
+# ---------------------------------------------------------------------------
+# HTML page (ASCII-only: no em-dashes, no smart quotes, no emojis)
+# ---------------------------------------------------------------------------
 
 HTML_PAGE = r"""<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<title>deckgen - SPICE Deck Generator</title>
+<title>deckgen v0.3 - SPICE Deck Generator</title>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: #f0f2f5; color: #333; padding: 18px;
-  }
-  .container { max-width: 960px; margin: 0 auto; }
-  .header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px; }
-  h1 {
-    font-size: 24px; color: #1a1a2e;
-  }
-  .version { color: #888; font-size: 12px; }
-  .subtitle { color: #666; font-size: 13px; margin-bottom: 18px; }
-  .card {
-    background: white; border-radius: 8px; padding: 18px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 14px;
-  }
-  .card-header {
-    display: flex; justify-content: space-between; align-items: center;
-    cursor: pointer; user-select: none;
-  }
-  .card-header h2 {
-    font-size: 14px; color: #1a1a2e; font-weight: 600;
-    text-transform: uppercase; letter-spacing: 0.5px;
-  }
-  .card-body {
-    padding-top: 14px; margin-top: 10px; border-top: 1px solid #eee;
-  }
-  .card.collapsed .card-body { display: none; }
-  .card.collapsed .card-header { margin-bottom: 0; }
-  .toggle { color: #888; font-size: 12px; }
-  .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
-  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  .field { display: flex; flex-direction: column; position: relative; }
-  .field label {
-    font-size: 11px; font-weight: 600; color: #555;
-    margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.3px;
-    display: flex; align-items: center; gap: 4px;
-  }
-  .help {
-    display: inline-flex; width: 13px; height: 13px; border-radius: 50%;
-    background: #bbb; color: white; font-size: 9px; font-weight: bold;
-    align-items: center; justify-content: center; cursor: help;
-    text-transform: none;
-  }
-  .help:hover { background: #666; }
-  .help-text {
-    display: none; position: absolute; top: 100%; left: 0; right: 0;
-    background: #333; color: white; padding: 6px 10px; border-radius: 4px;
-    font-size: 11px; font-weight: normal; text-transform: none;
-    line-height: 1.4; z-index: 100; margin-top: 2px;
-    letter-spacing: normal;
-  }
-  .help:hover + .help-text { display: block; }
-  .field input, .field select, .field textarea {
-    padding: 8px 10px; border: 1px solid #ddd; border-radius: 5px;
-    font-size: 14px; transition: border-color 0.15s, box-shadow 0.15s;
-    font-family: inherit;
-  }
-  .field input:focus, .field select:focus {
-    outline: none; border-color: #4a6cf7;
-    box-shadow: 0 0 0 3px rgba(74, 108, 247, 0.15);
-  }
-  .field input.file-path {
-    font-family: 'SF Mono', Monaco, 'Courier New', monospace; font-size: 12px;
-  }
-  .field input.invalid { border-color: #e57373; }
-  .btn-row { display: flex; gap: 10px; margin-top: 4px; flex-wrap: wrap; }
-  .btn {
-    padding: 10px 22px; border: none; border-radius: 6px;
-    font-size: 14px; font-weight: 600; cursor: pointer;
-    transition: all 0.15s;
-  }
-  .btn:active { transform: scale(0.98); }
-  .btn-primary { background: #4a6cf7; color: white; }
-  .btn-primary:hover { background: #3a5ce5; }
-  .btn-secondary { background: #e8ecf1; color: #333; }
-  .btn-secondary:hover { background: #d8dce3; }
-  .btn-subtle {
-    background: transparent; color: #4a6cf7; padding: 6px 12px;
-    font-size: 12px; font-weight: 500;
-  }
-  .btn-subtle:hover { background: #e8ecf1; }
-  .result {
-    display: none; margin-top: 12px; padding: 12px 14px;
-    border-radius: 6px; font-family: 'SF Mono', Monaco, monospace;
-    font-size: 12px; white-space: pre-wrap; line-height: 1.5;
-  }
-  .result.success { display: block; background: #e8f5e9; color: #2e7d32; border-left: 3px solid #4caf50; }
-  .result.error { display: block; background: #fbe9e7; color: #c62828; border-left: 3px solid #f44336; }
-  .result.info { display: block; background: #e3f2fd; color: #1565c0; border-left: 3px solid #2196f3; }
-  .preview {
-    display: none; margin-top: 12px;
-  }
-  .preview.show { display: block; }
-  .preview-head {
-    display: flex; justify-content: space-between; align-items: center;
-    margin-bottom: 8px;
-  }
-  .preview-head h3 { font-size: 13px; color: #555; font-weight: 600; }
-  .preview pre {
-    background: #1e1e2e; color: #cdd6f4; padding: 14px;
-    border-radius: 6px; font-size: 12px; line-height: 1.5;
-    max-height: 520px; overflow-y: auto;
-    font-family: 'SF Mono', Monaco, 'Courier New', monospace;
-  }
-  .match-preview {
-    margin-top: 10px; padding: 10px 12px;
-    background: #f5f7fb; border-radius: 5px; border-left: 3px solid #4a6cf7;
-    font-family: 'SF Mono', Monaco, monospace; font-size: 12px;
-    display: none;
-  }
-  .match-preview.show { display: block; }
-  .match-preview strong { color: #1a1a2e; }
-  .match-preview .path { color: #4a6cf7; }
-  .examples {
-    display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px;
-  }
-  .example-chip {
-    font-size: 11px; background: #f0f2f5; padding: 3px 8px;
-    border-radius: 10px; cursor: pointer; color: #555;
-    border: 1px solid transparent;
-  }
-  .example-chip:hover { background: #e1e4ea; border-color: #4a6cf7; color: #4a6cf7; }
-  .checkbox-field {
-    display: flex; align-items: center; gap: 6px; margin-top: 10px;
-  }
-  .checkbox-field input { width: auto; }
-  .checkbox-field label { font-size: 13px; text-transform: none; margin: 0; }
-  .sep { grid-column: 1 / -1; border-top: 1px solid #f0f0f0; margin: 4px 0; }
-  .spinner {
-    display: inline-block; width: 14px; height: 14px; border-radius: 50%;
-    border: 2px solid #fff; border-top-color: transparent;
-    animation: spin 0.6s linear infinite; vertical-align: middle;
-    margin-right: 6px;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .copy-btn {
-    background: #2a2a3e; color: #888; border: 1px solid #3a3a4e;
-    padding: 4px 10px; border-radius: 4px; font-size: 11px;
-    cursor: pointer;
-  }
-  .copy-btn:hover { background: #3a3a4e; color: #cdd6f4; }
-  .copy-btn.copied { background: #2e7d32; color: white; border-color: #2e7d32; }
+:root {
+  --blue:   #2563eb;
+  --green:  #10b981;
+  --red:    #ef4444;
+  --bg:     #f8fafc;
+  --panel:  #ffffff;
+  --border: #e2e8f0;
+  --text:   #0f172a;
+  --muted:  #64748b;
+  --label:  #475569;
+  --mono:   'SF Mono', Menlo, Consolas, 'Courier New', monospace;
+  --sans:   -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --r:      6px;
+  --rc:     8px;
+  --sh:     0 1px 2px rgba(0,0,0,0.04);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body { font-family: var(--sans); background: var(--bg); color: var(--text); font-size: 13px; display: flex; flex-direction: column; overflow: hidden; }
+
+/* Top bar */
+.topbar { display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.topbar h1 { font-size: 15px; font-weight: 700; }
+.topbar .ver { font-size: 10px; color: var(--muted); margin-right: 4px; }
+.topbar .desc { font-size: 11px; color: var(--muted); }
+.spacer { flex: 1; }
+.btn { padding: 6px 13px; border: none; border-radius: var(--r); font-size: 12px; font-weight: 600; cursor: pointer; transition: background 0.1s; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary { background: var(--blue); color: #fff; }
+.btn-primary:hover:not(:disabled) { background: #1d4ed8; }
+.btn-secondary { background: #e2e8f0; color: var(--text); }
+.btn-secondary:hover:not(:disabled) { background: #cbd5e1; }
+
+/* Layout */
+.main { display: flex; flex: 1; min-height: 0; overflow: hidden; }
+.pane-left { width: 400px; min-width: 280px; flex-shrink: 0; overflow-y: auto; padding: 12px; border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 9px; }
+.pane-right { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: column; gap: 9px; padding: 12px; }
+
+/* Cards */
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--rc); box-shadow: var(--sh); overflow: hidden; }
+.card-hd { display: flex; align-items: center; justify-content: space-between; padding: 7px 11px; cursor: pointer; user-select: none; background: #f8fafc; }
+.card-hd:hover { background: #f1f5f9; }
+.card-hd h2 { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--label); }
+.card-hd .tog { font-size: 10px; color: var(--muted); }
+.card-bd { padding: 11px; display: flex; flex-direction: column; gap: 8px; }
+.card.collapsed .card-bd { display: none; }
+
+/* Fields */
+.field { display: flex; flex-direction: column; gap: 3px; }
+.field label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: var(--label); }
+.field input, .field select, .field textarea {
+  padding: 5px 8px; border: 1px solid var(--border); border-radius: var(--r);
+  font-size: 12px; font-family: var(--sans); background: var(--panel); color: var(--text);
+  transition: border-color 0.1s, box-shadow 0.1s;
+}
+.field input:focus, .field select:focus, .field textarea:focus {
+  outline: none; border-color: var(--blue); box-shadow: 0 0 0 2px rgba(37,99,235,0.12);
+}
+.field textarea { resize: vertical; font-family: var(--mono); font-size: 11px; line-height: 1.5; }
+.field .mono { font-family: var(--mono); font-size: 11px; }
+.frow { display: flex; gap: 7px; }
+.frow .field { flex: 1; }
+.brow { display: flex; gap: 6px; align-items: flex-end; }
+.brow .field { flex: 1; }
+.browse-btn { padding: 5px 9px; background: #f1f5f9; border: 1px solid var(--border); border-radius: var(--r); font-size: 11px; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
+.browse-btn:hover { background: #e2e8f0; }
+.st { font-size: 10px; margin-top: 2px; }
+.st-ok { color: var(--green); }
+.st-err { color: var(--red); }
+.st-muted { color: var(--muted); }
+
+/* Note text */
+.note { font-size: 11px; color: var(--muted); }
+
+/* Table */
+.tbl-wrap { flex: 2; min-height: 0; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--r); background: var(--panel); }
+table { width: 100%; border-collapse: collapse; font-size: 11px; }
+thead th { position: sticky; top: 0; background: #f8fafc; padding: 5px 8px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--label); border-bottom: 1px solid var(--border); z-index: 1; white-space: nowrap; }
+tbody tr { border-bottom: 1px solid #f1f5f9; cursor: pointer; }
+tbody tr:hover { background: #f8fafc; }
+tbody tr.sel { background: #eff6ff; }
+tbody td { padding: 5px 8px; vertical-align: middle; }
+.s-ok  { color: var(--green); font-weight: 600; }
+.s-err { color: var(--red);   font-weight: 600; }
+.s-pen { color: var(--muted); }
+.s-run { color: var(--blue);  }
+.td-clip { max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Log */
+.log { flex-shrink: 0; height: 100px; overflow-y: auto; background: #0f172a; color: #94a3b8; border-radius: var(--r); padding: 7px 10px; font-family: var(--mono); font-size: 11px; line-height: 1.5; }
+.lok  { color: #34d399; }
+.lerr { color: #f87171; }
+.lwrn { color: #fbbf24; }
+.linf { color: #60a5fa; }
+
+/* SPICE preview */
+.sp-wrap { flex: 3; min-height: 0; display: flex; flex-direction: column; }
+.sp-hd { display: flex; align-items: center; justify-content: space-between; padding: 2px 0 5px; flex-shrink: 0; }
+.sp-hd span { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: var(--label); }
+.copy-btn { padding: 3px 8px; background: #1e293b; color: #94a3b8; border: 1px solid #334155; border-radius: 4px; font-size: 10px; cursor: pointer; }
+.copy-btn:hover { background: #334155; color: #e2e8f0; }
+.copy-btn.copied { background: #065f46; color: #a7f3d0; border-color: #065f46; }
+.sp-pre { flex: 1; min-height: 0; overflow-y: auto; background: #0f172a; color: #e2e8f0; padding: 9px 11px; border-radius: var(--r); font-family: var(--mono); font-size: 11px; line-height: 1.5; white-space: pre; }
+.sp-empty { color: #475569; font-style: italic; }
+
+/* Spinner */
+.spin { display: inline-block; width: 11px; height: 11px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: rot 0.5s linear infinite; vertical-align: middle; margin-right: 4px; }
+@keyframes rot { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
-<div class="container">
-  <div class="header">
-    <h1>deckgen</h1>
-    <span class="version">v0.2</span>
-  </div>
-  <p class="subtitle">Direct SPICE Deck Generator &mdash; delay / slew / hold</p>
 
-  <form id="deckform" onsubmit="return generate(event)">
+<div class="topbar">
+  <h1>deckgen</h1>
+  <span class="ver">v0.3</span>
+  <span class="desc">SPICE Deck Generator -- delay / slew / hold</span>
+  <div class="spacer"></div>
+  <button class="btn btn-secondary" onclick="clearAll()">Clear</button>
+  <button class="btn btn-secondary" id="btn-prev" onclick="doPreview()">Preview</button>
+  <button class="btn btn-primary"   id="btn-run"  onclick="doRun()">Run Batch</button>
+</div>
 
-  <div class="card" id="card-arc">
-    <div class="card-header" onclick="toggleCard('card-arc')">
-      <h2>Arc Specification</h2>
-      <span class="toggle">[ collapse ]</span>
-    </div>
-    <div class="card-body">
-    <div class="grid">
-      <div class="field">
-        <label>Cell Name <span class="help">?</span>
-          <span class="help-text">Full cell name (e.g. DFFQ1, SYNC2X4). Used for template pattern matching.</span>
-        </label>
-        <input type="text" name="cell" placeholder="e.g. DFFQ1, SYNC2X4" required list="cell-examples">
-        <datalist id="cell-examples">
-          <option value="DFFQ1">
-          <option value="SYNC2X4">
-          <option value="SYNC3X2">
-          <option value="CKGMUX3">
-          <option value="CKGOR2">
-          <option value="INV1">
-          <option value="AO2">
-          <option value="OR2">
-        </datalist>
-        <div class="examples">
-          <span class="example-chip" onclick="fillCell('DFFQ1')">DFFQ1</span>
-          <span class="example-chip" onclick="fillCell('SYNC2X4')">SYNC2X4</span>
-          <span class="example-chip" onclick="fillCell('CKGMUX3')">CKGMUX3</span>
-          <span class="example-chip" onclick="fillCell('INV1')">INV1</span>
+<div class="main">
+
+  <!-- Left pane -->
+  <div class="pane-left">
+
+    <div class="card">
+      <div class="card-hd" onclick="tog(this)"><h2>Targets (arc identifiers)</h2><span class="tog">[collapse]</span></div>
+      <div class="card-bd">
+        <div class="field">
+          <label>One cell_arc_pt ID per line</label>
+          <textarea id="ta-arcs" rows="5"
+            placeholder="combinational_ND2MDLIMZD0P7BWP130HPNPN3P48CPD_ZN_rise_A1_fall_NO_CONDITION_4_4&#10;hold_DFFQ1_Q_rise_CP_rise_notSE_SI_3_2"
+            oninput="dArc()"></textarea>
+          <div class="st" id="st-arcs"></div>
         </div>
       </div>
-      <div class="field">
-        <label>Arc Type</label>
-        <select name="arc_type" required>
-          <option value="delay">delay</option>
-          <option value="slew">slew</option>
-          <option value="hold" selected>hold</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>When Condition <span class="help">?</span>
-          <span class="help-text">Logical condition for side pins (e.g. "!SE&amp;SI" means SE=0, SI=1). Use NO_CONDITION for none.</span>
-        </label>
-        <input type="text" name="when" placeholder="e.g. !SE&amp;SI" value="NO_CONDITION">
-      </div>
-      <div class="field">
-        <label>Related Pin</label>
-        <input type="text" name="rel_pin" placeholder="e.g. CP, A" required>
-      </div>
-      <div class="field">
-        <label>Related Dir</label>
-        <select name="rel_dir" required>
-          <option value="rise">rise</option>
-          <option value="fall">fall</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>Probe/Output Pin</label>
-        <input type="text" name="probe_pin" placeholder="e.g. Q, Y">
-      </div>
-      <div class="field">
-        <label>Constrained Pin <span class="help">?</span>
-          <span class="help-text">Required for hold arcs. The pin being constrained relative to the related pin.</span>
-        </label>
-        <input type="text" name="constr_pin" placeholder="e.g. D (required for hold)">
-      </div>
-      <div class="field">
-        <label>Constrained Dir</label>
-        <select name="constr_dir">
-          <option value="">-- auto --</option>
-          <option value="rise">rise</option>
-          <option value="fall">fall</option>
-        </select>
-      </div>
-      <div class="field" style="display:flex;justify-content:flex-end;align-items:flex-end">
-        <button type="button" class="btn btn-subtle" onclick="checkTemplateMatch()">
-          Check Template Match
-        </button>
-      </div>
     </div>
-    <div id="match-preview" class="match-preview"></div>
-    </div>
-  </div>
 
-  <div class="card" id="card-elec">
-    <div class="card-header" onclick="toggleCard('card-elec')">
-      <h2>Electrical Parameters</h2>
-      <span class="toggle">[ collapse ]</span>
-    </div>
-    <div class="card-body">
-    <div class="grid">
-      <div class="field">
-        <label>VDD <span class="help">?</span>
-          <span class="help-text">Supply voltage in volts, e.g. 0.45, 0.75, 1.0</span>
-        </label>
-        <input type="text" name="vdd" placeholder="e.g. 0.45" required>
-      </div>
-      <div class="field">
-        <label>Temperature</label>
-        <input type="text" name="temp" placeholder="e.g. -40, 25, 125" required>
-      </div>
-      <div class="field">
-        <label>Output Load</label>
-        <input type="text" name="load" placeholder="e.g. 0.5f" value="0">
-      </div>
-      <div class="field">
-        <label>Constr Pin Slew <span class="help">?</span>
-          <span class="help-text">Slew rate of the constrained pin with units (f=femto, p=pico, n=nano).</span>
-        </label>
-        <input type="text" name="slew" placeholder="e.g. 2.5n">
-      </div>
-      <div class="field">
-        <label>Related Pin Slew</label>
-        <input type="text" name="rel_slew" placeholder="defaults to --slew">
-      </div>
-      <div class="field">
-        <label>Max Slew</label>
-        <input type="text" name="max_slew" placeholder="auto (max of both)">
+    <div class="card">
+      <div class="card-hd" onclick="tog(this)"><h2>Corners</h2><span class="tog">[collapse]</span></div>
+      <div class="card-bd">
+        <div class="field">
+          <label>One per line or comma-separated</label>
+          <textarea id="ta-corners" rows="3"
+            placeholder="ssgnp_0p450v_m40c&#10;ttgnp_0p800v_25c"
+            oninput="dCorn()"></textarea>
+          <div class="st" id="st-corners"></div>
+        </div>
       </div>
     </div>
-    </div>
-  </div>
 
-  <div class="card" id="card-paths">
-    <div class="card-header" onclick="toggleCard('card-paths')">
-      <h2>File Paths</h2>
-      <span class="toggle">[ collapse ]</span>
-    </div>
-    <div class="card-body">
-    <div class="grid-2">
-      <div class="field">
-        <label>Netlist File</label>
-        <input class="file-path" type="text" name="netlist" placeholder="/path/to/cell.spi" required>
-      </div>
-      <div class="field">
-        <label>Pin List <span class="help">?</span>
-          <span class="help-text">Space-separated pin list. Auto-extracted from the .subckt line if left blank.</span>
-        </label>
-        <input type="text" name="pins" placeholder="auto-extracted (e.g. VDD VSS CP D Q)">
-      </div>
-      <div class="field">
-        <label>Model File</label>
-        <input class="file-path" type="text" name="model" placeholder="/path/to/model.spi" required>
-      </div>
-      <div class="field">
-        <label>Waveform File</label>
-        <input class="file-path" type="text" name="waveform" placeholder="/path/to/waveform.spi" required>
-      </div>
-      <div class="sep"></div>
-      <div class="field">
-        <label>Custom Template <span class="help">?</span>
-          <span class="help-text">Bypass the registry and use this .sp file directly.</span>
-        </label>
-        <input class="file-path" type="text" name="template" placeholder="/path/to/custom.sp (optional)">
-      </div>
-      <div class="field">
-        <label>Output Directory</label>
-        <input class="file-path" type="text" name="output" value="./output" required>
+    <div class="card">
+      <div class="card-hd" onclick="tog(this)"><h2>Files</h2><span class="tog">[collapse]</span></div>
+      <div class="card-bd">
+        <div class="brow">
+          <div class="field"><label>Netlist directory</label><input class="mono" type="text" id="f-nd" placeholder="/path/to/netlists/"></div>
+          <input type="file" id="pk-nd" webkitdirectory style="display:none" onchange="fromPick('f-nd',this)">
+          <button class="browse-btn" onclick="document.getElementById('pk-nd').click()">Browse</button>
+        </div>
+        <div class="brow">
+          <div class="field"><label>Model file</label><input class="mono" type="text" id="f-model" placeholder="/path/to/model.spi"></div>
+          <input type="file" id="pk-model" style="display:none" onchange="fromPick('f-model',this)">
+          <button class="browse-btn" onclick="document.getElementById('pk-model').click()">Browse</button>
+        </div>
+        <div class="brow">
+          <div class="field"><label>Waveform file</label><input class="mono" type="text" id="f-wv" placeholder="/path/to/waveform.spi"></div>
+          <input type="file" id="pk-wv" style="display:none" onchange="fromPick('f-wv',this)">
+          <button class="browse-btn" onclick="document.getElementById('pk-wv').click()">Browse</button>
+        </div>
+        <div class="brow">
+          <div class="field"><label>Template.tcl dir (optional)</label><input class="mono" type="text" id="f-tcl" placeholder="/path/to/tcl/ (optional)"></div>
+          <input type="file" id="pk-tcl" webkitdirectory style="display:none" onchange="fromPick('f-tcl',this)">
+          <button class="browse-btn" onclick="document.getElementById('pk-tcl').click()">Browse</button>
+        </div>
+        <div class="field"><label>Output directory</label><input class="mono" type="text" id="f-out" value="./output"></div>
       </div>
     </div>
-    <div class="checkbox-field">
-      <input type="checkbox" id="nominal_only" name="nominal_only">
-      <label for="nominal_only">Generate nominal deck only (skip Monte Carlo)</label>
-    </div>
-    <div class="field" style="margin-top:8px;max-width:180px">
-      <label>MC Samples</label>
-      <input type="number" name="num_samples" value="5000">
-    </div>
-    </div>
-  </div>
 
-  <div class="btn-row">
-    <button type="submit" class="btn btn-primary" id="gen-btn">Generate Deck</button>
-    <button type="button" class="btn btn-secondary" onclick="previewOnly()">Preview Only</button>
-    <button type="button" class="btn btn-subtle" onclick="clearForm()">Reset</button>
-    <button type="button" class="btn btn-subtle" onclick="loadLast()">Load Last Input</button>
-  </div>
-
-  </form>
-
-  <div id="result" class="result"></div>
-  <div id="preview" class="preview">
-    <div class="preview-head">
-      <h3>Generated SPICE Deck</h3>
-      <button class="copy-btn" onclick="copyPreview(this)">Copy</button>
+    <div class="card collapsed">
+      <div class="card-hd" onclick="tog(this)"><h2>Overrides</h2><span class="tog">[expand]</span></div>
+      <div class="card-bd">
+        <div class="frow">
+          <div class="field"><label>VDD</label><input type="text" id="ov-vdd" placeholder="auto from corner"></div>
+          <div class="field"><label>Temp</label><input type="text" id="ov-temp" placeholder="auto from corner"></div>
+        </div>
+        <div class="frow">
+          <div class="field"><label>Slew</label><input type="text" id="ov-slew" placeholder="auto from tcl"></div>
+          <div class="field"><label>Load</label><input type="text" id="ov-load" placeholder="auto from tcl"></div>
+          <div class="field"><label>Max slew</label><input type="text" id="ov-mslew" placeholder="auto"></div>
+        </div>
+        <div class="frow">
+          <div class="field"><label>MC samples</label><input type="number" id="ov-samp" value="5000" min="1"></div>
+          <div class="field" style="justify-content:flex-end;align-items:flex-end;">
+            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;text-transform:none;font-weight:normal;font-size:12px;">
+              <input type="checkbox" id="ov-nom"> Nominal only
+            </label>
+          </div>
+        </div>
+      </div>
     </div>
-    <pre id="preview-content"></pre>
-  </div>
 
+    <div class="card collapsed">
+      <div class="card-hd" onclick="tog(this)"><h2>Single Mode (manual fields)</h2><span class="tog">[expand]</span></div>
+      <div class="card-bd">
+        <p class="note">No identifier? Fill these fields to add a synthetic entry to Targets.</p>
+        <div class="frow">
+          <div class="field"><label>Cell</label><input type="text" id="sm-cell" placeholder="e.g. DFFQ1"></div>
+          <div class="field"><label>Arc type</label>
+            <select id="sm-at"><option value="hold">hold</option><option value="delay">delay</option><option value="slew">slew</option></select>
+          </div>
+        </div>
+        <div class="frow">
+          <div class="field"><label>Related pin</label><input type="text" id="sm-rp" placeholder="CP"></div>
+          <div class="field"><label>Rel dir</label>
+            <select id="sm-rd"><option value="rise">rise</option><option value="fall">fall</option></select>
+          </div>
+        </div>
+        <div class="frow">
+          <div class="field"><label>Probe pin</label><input type="text" id="sm-pp" placeholder="Q"></div>
+          <div class="field"><label>When</label><input type="text" id="sm-when" value="NO_CONDITION"></div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;">
+          <button class="btn btn-secondary" style="font-size:11px;padding:5px 10px;" onclick="addSingle()">Add to Targets</button>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- end pane-left -->
+
+  <!-- Right pane -->
+  <div class="pane-right">
+
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:28px;"><input type="checkbox" id="chk-all" onchange="chkAll(this)"></th>
+            <th>#</th><th>Cell</th><th>Arc</th><th>Corner</th><th>Template</th>
+            <th>Slew</th><th>Load</th><th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <tr><td colspan="9" style="text-align:center;padding:18px;color:#94a3b8;font-style:italic;">Click Preview or Run Batch to populate.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="log" id="log">
+      <span class="linf">Ready. Enter identifiers and corners, then click Preview or Run Batch.</span>
+    </div>
+
+    <div class="sp-wrap">
+      <div class="sp-hd">
+        <span>SPICE Preview</span>
+        <button class="copy-btn" id="copy-btn" onclick="copySpice(this)">Copy</button>
+      </div>
+      <pre class="sp-pre" id="sp-pre"><span class="sp-empty">Select a row to preview its deck.</span></pre>
+    </div>
+
+  </div><!-- end pane-right -->
 </div>
 
 <script>
-const STORAGE_KEY = 'deckgen_last_input';
+'use strict';
+var SKEY = 'deckgen_v3';
 
-function toggleCard(id) {
-  document.getElementById(id).classList.toggle('collapsed');
+// Card toggle
+function tog(hd) {
+  var card = hd.parentElement;
+  card.classList.toggle('collapsed');
+  hd.querySelector('.tog').textContent = card.classList.contains('collapsed') ? '[expand]' : '[collapse]';
 }
 
-function fillCell(name) {
-  document.querySelector('[name=cell]').value = name;
-  // Auto-fill reasonable defaults based on cell type
-  const relPin = document.querySelector('[name=rel_pin]');
-  const constrPin = document.querySelector('[name=constr_pin]');
-  const probePin = document.querySelector('[name=probe_pin]');
-  if (name.includes('DFF') || name.includes('SYNC')) {
-    if (!relPin.value) relPin.value = 'CP';
-    if (!constrPin.value) constrPin.value = 'D';
-    if (!probePin.value) probePin.value = 'Q';
-  } else if (name === 'INV1') {
-    if (!relPin.value) relPin.value = 'A';
-    if (!probePin.value) probePin.value = 'Y';
-  }
+// File picker (browser can't expose full path; show what we get)
+function fromPick(id, inp) {
+  if (!inp.files || !inp.files.length) return;
+  var f = inp.files[0];
+  var p = f.webkitRelativePath || f.name || '';
+  document.getElementById(id).value = p;
 }
 
-function getFormData() {
-  const form = document.getElementById('deckform');
-  const data = {};
-  const inputs = form.querySelectorAll('input, select');
-  inputs.forEach(el => {
-    if (el.type === 'checkbox') data[el.name] = el.checked;
-    else data[el.name] = el.value;
-  });
-  return data;
-}
+// Debounced live parse
+var arcT = null, cornT = null;
+function dArc()  { clearTimeout(arcT);  arcT  = setTimeout(parseArcs,  300); }
+function dCorn() { clearTimeout(cornT); cornT = setTimeout(parseCorners,300); }
 
-function setFormData(data) {
-  Object.keys(data).forEach(key => {
-    const el = document.querySelector(`[name="${key}"]`);
-    if (!el) return;
-    if (el.type === 'checkbox') el.checked = !!data[key];
-    else el.value = data[key];
-  });
-}
-
-function saveLast(data) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch(e){}
-}
-
-function loadLast() {
+async function parseArcs() {
+  var text = document.getElementById('ta-arcs').value;
+  var st = document.getElementById('st-arcs');
+  if (!text.trim()) { st.textContent = ''; return; }
   try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-    if (Object.keys(saved).length === 0) {
-      showResult('info', 'No previous input found.');
-    } else {
-      setFormData(saved);
-      showResult('info', 'Loaded last used input.');
-    }
-  } catch(e) { showResult('error', 'Could not load last input: ' + e.message); }
+    var r = await pj('/api/parse_arcs', {text: text});
+    var ok = (r.arcs||[]).length, bad = (r.errors||[]).length;
+    st.textContent = ok + ' valid' + (bad ? ', ' + bad + ' invalid' : '');
+    st.className = 'st ' + (bad ? 'st-err' : 'st-ok');
+  } catch(e) { st.textContent = ''; }
 }
 
-function clearForm() {
-  document.getElementById('deckform').reset();
-  document.querySelector('[name=when]').value = 'NO_CONDITION';
-  document.querySelector('[name=output]').value = './output';
-  document.querySelector('[name=num_samples]').value = '5000';
-  document.querySelector('[name=load]').value = '0';
-  hideResults();
-}
-
-function showResult(kind, text) {
-  const el = document.getElementById('result');
-  el.className = 'result ' + kind;
-  el.textContent = text;
-}
-
-function hideResults() {
-  document.getElementById('result').className = 'result';
-  document.getElementById('preview').className = 'preview';
-  document.getElementById('match-preview').className = 'match-preview';
-}
-
-async function checkTemplateMatch() {
-  const data = getFormData();
-  data.action = 'check_match';
+async function parseCorners() {
+  var text = document.getElementById('ta-corners').value;
+  var st = document.getElementById('st-corners');
+  if (!text.trim()) { st.textContent = ''; return; }
   try {
-    const resp = await fetch('/api/match', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(data)
-    });
-    const result = await resp.json();
-    const el = document.getElementById('match-preview');
-    el.className = 'match-preview show';
-    if (result.success) {
-      el.innerHTML = `<strong>Template match:</strong> <span class="path">${result.template}</span>` +
-        (result.note ? `<br><em>${result.note}</em>` : '');
-    } else {
-      el.innerHTML = `<strong>No match:</strong> ${result.error.replace(/\n/g,'<br>')}`;
-    }
-  } catch(err) { showResult('error', 'Connection error: ' + err.message); }
+    var r = await pj('/api/parse_corners', {text: text});
+    var ok = (r.corners||[]).length, bad = (r.errors||[]).length;
+    st.textContent = ok + ' valid' + (bad ? ', ' + bad + ' invalid' : '');
+    st.className = 'st ' + (bad ? 'st-err' : 'st-ok');
+  } catch(e) { st.textContent = ''; }
 }
 
-async function callApi(action) {
-  const data = getFormData();
-  data.action = action;
-  const genBtn = document.getElementById('gen-btn');
-  const origText = genBtn.textContent;
-  if (action === 'generate') {
-    genBtn.innerHTML = '<span class="spinner"></span>Generating...';
-    genBtn.disabled = true;
-  }
+// Collect form state into payload
+function payload() {
+  var arcIds = document.getElementById('ta-arcs').value
+    .split('\n').map(function(s){return s.trim();}).filter(Boolean);
+  var cornText = document.getElementById('ta-corners').value;
+  var cornNames = cornText.split(/[\n,;]+/).map(function(s){return s.trim();}).filter(Boolean);
+  var ov = {};
+  var vdd = v('ov-vdd'), temp = v('ov-temp'), slew = v('ov-slew'),
+      load = v('ov-load'), ms = v('ov-mslew');
+  if (vdd) ov.vdd = vdd;
+  if (temp) ov.temperature = temp;
+  if (slew) ov.slew = slew;
+  if (load) ov.load = load;
+  if (ms)   ov.max_slew = ms;
+  return {
+    arc_ids:         arcIds,
+    corner_names:    cornNames,
+    netlist_dir:     v('f-nd'),
+    model:           v('f-model'),
+    waveform:        v('f-wv'),
+    template_tcl_dir: v('f-tcl'),
+    output_dir:      v('f-out') || './output',
+    overrides:       ov,
+    num_samples:     parseInt(document.getElementById('ov-samp').value)||5000,
+    nominal_only:    document.getElementById('ov-nom').checked,
+  };
+}
+function v(id) { var el=document.getElementById(id); return el ? el.value.trim() : ''; }
+
+// Preview
+async function doPreview() {
+  var p = payload();
+  if (!p.arc_ids.length)    { addLog('wrn','No arc identifiers.'); return; }
+  if (!p.corner_names.length){ addLog('wrn','No corners.'); return; }
+  setBusy('btn-prev', true, 'Previewing...');
+  addLog('inf','Resolving ' + p.arc_ids.length + ' arc(s) x ' + p.corner_names.length + ' corner(s)...');
+  clearTbl();
   try {
-    const resp = await fetch('/api/generate', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(data)
-    });
-    const result = await resp.json();
-    if (result.success) {
-      showResult('success', result.message);
-      if (result.deck_preview) {
-        document.getElementById('preview').className = 'preview show';
-        document.getElementById('preview-content').textContent = result.deck_preview;
-      }
-      if (action === 'generate') saveLast(data);
-    } else {
-      showResult('error', result.error);
-      document.getElementById('preview').className = 'preview';
-    }
-  } catch(err) {
-    showResult('error', 'Connection error: ' + err.message);
+    var r = await pj('/api/preview_batch', p);
+    (r.errors||[]).forEach(function(e){ addLog('err',e); });
+    fillTbl(r.jobs||[], false);
+    addLog('ok','Preview: ' + (r.jobs||[]).length + ' job(s) resolved.');
+    save();
+  } catch(e) {
+    addLog('err','Preview failed: ' + e.message);
   } finally {
-    genBtn.textContent = origText;
-    genBtn.disabled = false;
+    setBusy('btn-prev', false, 'Preview');
   }
 }
 
-function generate(e) { if (e) e.preventDefault(); callApi('generate'); return false; }
-function previewOnly() { callApi('preview'); }
+// Run batch
+async function doRun() {
+  var p = payload();
+  if (!p.arc_ids.length)    { addLog('wrn','No arc identifiers.'); return; }
+  if (!p.corner_names.length){ addLog('wrn','No corners.'); return; }
+  setBusy('btn-run', true, 'Running...');
+  addLog('inf','Batch: ' + p.arc_ids.length + ' arc(s) x ' + p.corner_names.length + ' corner(s)');
+  clearTbl();
 
-function copyPreview(btn) {
-  const text = document.getElementById('preview-content').textContent;
-  navigator.clipboard.writeText(text).then(() => {
-    btn.classList.add('copied');
-    btn.textContent = 'Copied!';
-    setTimeout(() => { btn.classList.remove('copied'); btn.textContent = 'Copy'; }, 1400);
+  // Phase 1: preview to show jobs
+  try {
+    var prev = await pj('/api/preview_batch', p);
+    (prev.errors||[]).forEach(function(e){ addLog('err',e); });
+    fillTbl(prev.jobs||[], true);
+  } catch(e) {
+    addLog('err','Resolution failed: ' + e.message);
+    setBusy('btn-run', false, 'Run Batch');
+    return;
+  }
+
+  // Phase 2: generate, stream results
+  var selIds = getSelIds();
+  var rp = Object.assign({}, p, {selected_ids: selIds.length ? selIds : null});
+  try {
+    var resp = await fetch('/api/generate_batch', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(rp)
+    });
+    var reader = resp.body.getReader();
+    var dec = new TextDecoder();
+    var buf = '';
+    while (true) {
+      var chunk = await reader.read();
+      if (chunk.done) break;
+      buf += dec.decode(chunk.value, {stream: true});
+      var lines = buf.split('\n');
+      buf = lines.pop();
+      lines.forEach(function(ln) {
+        ln = ln.trim();
+        if (!ln) return;
+        try {
+          var res = JSON.parse(ln);
+          updRow(res);
+          if (res.success) addLog('ok','[' + res.id + '] ' + (res.nominal||''));
+          else             addLog('err','[' + res.id + '] ' + (res.error||'failed'));
+        } catch(pe) {}
+      });
+    }
+    addLog('ok','Batch complete.');
+    save();
+  } catch(e) {
+    addLog('err','Run failed: ' + e.message);
+  } finally {
+    setBusy('btn-run', false, 'Run Batch');
+  }
+}
+
+// Table helpers
+function clearTbl() {
+  document.getElementById('tbody').innerHTML =
+    '<tr><td colspan="9" style="text-align:center;padding:14px;color:#94a3b8;font-style:italic;">Loading...</td></tr>';
+  document.getElementById('sp-pre').innerHTML = '<span class="sp-empty">Select a row to preview its deck.</span>';
+}
+
+function fillTbl(jobs, pending) {
+  var tb = document.getElementById('tbody');
+  if (!jobs.length) {
+    tb.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:14px;color:#94a3b8;font-style:italic;">No jobs resolved.</td></tr>';
+    return;
+  }
+  tb.innerHTML = '';
+  jobs.forEach(function(job) {
+    var tr = document.createElement('tr');
+    tr.id = 'row-' + job.id;
+    tr.dataset.jobId = job.id;
+    tr.dataset.job   = JSON.stringify(job);
+    tr.onclick = function() { selRow(tr, job); };
+    var sc = job.error ? 's-err' : (pending ? 's-pen' : 's-ok');
+    var st = job.error ? 'error' : (pending ? 'pending' : 'ready');
+    var arc = (job.probe_pin||'') + ' ' + (job.probe_dir||'') + ' / ' + (job.rel_pin||'') + ' ' + (job.rel_dir||'');
+    var tpl = job.template ? job.template.split('/').pop() : '--';
+    tr.innerHTML =
+      '<td><input type="checkbox" class="rchk" checked onclick="rChk(event)"></td>' +
+      '<td>' + job.id + '</td>' +
+      '<td class="td-clip" title="' + esc(job.cell||'') + '">' + esc(job.cell||'') + '</td>' +
+      '<td class="td-clip" title="' + esc(arc) + '">' + esc(arc) + '</td>' +
+      '<td>' + esc(job.corner||'') + '</td>' +
+      '<td class="td-clip" title="' + esc(job.template||'') + '">' + esc(tpl) + '</td>' +
+      '<td>' + (job.rel_slew||'--') + '</td>' +
+      '<td>' + (job.output_load||'--') + '</td>' +
+      '<td class="' + sc + '">' + st + '</td>';
+    tb.appendChild(tr);
   });
 }
 
-// Auto-load last input on startup (without announcing it)
-window.addEventListener('load', () => {
+function updRow(result) {
+  var tr = document.getElementById('row-' + result.id);
+  if (!tr) return;
+  var cells = tr.querySelectorAll('td');
+  var sc = cells[cells.length-1];
+  if (result.success) {
+    sc.textContent = 'ok'; sc.className = 's-ok';
+    tr.dataset.nominal = result.nominal || '';
+    tr.dataset.mc      = result.mc || '';
+  } else {
+    sc.textContent = 'fail'; sc.className = 's-err';
+    tr.dataset.error = result.error || '';
+  }
+}
+
+function selRow(tr, job) {
+  document.querySelectorAll('#tbody tr').forEach(function(r){r.classList.remove('sel');});
+  tr.classList.add('sel');
+  showPreview(job);
+}
+
+async function showPreview(job) {
+  document.getElementById('sp-pre').textContent = 'Loading...';
   try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-    if (Object.keys(saved).length > 0) setFormData(saved);
-  } catch(e){}
+    var r = await pj('/api/preview_one', {job: job});
+    if (r.success) document.getElementById('sp-pre').textContent = r.deck;
+    else           document.getElementById('sp-pre').textContent = 'Error: ' + r.error;
+  } catch(e) {
+    document.getElementById('sp-pre').textContent = 'Error: ' + e.message;
+  }
+}
+
+function getSelIds() {
+  return Array.from(document.querySelectorAll('.rchk:checked'))
+    .map(function(c){ return parseInt(c.closest('tr').dataset.jobId); })
+    .filter(Boolean);
+}
+function chkAll(chk) { document.querySelectorAll('.rchk').forEach(function(c){c.checked=chk.checked;}); }
+function rChk(e) {
+  e.stopPropagation();
+  var all = document.querySelectorAll('.rchk').length;
+  var chk = document.querySelectorAll('.rchk:checked').length;
+  var ca = document.getElementById('chk-all');
+  ca.indeterminate = chk > 0 && chk < all;
+  ca.checked = chk === all;
+}
+
+// Single mode -> add to targets
+function addSingle() {
+  var cell = v('sm-cell');
+  if (!cell) { addLog('wrn','Cell required in Single Mode.'); return; }
+  var at   = document.getElementById('sm-at').value;
+  var rp   = v('sm-rp') || 'CP';
+  var rd   = document.getElementById('sm-rd').value;
+  var pp   = v('sm-pp') || 'Q';
+  var when = v('sm-when') || 'NO_CONDITION';
+  var id = at + '_' + cell + '_' + pp + '_rise_' + rp + '_' + rd + '_' + when.replace(/!/g,'not').replace(/&/g,'_') + '_1_1';
+  var ta = document.getElementById('ta-arcs');
+  ta.value = ta.value ? ta.value.trimEnd() + '\n' + id : id;
+  dArc();
+  addLog('inf','Added: ' + id);
+}
+
+// Helpers
+function setBusy(id, busy, lbl) {
+  var btn = document.getElementById(id);
+  btn.disabled = busy;
+  btn.innerHTML = busy ? '<span class="spin"></span>' + lbl : lbl;
+}
+
+function addLog(kind, msg) {
+  var log = document.getElementById('log');
+  var sp = document.createElement('span');
+  var cls = {ok:'lok', err:'lerr', wrn:'lwrn', inf:'linf'}[kind] || '';
+  sp.className = cls; sp.textContent = msg;
+  log.appendChild(document.createTextNode('\n'));
+  log.appendChild(sp);
+  log.scrollTop = log.scrollHeight;
+}
+
+function clearAll() {
+  document.getElementById('ta-arcs').value = '';
+  document.getElementById('ta-corners').value = '';
+  document.getElementById('st-arcs').textContent = '';
+  document.getElementById('st-corners').textContent = '';
+  clearTbl();
+  document.getElementById('log').innerHTML = '<span class="linf">Cleared.</span>';
+}
+
+function copySpice(btn) {
+  var text = document.getElementById('sp-pre').textContent;
+  navigator.clipboard.writeText(text).then(function() {
+    btn.className = 'copy-btn copied'; btn.textContent = 'Copied!';
+    setTimeout(function(){ btn.className = 'copy-btn'; btn.textContent = 'Copy'; }, 1400);
+  });
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function pj(url, body) {
+  var r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+
+// Persistence
+function save() {
+  try {
+    localStorage.setItem(SKEY, JSON.stringify({
+      arcs:    document.getElementById('ta-arcs').value,
+      corners: document.getElementById('ta-corners').value,
+      nd:      v('f-nd'), model: v('f-model'), wv: v('f-wv'),
+      tcl:     v('f-tcl'), out: v('f-out')
+    }));
+  } catch(e) {}
+}
+
+window.addEventListener('load', function() {
+  try {
+    var s = JSON.parse(localStorage.getItem(SKEY)||'{}');
+    if (s.arcs)    document.getElementById('ta-arcs').value    = s.arcs;
+    if (s.corners) document.getElementById('ta-corners').value = s.corners;
+    if (s.nd)    document.getElementById('f-nd').value    = s.nd;
+    if (s.model) document.getElementById('f-model').value = s.model;
+    if (s.wv)    document.getElementById('f-wv').value    = s.wv;
+    if (s.tcl)   document.getElementById('f-tcl').value   = s.tcl;
+    if (s.out)   document.getElementById('f-out').value   = s.out;
+    if (s.arcs)    dArc();
+    if (s.corners) dCorn();
+  } catch(e) {}
 });
 </script>
 </body>
@@ -539,43 +634,286 @@ window.addEventListener('load', () => {
 """
 
 
-class DeckgenHandler(http.server.BaseHTTPRequestHandler):
-    """HTTP request handler for the deckgen GUI."""
+# ---------------------------------------------------------------------------
+# HTTP handler
+# ---------------------------------------------------------------------------
 
-    def log_message(self, format, *args):
-        pass
+class DeckgenHandler(http.server.BaseHTTPRequestHandler):
+
+    def log_message(self, fmt, *args):
+        pass  # suppress request logs
 
     def do_GET(self):
-        if self.path == '/' or self.path == '/index.html':
+        if self.path in ('/', '/index.html'):
+            body = HTML_PAGE.encode('ascii')
             self.send_response(200)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.send_header('Content-Length', str(len(body)))
             self.end_headers()
-            self.wfile.write(HTML_PAGE.encode('utf-8'))
+            self.wfile.write(body)
         else:
             self.send_response(404)
             self.end_headers()
 
     def do_POST(self):
-        if self.path == '/api/generate':
-            result = self._handle_generate(self._read_json())
-        elif self.path == '/api/match':
-            result = self._handle_match(self._read_json())
+        data = self._read_json()
+        path = self.path
+
+        if path == '/api/parse_arcs':
+            result = self._handle_parse_arcs(data)
+            self._send_json(result)
+        elif path == '/api/parse_corners':
+            result = self._handle_parse_corners(data)
+            self._send_json(result)
+        elif path == '/api/preview_batch':
+            result = self._handle_preview_batch(data)
+            self._send_json(result)
+        elif path == '/api/generate_batch':
+            self._handle_generate_batch(data)  # streams NDJSON
+        elif path == '/api/preview_one':
+            result = self._handle_preview_one(data)
+            self._send_json(result)
+        elif path == '/api/generate':
+            result = self._handle_generate(data)
+            self._send_json(result)
+        elif path == '/api/match':
+            result = self._handle_match(data)
+            self._send_json(result)
         else:
             self.send_response(404)
             self.end_headers()
-            return
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json')
-        self.end_headers()
-        self.wfile.write(json.dumps(result).encode('utf-8'))
 
     def _read_json(self):
-        content_length = int(self.headers.get('Content-Length', 0))
-        body = self.rfile.read(content_length)
-        return json.loads(body.decode('utf-8'))
+        length = int(self.headers.get('Content-Length', 0))
+        return json.loads(self.rfile.read(length).decode('utf-8'))
+
+    def _send_json(self, obj):
+        body = json.dumps(obj).encode('utf-8')
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    # ------------------------------------------------------------------
+    # /api/parse_arcs
+    # ------------------------------------------------------------------
+
+    def _handle_parse_arcs(self, data):
+        text = data.get('text', '')
+        arcs = []
+        errors = []
+        for i, line in enumerate(text.splitlines(), 1):
+            line = line.strip()
+            if not line:
+                continue
+            parsed = parse_arc_identifier(line)
+            if parsed:
+                arcs.append(parsed)
+            else:
+                errors.append(f"Line {i}: cannot parse {line!r}")
+        return {'arcs': arcs, 'errors': errors}
+
+    # ------------------------------------------------------------------
+    # /api/parse_corners
+    # ------------------------------------------------------------------
+
+    def _handle_parse_corners(self, data):
+        text = data.get('text', '')
+        corners = []
+        errors = []
+        names = [s.strip() for s in text.replace('\n', ',').split(',') if s.strip()]
+        for name in names:
+            parsed = parse_corner_name(name)
+            if parsed:
+                corners.append(parsed)
+            else:
+                errors.append(f"Cannot parse corner {name!r}")
+        return {'corners': corners, 'errors': errors}
+
+    # ------------------------------------------------------------------
+    # /api/preview_batch
+    # ------------------------------------------------------------------
+
+    def _handle_preview_batch(self, data):
+        arc_ids = data.get('arc_ids', [])
+        corner_names = data.get('corner_names', [])
+        files = {
+            'netlist_dir':      data.get('netlist_dir', ''),
+            'netlist':          data.get('netlist', ''),
+            'model':            data.get('model', ''),
+            'waveform':         data.get('waveform', ''),
+            'template_tcl_dir': data.get('template_tcl_dir', ''),
+        }
+        overrides = data.get('overrides', {})
+        try:
+            jobs, errors = plan_jobs(arc_ids, corner_names, files, overrides)
+            # Make jobs JSON-serialisable (remove non-serialisable fields if any)
+            return {'jobs': jobs, 'errors': errors}
+        except Exception as e:
+            return {'jobs': [], 'errors': [str(e)]}
+
+    # ------------------------------------------------------------------
+    # /api/generate_batch  (streams NDJSON)
+    # ------------------------------------------------------------------
+
+    def _handle_generate_batch(self, data):
+        arc_ids = data.get('arc_ids', [])
+        corner_names = data.get('corner_names', [])
+        files = {
+            'netlist_dir':      data.get('netlist_dir', ''),
+            'netlist':          data.get('netlist', ''),
+            'model':            data.get('model', ''),
+            'waveform':         data.get('waveform', ''),
+            'template_tcl_dir': data.get('template_tcl_dir', ''),
+        }
+        overrides  = data.get('overrides', {})
+        output_dir = data.get('output_dir', './output')
+        selected   = data.get('selected_ids')
+        nom_only   = data.get('nominal_only', False)
+        n_samples  = data.get('num_samples', 5000)
+
+        try:
+            jobs, errors = plan_jobs(arc_ids, corner_names, files, overrides)
+        except Exception as e:
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/x-ndjson')
+            self.end_headers()
+            line = json.dumps({'id': 0, 'success': False, 'error': str(e)}) + '\n'
+            self.wfile.write(line.encode('utf-8'))
+            return
+
+        if selected is not None:
+            sel_set = set(selected)
+            jobs_to_run = [j for j in jobs if j['id'] in sel_set]
+        else:
+            jobs_to_run = jobs
+
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/x-ndjson')
+        self.end_headers()
+
+        results = execute_jobs(
+            jobs_to_run, output_dir,
+            nominal_only=nom_only, num_samples=n_samples, files=files
+        )
+        for r in results:
+            line = json.dumps(r) + '\n'
+            try:
+                self.wfile.write(line.encode('utf-8'))
+                self.wfile.flush()
+            except BrokenPipeError:
+                break
+
+    # ------------------------------------------------------------------
+    # /api/preview_one  (SPICE preview for a single job row)
+    # ------------------------------------------------------------------
+
+    def _handle_preview_one(self, data):
+        job = data.get('job', {})
+        if not job:
+            return {'success': False, 'error': 'No job data provided.'}
+        try:
+            files = {
+                'model':    data.get('model', ''),
+                'waveform': data.get('waveform', ''),
+            }
+            arc_info = _job_to_arc_info(job, files)
+            slew = (job.get('constr_slew') or '0', job.get('rel_slew') or '0')
+            load = job.get('output_load') or '0'
+            when = job.get('when', 'NO_CONDITION')
+            lines = build_deck(arc_info, slew=slew, load=load, when=when,
+                               max_slew=job.get('max_slew'))
+            preview = ''.join(lines[:150])
+            if len(lines) > 150:
+                preview += f"\n... ({len(lines) - 150} more lines)"
+            return {'success': True, 'deck': preview}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    # ------------------------------------------------------------------
+    # /api/generate  (single-arc, kept for backwards compat)
+    # ------------------------------------------------------------------
+
+    def _handle_generate(self, data):
+        from core.resolver import resolve_all
+        from core.deck_builder import build_mc_deck
+        from core.writer import write_nominal_and_mc, write_deck, get_deck_dirname
+        import os
+        try:
+            action = data.get('action', 'generate')
+            registry_path = os.path.join(SCRIPT_DIR, 'config', 'template_registry.yaml')
+            templates_dir = os.path.join(SCRIPT_DIR, 'templates')
+
+            if data.get('arc_type') == 'hold' and not data.get('constr_pin'):
+                return {'success': False, 'error': 'Constrained pin required for hold arcs.'}
+
+            cli_overrides = {
+                'vdd':         data.get('vdd') or None,
+                'temperature': data.get('temp') or None,
+                'model_file':  data.get('model') or None,
+                'waveform_file': data.get('waveform') or None,
+                'pushout_per': '0.4',
+                'num_samples': int(data.get('num_samples', 5000) or 5000),
+            }
+            arc_info = resolve_all(
+                cell_name=data['cell'], arc_type=data['arc_type'],
+                rel_pin=data['rel_pin'], rel_dir=data['rel_dir'],
+                constr_pin=data.get('constr_pin') or data['rel_pin'],
+                constr_dir=data.get('constr_dir') or None,
+                probe_pin=data.get('probe_pin') or None,
+                registry_path=registry_path, templates_dir=templates_dir,
+                netlist_dir=None, corner_config=None,
+                cli_overrides=cli_overrides,
+                template_override=data.get('template') or None,
+                netlist_override=data.get('netlist') or None,
+                pins_override=data.get('pins') or None,
+            )
+            cs = data.get('slew') or '0'
+            rs = data.get('rel_slew') or data.get('slew') or '0'
+            ms = data.get('max_slew') or rs or cs
+            nominal_lines = build_deck(arc_info=arc_info, slew=(cs, rs),
+                                       load=data.get('load') or '0',
+                                       when=data.get('when') or 'NO_CONDITION',
+                                       max_slew=ms)
+            tpl_used = os.path.relpath(
+                arc_info['TEMPLATE_DECK_PATH'], templates_dir
+            ) if arc_info.get('TEMPLATE_DECK_PATH') else '(custom)'
+
+            if action == 'preview':
+                return {'success': True,
+                        'message': f"Preview (not written). Template: {tpl_used}",
+                        'deck_preview': ''.join(nominal_lines)}
+
+            nom_only = data.get('nominal_only', False)
+            output_dir = data.get('output', './output')
+            if nom_only:
+                from core.deck_builder import build_mc_deck as _bmc
+                dirname = get_deck_dirname(arc_info, data.get('when'))
+                out_path = os.path.join(output_dir, dirname, 'nominal_sim.sp')
+                write_deck(nominal_lines, out_path)
+                msg = f"Nominal deck: {out_path}\nTemplate: {tpl_used}"
+            else:
+                mc_lines = build_mc_deck(nominal_lines, int(data.get('num_samples',5000) or 5000))
+                nom_p, mc_p = write_nominal_and_mc(
+                    nominal_lines, mc_lines, output_dir, arc_info, data.get('when'))
+                msg = f"Nominal: {nom_p}\nMC:      {mc_p}\nTemplate: {tpl_used}"
+
+            preview = ''.join(nominal_lines[:120])
+            if len(nominal_lines) > 120:
+                preview += f"\n... ({len(nominal_lines)-120} more lines)"
+            return {'success': True, 'message': msg, 'deck_preview': preview}
+
+        except ResolutionError as e:
+            return {'success': False, 'error': str(e)}
+        except Exception as e:
+            return {'success': False, 'error': f"{type(e).__name__}: {e}"}
+
+    # ------------------------------------------------------------------
+    # /api/match  (template match check, kept for backwards compat)
+    # ------------------------------------------------------------------
 
     def _handle_match(self, data):
-        """Return the template that would be chosen -- without generating."""
         try:
             registry_path = os.path.join(SCRIPT_DIR, 'config', 'template_registry.yaml')
             templates_dir = os.path.join(SCRIPT_DIR, 'templates')
@@ -583,8 +921,9 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
             if data.get('template'):
                 if os.path.exists(data['template']):
                     return {'success': True, 'template': data['template'],
-                            'note': 'Using custom template override'}
-                return {'success': False, 'error': f"Custom template not found: {data['template']}"}
+                            'note': 'Custom template override'}
+                return {'success': False,
+                        'error': f"Custom template not found: {data['template']}"}
 
             if not data.get('cell') or not data.get('rel_pin'):
                 return {'success': False, 'error': 'Cell and Related Pin required.'}
@@ -597,8 +936,8 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
                 rel_dir=data.get('rel_dir', 'rise'),
                 constr_dir=data.get('constr_dir') or None,
             )
-            rel_path = os.path.relpath(path, templates_dir)
-            return {'success': True, 'template': rel_path}
+            rel = os.path.relpath(path, templates_dir)
+            return {'success': True, 'template': rel}
         except ResolutionError as e:
             msg = str(e)
             if e.suggestions:
@@ -607,116 +946,21 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
         except Exception as e:
             return {'success': False, 'error': f"{type(e).__name__}: {e}"}
 
-    def _handle_generate(self, data):
-        """Generate or preview a deck."""
-        try:
-            action = data.get('action', 'generate')
-            registry_path = os.path.join(SCRIPT_DIR, 'config', 'template_registry.yaml')
-            templates_dir = os.path.join(SCRIPT_DIR, 'templates')
 
-            if data.get('arc_type') == 'hold' and not data.get('constr_pin'):
-                return {'success': False,
-                        'error': 'Constrained pin is required for hold arcs.'}
-
-            cli_overrides = {
-                'vdd': data.get('vdd') or None,
-                'temperature': data.get('temp') or None,
-                'model_file': data.get('model') or None,
-                'waveform_file': data.get('waveform') or None,
-                'pushout_per': '0.4',
-                'num_samples': int(data.get('num_samples', 5000) or 5000),
-            }
-
-            arc_info = resolve_all(
-                cell_name=data['cell'],
-                arc_type=data['arc_type'],
-                rel_pin=data['rel_pin'],
-                rel_dir=data['rel_dir'],
-                constr_pin=data.get('constr_pin') or data['rel_pin'],
-                constr_dir=data.get('constr_dir') or None,
-                probe_pin=data.get('probe_pin') or None,
-                registry_path=registry_path,
-                templates_dir=templates_dir,
-                netlist_dir=None,
-                corner_config=None,
-                cli_overrides=cli_overrides,
-                template_override=data.get('template') or None,
-                netlist_override=data.get('netlist') or None,
-                pins_override=data.get('pins') or None,
-            )
-
-            constr_slew = data.get('slew') or '0'
-            rel_slew = data.get('rel_slew') or data.get('slew') or '0'
-            max_slew = data.get('max_slew') or rel_slew or constr_slew
-
-            nominal_lines = build_deck(
-                arc_info=arc_info,
-                slew=(constr_slew, rel_slew),
-                load=data.get('load') or '0',
-                when=data.get('when') or 'NO_CONDITION',
-                max_slew=max_slew,
-            )
-
-            template_used = os.path.relpath(
-                arc_info['TEMPLATE_DECK_PATH'], templates_dir
-            ) if arc_info.get('TEMPLATE_DECK_PATH') else '(custom)'
-
-            if action == 'preview':
-                preview = ''.join(nominal_lines)
-                return {
-                    'success': True,
-                    'message': f"Preview generated (not written to disk).\nTemplate: {template_used}",
-                    'deck_preview': preview,
-                }
-
-            nominal_only = data.get('nominal_only', False)
-            output_dir = data.get('output', './output')
-
-            if nominal_only:
-                dirname = get_deck_dirname(arc_info, data.get('when'))
-                out_path = os.path.join(output_dir, dirname, 'nominal_sim.sp')
-                write_deck(nominal_lines, out_path)
-                msg = (
-                    f"Nominal deck written:\n  {out_path}\n"
-                    f"Template: {template_used}"
-                )
-            else:
-                num_samples = int(data.get('num_samples', 5000) or 5000)
-                mc_lines = build_mc_deck(nominal_lines, num_samples)
-                nom_path, mc_path = write_nominal_and_mc(
-                    nominal_lines, mc_lines, output_dir, arc_info,
-                    data.get('when')
-                )
-                msg = (
-                    f"Nominal deck: {nom_path}\n"
-                    f"MC deck:      {mc_path}\n"
-                    f"Template:     {template_used}"
-                )
-
-            preview_lines = nominal_lines[:120]
-            preview_text = ''.join(preview_lines)
-            if len(nominal_lines) > 120:
-                preview_text += f"\n... ({len(nominal_lines) - 120} more lines)"
-
-            return {'success': True, 'message': msg, 'deck_preview': preview_text}
-
-        except ResolutionError as e:
-            return {'success': False, 'error': str(e)}
-        except Exception as e:
-            return {'success': False, 'error': f"{type(e).__name__}: {e}"}
-
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description='deckgen GUI')
+    parser = argparse.ArgumentParser(description='deckgen GUI v0.3')
     parser.add_argument('--port', type=int, default=8585, help='Port (default: 8585)')
     parser.add_argument('--no-browser', action='store_true', help='Do not open browser')
     args = parser.parse_args()
 
     server = http.server.HTTPServer(('127.0.0.1', args.port), DeckgenHandler)
     url = f'http://127.0.0.1:{args.port}'
-
-    print(f"deckgen GUI running at {url}")
-    print("Press Ctrl+C to stop.\n")
+    print(f"deckgen GUI v0.3 at {url}")
+    print("Press Ctrl+C to stop.")
 
     if not args.no_browser:
         threading.Timer(0.5, lambda: webbrowser.open(url)).start()
