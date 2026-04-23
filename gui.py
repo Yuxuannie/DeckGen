@@ -575,7 +575,7 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
         return json.loads(body.decode('utf-8'))
 
     def _handle_match(self, data):
-        """Return the template that would be chosen — without generating."""
+        """Return the template that would be chosen -- without generating."""
         try:
             registry_path = os.path.join(SCRIPT_DIR, 'template_registry.yaml')
             templates_dir = os.path.join(SCRIPT_DIR, 'templates')

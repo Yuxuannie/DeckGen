@@ -1,4 +1,4 @@
-# Template Registry — maps to real MCQC templates from Project/0-MCQC/2-flow/min_pulse_width/
+# Template Registry -- maps to real MCQC templates from Project/0-MCQC/2-flow/min_pulse_width/
 #
 # Matching rules:
 #   - Patterns use fnmatch syntax (*, ?, [seq])
@@ -394,7 +394,7 @@ templates:
     template: min_pulse_width/template__I0__rise__fall__1.sp
 
   # ============================================================
-  # Generic DFF (CP/CPN) — fallback for DFF-like cells
+  # Generic DFF (CP/CPN) -- fallback for DFF-like cells
   # ============================================================
 
   - pattern: "*"
@@ -426,7 +426,7 @@ templates:
     template: min_pulse_width/template__CP__rise__fall__1.sp
 
   # ============================================================
-  # Absolute fallback — generic CP templates for anything
+  # Absolute fallback -- generic CP templates for anything
   # ============================================================
 
   - pattern: "*"

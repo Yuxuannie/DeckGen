@@ -118,13 +118,13 @@ def _build_substitution_map(arc_info, slew, load, max_slew):
 def _process_line(line, sub_map, arc_info, profile, when):
     """Process a single template line, returning one or more output lines."""
 
-    # Section: Pin definitions — inject when-condition pin settings
+    # Section: Pin definitions -- inject when-condition pin settings
     if '* Pin definitions' in line:
         result = [line]
         result.extend(_generate_when_condition_lines(arc_info, when))
         return result
 
-    # Section: Output Load — inject load capacitor line
+    # Section: Output Load -- inject load capacitor line
     if '* Output Load' in line:
         result = [line]
         load_val = sub_map.get('OUTPUT_LOAD', '0')
@@ -133,7 +133,7 @@ def _process_line(line, sub_map, arc_info, profile, when):
             result.append(f"CL {probe} 0 'cl'\n")
         return result
 
-    # Section: Voltage — inject extra power pins if needed
+    # Section: Voltage -- inject extra power pins if needed
     if '* Voltage' in line:
         return [line]
 
@@ -173,7 +173,7 @@ def _generate_when_condition_lines(arc_info, when):
         if not cond:
             continue
 
-        # Skip the constrained/related pins — they're already driven
+        # Skip the constrained/related pins -- they're already driven
         pin_name = cond.lstrip('!')
         if pin_name == arc_info['REL_PIN'] or pin_name == arc_info['CONSTR_PIN']:
             continue

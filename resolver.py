@@ -95,7 +95,7 @@ class TemplateResolver:
 
         # Cell pattern match
         if not fnmatch.fnmatch(cell_name, entry['pattern']):
-            # Check if arc_type matched but cell didn't — partial match
+            # Check if arc_type matched but cell didn't -- partial match
             return -1
         # More specific patterns score higher
         if entry['pattern'] != '*':
@@ -315,7 +315,7 @@ def resolve_all(cell_name, arc_type, rel_pin, rel_dir, constr_pin, constr_dir,
     if errors:
         msg = f"Cannot generate deck for {cell_name} / {arc_type} / {rel_pin}->{constr_pin}:\n"
         for err in errors:
-            msg += f"  ✗ {err}\n"
+            msg += f"  x {err}\n"
         raise ResolutionError(msg)
 
     # Build the resolved arc_info dict
