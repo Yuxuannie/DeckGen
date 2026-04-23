@@ -118,3 +118,46 @@ class TestAmdGlitch:
         p.parse_amd_glitch_high_threshold()
         # 'set glitch_low_threshold 0.05' -> default_glitch
         assert p.vars['amd_glitch']['default_glitch'] == '0.05'
+
+
+from core.parsers.chartcl import chartcl_parse_all, resolve_chartcl_for_arc
+
+
+class TestChartclParseAll:
+    def test_wrapper_runs_all_methods(self):
+        p = chartcl_parse_all(os.path.join(FIX, 'combined.tcl'))
+        assert p.vars['constraint_glitch_peak'] == '0.1'
+        assert p.conditions['DFFQ1']['OUTPUT_LOAD'] == '3'
+        assert p.conditions['DFFQ1']['GLITCH'] == '0.15'
+
+
+class TestResolveChartclForArc:
+    def _fresh(self):
+        return chartcl_parse_all(os.path.join(FIX, 'combined.tcl'))
+
+    def test_global_glitch_used_when_no_cell_condition(self):
+        p = self._fresh()
+        # 'UNKNOWN' cell has no condition -> falls back to constraint_glitch_peak
+        v = resolve_chartcl_for_arc(p, 'UNKNOWN', 'hold')
+        assert v['GLITCH'] == '0.1'
+
+    def test_cell_glitch_overrides_global(self):
+        p = self._fresh()
+        # DFFQ1 has per-cell GLITCH=0.15 in combined.tcl
+        v = resolve_chartcl_for_arc(p, 'DFFQ1', 'hold')
+        assert v['GLITCH'] == '0.15'
+
+    def test_global_pushout_used(self):
+        p = self._fresh()
+        v = resolve_chartcl_for_arc(p, 'UNKNOWN', 'hold')
+        assert v['PUSHOUT_PER'] == '0.4'
+
+    def test_global_output_load_index(self):
+        p = self._fresh()
+        v = resolve_chartcl_for_arc(p, 'UNKNOWN', 'hold')
+        assert v['OUTPUT_LOAD_INDEX'] == '2'
+
+    def test_cell_output_load_overrides_global(self):
+        p = self._fresh()
+        v = resolve_chartcl_for_arc(p, 'DFFQ1', 'hold')
+        assert v['OUTPUT_LOAD_INDEX'] == '3'

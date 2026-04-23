@@ -182,3 +182,77 @@ class ChartclParser:
         left = line.index('{')
         right = line.index('}')
         return line[left + 1:right].strip().split()
+
+
+from core.parsers.chartcl_helpers import parse_chartcl_for_cells
+
+
+def chartcl_parse_all(filepath, variant='general'):
+    """Mirror runMonteCarlo.chartcl_parsing() sequence.
+
+    Returns a fully-parsed ChartclParser instance.
+    """
+    p = ChartclParser(filepath, variant=variant)
+    p.parse_set_var()
+    p.parse_condition_glitch()
+    p.parse_condition_load()
+    p.parse_condition_delay_degrade()
+    p.parse_amd_smc_degrade()
+    p.parse_amd_glitch_high_threshold()
+    p.set_cells = parse_chartcl_for_cells(filepath)
+    return p
+
+
+def resolve_chartcl_for_arc(parser, cell_name, arc_type):
+    """Collapse vars + per-cell conditions into final values for one arc.
+
+    Mirrors timingArcInfo.parseQACharacteristicsInfo() precedence.
+
+    GLITCH precedence (cell condition overrides all):
+      1. vars['constraint_glitch_peak']
+         else vars['amd_glitch']:
+           'hold' in arc_type + cell in amd['cells']     -> amd['cell_glitch']
+           'hold' in arc_type + cell NOT in amd['cells'] -> amd['hold_glitch']
+           else                                          -> amd['default_glitch']
+      2. conditions[cell]['GLITCH']  (overrides 1 if present)
+
+    PUSHOUT_PER precedence:
+      1. vars['constraint_delay_degrade'] else vars['smc_degrade']
+      2. conditions[cell]['PUSHOUT_PER']
+
+    OUTPUT_LOAD_INDEX precedence:
+      1. vars['constraint_output_load']
+      2. conditions[cell]['OUTPUT_LOAD']
+    """
+    out = {'GLITCH': None, 'PUSHOUT_PER': None, 'OUTPUT_LOAD_INDEX': None}
+
+    # --- GLITCH ---
+    if 'constraint_glitch_peak' in parser.vars:
+        out['GLITCH'] = parser.vars['constraint_glitch_peak']
+    elif 'amd_glitch' in parser.vars and parser.vars['amd_glitch']:
+        amd = parser.vars['amd_glitch']
+        if 'hold' in arc_type:
+            if cell_name in amd.get('cells', []):
+                out['GLITCH'] = amd.get('cell_glitch')
+            else:
+                out['GLITCH'] = amd.get('hold_glitch')
+        else:
+            out['GLITCH'] = amd.get('default_glitch')
+    if cell_name in parser.conditions and 'GLITCH' in parser.conditions[cell_name]:
+        out['GLITCH'] = parser.conditions[cell_name]['GLITCH']
+
+    # --- PUSHOUT_PER ---
+    if 'constraint_delay_degrade' in parser.vars:
+        out['PUSHOUT_PER'] = parser.vars['constraint_delay_degrade']
+    elif 'smc_degrade' in parser.vars:
+        out['PUSHOUT_PER'] = parser.vars['smc_degrade']
+    if cell_name in parser.conditions and 'PUSHOUT_PER' in parser.conditions[cell_name]:
+        out['PUSHOUT_PER'] = parser.conditions[cell_name]['PUSHOUT_PER']
+
+    # --- OUTPUT_LOAD_INDEX ---
+    if 'constraint_output_load' in parser.vars:
+        out['OUTPUT_LOAD_INDEX'] = parser.vars['constraint_output_load']
+    if cell_name in parser.conditions and 'OUTPUT_LOAD' in parser.conditions[cell_name]:
+        out['OUTPUT_LOAD_INDEX'] = parser.conditions[cell_name]['OUTPUT_LOAD']
+
+    return out
