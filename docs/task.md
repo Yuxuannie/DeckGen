@@ -1,19 +1,24 @@
 # DeckGen Task List (for local Claude Code continuation)
 
 Branch to pull from: `claude/analyze-repo-structure-i8J6b` (or merge to main
-first). Read `design.md` alongside this file.
+first). Read `design.md` and `../CLAUDE.md` alongside this file.
 
 ## Status Snapshot
 
 **Done:**
-- Backend modules (`resolver`, `deck_builder`, `writer`, CLI)
+- Backend modules (`core/resolver.py`, `core/deck_builder.py`,
+  `core/writer.py`, CLI `deckgen.py`)
 - 63 real MCQC SPICE templates under `templates/min_pulse_width/`
-- Template registry with cell pattern -> template mapping
-- Corner name parser (`ssgnp_0p450v_m40c` -> VDD/temp)
-- Cell_arc_pt identifier parser (`arc_parser.py`)
-- Template.tcl index parser (`template_tcl_parser.py`)
+- Template registry (`config/template_registry.yaml`) with cell pattern ->
+  template mapping
+- Corner name parser (`core/parsers/corner.py`):
+  `ssgnp_0p450v_m40c` -> VDD/temp
+- Cell_arc_pt identifier parser (`core/parsers/arc.py`)
+- Template.tcl index parser (`core/parsers/template_tcl.py`)
 - All non-ASCII characters stripped from code + templates
 - v0.2 GUI works for single-arc generation
+- Folder reorganization: core/, config/, docs/, tests/
+- Package files: requirements.txt, CLAUDE.md
 
 **Remaining:** GUI rewrite to wire up the new parsers + batch mode + file
 picker + redesigned UI.
@@ -136,7 +141,7 @@ the Single Mode accordion.
 
 ### 2.1 Arc spec auto-fill
 
-When `arc_parser.parse_arc_identifier()` succeeds for a given ID:
+When `core.parsers.arc.parse_arc_identifier()` succeeds for a given ID:
 - Populate cell, arc_type, rel_pin, rel_dir, probe_pin in the resolver call
 - `constr_pin` and `constr_dir` are NOT in the identifier. For delay/slew,
   they can be `rel_pin` (arc is on itself). For hold/setup, infer from the
@@ -144,7 +149,7 @@ When `arc_parser.parse_arc_identifier()` succeeds for a given ID:
 
 ### 2.2 Corner auto-fill
 
-For each corner in the list, `corner_parser.parse_corner_name()` gives
+For each corner in the list, `core.parsers.corner.parse_corner_name()` gives
 VDD and temperature. Override order:
 1. User override (if set)
 2. Parsed from corner name
@@ -155,8 +160,9 @@ VDD and temperature. Override order:
 If `template_tcl_dir` is provided:
 1. Look for `{template_tcl_dir}/{corner_name}.template.tcl`
 2. If missing, try `{template_tcl_dir}/template.tcl`
-3. Parse with `template_tcl_parser.parse_template_tcl()`
-4. Call `lookup_slew_load(parsed, i1, i2, arc_type)` to get slew/load
+3. Parse with `core.parsers.template_tcl.parse_template_tcl()`
+4. Call `core.parsers.template_tcl.lookup_slew_load(parsed, i1, i2, arc_type)`
+   to get slew/load
 5. User overrides win if set
 
 If template.tcl is missing, use user overrides or error.
@@ -212,7 +218,7 @@ Create `tests/` directory with:
 ### `tests/test_arc_parser.py`
 ```python
 import pytest
-from arc_parser import parse_arc_identifier
+from core.parsers.arc import parse_arc_identifier
 
 def test_combinational_no_condition():
     r = parse_arc_identifier(
@@ -243,7 +249,7 @@ def test_invalid():
 
 ### `tests/test_corner_parser.py`
 ```python
-from corner_parser import parse_corner_name, parse_corner_list
+from core.parsers.corner import parse_corner_name, parse_corner_list
 
 def test_basic_corners():
     cases = [

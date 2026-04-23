@@ -21,11 +21,11 @@ import argparse
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
 
-from resolver import (
+from core.resolver import (
     resolve_all, ResolutionError, TemplateResolver, NetlistResolver, load_yaml
 )
-from deck_builder import build_deck, build_mc_deck
-from writer import write_nominal_and_mc, get_deck_dirname, write_deck
+from core.deck_builder import build_deck, build_mc_deck
+from core.writer import write_nominal_and_mc, get_deck_dirname, write_deck
 
 
 HTML_PAGE = r"""<!DOCTYPE html>
@@ -577,7 +577,7 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
     def _handle_match(self, data):
         """Return the template that would be chosen -- without generating."""
         try:
-            registry_path = os.path.join(SCRIPT_DIR, 'template_registry.yaml')
+            registry_path = os.path.join(SCRIPT_DIR, 'config', 'template_registry.yaml')
             templates_dir = os.path.join(SCRIPT_DIR, 'templates')
 
             if data.get('template'):
@@ -611,7 +611,7 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
         """Generate or preview a deck."""
         try:
             action = data.get('action', 'generate')
-            registry_path = os.path.join(SCRIPT_DIR, 'template_registry.yaml')
+            registry_path = os.path.join(SCRIPT_DIR, 'config', 'template_registry.yaml')
             templates_dir = os.path.join(SCRIPT_DIR, 'templates')
 
             if data.get('arc_type') == 'hold' and not data.get('constr_pin'):

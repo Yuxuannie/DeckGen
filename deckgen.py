@@ -35,9 +35,9 @@ import os
 import sys
 import yaml
 
-from resolver import resolve_all, ResolutionError
-from deck_builder import build_deck, build_mc_deck
-from writer import write_nominal_and_mc
+from core.resolver import resolve_all, ResolutionError
+from core.deck_builder import build_deck, build_mc_deck
+from core.writer import write_nominal_and_mc
 
 
 def parse_args():
@@ -115,17 +115,15 @@ def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
     # Load global config if available
-    config_path = args.config or os.path.join(script_dir, 'config.yaml')
+    config_path = args.config or os.path.join(script_dir, 'config', 'config.yaml')
     global_config = {}
     if os.path.exists(config_path):
         with open(config_path, 'r') as f:
             global_config = yaml.safe_load(f) or {}
 
     # Registry and templates directories
-    registry_path = os.path.join(
-        script_dir,
-        global_config.get('template_registry', 'template_registry.yaml')
-    )
+    registry_rel = global_config.get('template_registry', 'template_registry.yaml')
+    registry_path = os.path.join(script_dir, 'config', registry_rel)
     templates_dir = os.path.join(script_dir, 'templates')
 
     # Validate arc_type-specific requirements

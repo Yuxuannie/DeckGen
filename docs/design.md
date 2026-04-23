@@ -17,19 +17,21 @@ know why not).
 
 | File | Status | Purpose |
 |------|--------|---------|
-| `resolver.py` | Done | Template + netlist + corner parameter resolution |
-| `deck_builder.py` | Done | Template `$VAR` substitution, when-condition lines |
-| `writer.py` | Done | Nominal + MC deck file output |
-| `deckgen.py` | Done | CLI entry point |
-| `corner_parser.py` | Done | Parses `ssgnp_0p450v_m40c` -> process/VDD/temp |
-| `arc_parser.py` | Done | Parses cell_arc_pt identifier strings |
-| `template_tcl_parser.py` | Done | Extracts index_1/2/3 from template.tcl |
+| `core/resolver.py` | Done | Template + netlist + corner parameter resolution |
+| `core/deck_builder.py` | Done | Template `$VAR` substitution, when-condition lines |
+| `core/writer.py` | Done | Nominal + MC deck file output |
+| `deckgen.py` | Done | CLI entry point (top-level) |
+| `core/parsers/corner.py` | Done | Parses `ssgnp_0p450v_m40c` -> process/VDD/temp |
+| `core/parsers/arc.py` | Done | Parses cell_arc_pt identifier strings |
+| `core/parsers/template_tcl.py` | Done | Extracts index_1/2/3 from template.tcl |
 
-### Templates
+### Templates & Config
 
 - `templates/min_pulse_width/*.sp` -- 63 original TSMC templates, cleaned
   of non-ASCII characters
-- `template_registry.yaml` -- cell pattern -> template mapping
+- `config/template_registry.yaml` -- cell pattern -> template mapping
+- `config/config.yaml` -- global defaults
+- `config/corners/*.yaml` -- per-corner configs
 
 ### GUI
 
@@ -49,7 +51,7 @@ combinational_MUX4MDLIMZD0P7BWP130HPNPN3P48CPD_Z_rise_S1_rise_notI0_notI1_notI2_
 hold_DFFQ1_Q_rise_CP_rise_notSE_SI_3_2
 ```
 
-### Parser output (`arc_parser.parse_arc_identifier`)
+### Parser output (`core.parsers.arc.parse_arc_identifier`)
 
 ```python
 {
@@ -88,7 +90,7 @@ ttgnp_0p800v_25c   -> process=ttgnp, vdd=0.800, temp=25
 ffgnp_0p900v_125c  -> process=ffgnp, vdd=0.900, temp=125
 ```
 
-### Parser output (`corner_parser.parse_corner_name`)
+### Parser output (`core.parsers.corner.parse_corner_name`)
 
 ```python
 {
@@ -101,10 +103,10 @@ ffgnp_0p900v_125c  -> process=ffgnp, vdd=0.900, temp=125
 
 ## Template.tcl Parsing
 
-`template_tcl_parser.parse_template_tcl(path)` extracts `index_1/2/3` lists
-from Liberty-style template.tcl files.
+`core.parsers.template_tcl.parse_template_tcl(path)` extracts `index_1/2/3`
+lists from Liberty-style template.tcl files.
 
-`template_tcl_parser.lookup_slew_load(parsed, i1, i2, arc_type)` returns:
+`core.parsers.template_tcl.lookup_slew_load(parsed, i1, i2, arc_type)` returns:
 ```python
 {
     'constr_pin_slew': '2.5n',
