@@ -96,3 +96,27 @@ class TestErrorReporting:
         except CollateralError as e:
             msg = str(e)
             assert CORNER in msg  # suggestion should list real corner
+
+
+class TestAutoRescan:
+    def test_rescan_when_char_dir_newer(self, tmp_path):
+        """If Char/ mtime is newer than manifest, store regenerates silently."""
+        import shutil, time
+        dest_root = tmp_path / 'collateral'
+        shutil.copytree(os.path.join(FIXTURE_ROOT, NODE, LIB),
+                        str(dest_root / NODE / LIB))
+        from tools.scan_collateral import build_manifest
+        build_manifest(str(dest_root), NODE, LIB)
+
+        # Make manifest 10s old, Char/ current
+        manifest_path = dest_root / NODE / LIB / 'manifest.json'
+        old = time.time() - 10
+        os.utime(str(manifest_path), (old, old))
+        # Touch char dir
+        char_dir = dest_root / NODE / LIB / 'Char'
+        os.utime(str(char_dir), None)
+
+        # Constructing store should regenerate manifest
+        store = CollateralStore(str(dest_root), NODE, LIB)
+        # New manifest mtime should be >= old + 5
+        assert os.path.getmtime(str(manifest_path)) > old + 5

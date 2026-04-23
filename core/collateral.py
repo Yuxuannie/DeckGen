@@ -68,12 +68,35 @@ class CollateralStore:
 
     def _load(self):
         if not os.path.isfile(self.manifest_path):
-            raise CollateralError(
-                f"manifest.json not found at {self.manifest_path}\n"
-                f"  x Run: python3 tools/scan_collateral.py "
-                f"--node {self.node} --lib_type {self.lib_type}")
+            # Try to generate it on the fly
+            self._rescan()
+            if not os.path.isfile(self.manifest_path):
+                raise CollateralError(
+                    f"manifest.json not found at {self.manifest_path}\n"
+                    f"  x Run: python3 tools/scan_collateral.py "
+                    f"--node {self.node} --lib_type {self.lib_type}")
+
+        # Staleness check: if any subdir is newer, regenerate
+        if self._is_stale():
+            self._rescan()
+
         with open(self.manifest_path) as f:
             return json.load(f)
+
+    def _is_stale(self):
+        if not os.path.isfile(self.manifest_path):
+            return True
+        m_mtime = os.path.getmtime(self.manifest_path)
+        for sub in ('Char', 'Template', 'Netlist'):
+            d = os.path.join(self.leaf, sub)
+            if os.path.isdir(d) and os.path.getmtime(d) > m_mtime:
+                return True
+        return False
+
+    def _rescan(self):
+        # Local import to avoid circular dependency
+        from tools.scan_collateral import build_manifest
+        build_manifest(self.collateral_root, self.node, self.lib_type)
 
     # -- listing ------------------------------------------------------------
 
