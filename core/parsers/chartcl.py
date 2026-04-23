@@ -135,3 +135,9 @@ class ChartclParser:
         """
         for cell, value in self._COND_PUSHOUT_RE.findall(self.content_raw):
             self.conditions.setdefault(cell, {})['PUSHOUT_PER'] = value
+
+    def parse_amd_smc_degrade(self):
+        """AMD SMC degrade override, alternative to constraint_delay_degrade."""
+        for line in self.content_lines:
+            if 'set_config_opt -type lvf smc_degrade' in line:
+                self.vars['smc_degrade'] = line.split()[-1].strip()

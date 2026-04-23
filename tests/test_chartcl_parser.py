@@ -97,3 +97,10 @@ class TestLastMatchWins:
         p.parse_condition_glitch()
         # MCQC parity: last regex match wins
         assert p.conditions['DFFQ1']['GLITCH'] == '0.2'
+
+
+class TestAmdSmcDegrade:
+    def test_smc_degrade_extracted(self):
+        p = ChartclParser(os.path.join(FIX, 'smc_degrade.tcl'))
+        p.parse_amd_smc_degrade()
+        assert p.vars['smc_degrade'] == '0.25'
