@@ -1,0 +1,4 @@
+* Synthetic DFFQ1 netlist for testing
+.subckt DFFQ1 VDD VSS CP D Q SE SI
+* body omitted
+.ends DFFQ1
