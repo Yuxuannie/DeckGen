@@ -8,9 +8,9 @@ first). Read `design.md` and `../CLAUDE.md` alongside this file.
 **Done:**
 - Backend modules (`core/resolver.py`, `core/deck_builder.py`,
   `core/writer.py`, CLI `deckgen.py`)
-- 63 real MCQC SPICE templates under `templates/min_pulse_width/`
+- 63 real MCQC SPICE templates moved to `templates/generic/mpw/`
 - Template registry (`config/template_registry.yaml`) with cell pattern ->
-  template mapping
+  template mapping (updated paths to generic/mpw/)
 - Corner name parser (`core/parsers/corner.py`):
   `ssgnp_0p450v_m40c` -> VDD/temp
 - Cell_arc_pt identifier parser (`core/parsers/arc.py`)
@@ -19,9 +19,15 @@ first). Read `design.md` and `../CLAUDE.md` alongside this file.
 - v0.2 GUI works for single-arc generation
 - Folder reorganization: core/, config/, docs/, tests/
 - Package files: requirements.txt, CLAUDE.md
+- Batch backend (`core/batch.py`): plan_jobs + execute_jobs + run_batch
+- CLI batch mode: --arcs_file, --corners, --corners_file, --template_tcl_dir
+- 96 tests passing (arc parser, corner parser, template_tcl parser, end-to-end)
+- Template structure: `templates/{node}/{arc_type}/` (node-aware)
+- `core/template_map.py`: MCQC if-chain port (partial; MPW + basic hold/delay rules)
+- `tools/import_templates.py`: imports SCLD templates into `templates/{node}/`
 
-**Remaining:** GUI rewrite to wire up the new parsers + batch mode + file
-picker + redesigned UI.
+**Remaining:** GUI rewrite; full template_map.py port (800+ rules); delay/hold
+templates from SCLD; Point 2 (collateral dataset); Point 5 (GUI polish).
 
 ---
 
@@ -293,6 +299,37 @@ Keep `design.md` and `task.md` in the repo for future reference.
 - Run final non-ASCII scan: `grep -rPn '[\x80-\xff]' .`
 - Verify the GUI renders correctly in Chrome, Firefox, Safari
 - Test with 10 arcs x 2 corners (20 decks) to confirm batch works
+
+---
+
+---
+
+## TODO-3: LLM Agent Interface (future)
+
+Add a natural-language interface so users can describe an arc in plain English
+and have an LLM translate it into a cell_arc_pt identifier + corner + files.
+
+Key points:
+- LLM parses the user's description into structured arc parameters
+- DeckGen backend generates the deck as-is
+- Could be a new mode in the GUI or a separate CLI entry point
+- Requires an LLM API key; keep it optional (graceful degradation if absent)
+- Do NOT start until the backend + GUI are stable and MCQC-parity validated
+
+---
+
+## TODO-4: FMC Run + Result Parsing + Visualization (future)
+
+Add an interface to:
+1. Launch the FMC simulation run from DeckGen (submit job or run locally)
+2. Parse the FMC output (timing measurements, convergence status)
+3. Visualize results: per-arc delay/slew scatter, corner comparison, waveform overlays
+
+Key points:
+- FMC output format must be documented before implementation starts
+- Visualization can be embedded in the GUI or exported as standalone HTML
+- Do NOT start until Point 2 (collateral dataset auto-resolver) is complete
+  and the run infrastructure is confirmed ready
 
 ---
 

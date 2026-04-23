@@ -16,6 +16,8 @@ import sys
 import fnmatch
 import yaml
 
+from core.template_map import map_to_template
+
 
 class ResolutionError(Exception):
     """Raised when a required parameter cannot be resolved."""
@@ -33,12 +35,14 @@ def load_yaml(path):
 class TemplateResolver:
     """Resolves cell+arc specification to a SPICE template file."""
 
-    def __init__(self, registry_path, templates_dir):
+    def __init__(self, registry_path, templates_dir, node='N2P_v1.0'):
         self.templates_dir = templates_dir
+        self.node = node
         self.registry = load_yaml(registry_path)
         self.entries = self.registry.get('templates', [])
 
-    def resolve(self, cell_name, arc_type, rel_pin, rel_dir, constr_dir=None):
+    def resolve(self, cell_name, arc_type, rel_pin, rel_dir, constr_dir=None,
+                probe_list=None):
         """Find the best matching template for the given arc specification.
 
         Returns:
@@ -47,6 +51,20 @@ class TemplateResolver:
         Raises:
             ResolutionError: With details on why no match was found + closest matches.
         """
+        # Try node-aware Python if-chain first (MCQC 2-flow/funcs.py port)
+        tmap_path = map_to_template(
+            cell_name=cell_name,
+            arc_type=arc_type,
+            rel_pin=rel_pin,
+            rel_dir=rel_dir,
+            constr_dir=constr_dir,
+            probe_list=probe_list or [],
+            node=self.node,
+            templates_dir=self.templates_dir,
+        )
+        if tmap_path is not None:
+            return tmap_path
+
         matches = []
         partial_matches = []
 

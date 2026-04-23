@@ -1,4 +1,4 @@
-# Template Registry -- maps to real MCQC templates from Project/0-MCQC/2-flow/min_pulse_width/
+# Template Registry -- maps to real MCQC templates from Project/0-MCQC/2-flow/N2P_v1.0/mpw/
 #
 # Matching rules:
 #   - Patterns use fnmatch syntax (*, ?, [seq])
@@ -20,7 +20,7 @@ templates:
     rel_pin: CP
     rel_dir: fall
     constr_dir: rise
-    template: min_pulse_width/template__sync1p5__q1__CP__fall__rise__1.sp
+    template: N2P_v1.0/mpw/template__sync1p5__q1__CP__fall__rise__1.sp
     note: "SYNC1P5 Q1 probe CP fall"
 
   - pattern: "*SYNC1P5*"
@@ -28,7 +28,7 @@ templates:
     rel_pin: CPN
     rel_dir: rise
     constr_dir: fall
-    template: min_pulse_width/template__sync1p5__q1__CPN__rise__fall__1.sp
+    template: N2P_v1.0/mpw/template__sync1p5__q1__CPN__rise__fall__1.sp
     note: "SYNC1P5 Q1 probe CPN rise"
 
   - pattern: "*SYNC1P5*"
@@ -36,7 +36,7 @@ templates:
     rel_pin: CP
     rel_dir: any
     constr_dir: any
-    template: min_pulse_width/template__sync1p5__CP__fall__rise__1.sp
+    template: N2P_v1.0/mpw/template__sync1p5__CP__fall__rise__1.sp
     note: "SYNC1P5 generic CP"
 
   - pattern: "*SYNC1P5*"
@@ -44,14 +44,14 @@ templates:
     rel_pin: CPN
     rel_dir: fall
     constr_dir: rise
-    template: min_pulse_width/template__sync1p5__CPN__fall__rise__1.sp
+    template: N2P_v1.0/mpw/template__sync1p5__CPN__fall__rise__1.sp
 
   - pattern: "*SYNC1P5*"
     arc_type: any
     rel_pin: CPN
     rel_dir: rise
     constr_dir: fall
-    template: min_pulse_width/template__sync1p5__CPN__rise__fall__1.sp
+    template: N2P_v1.0/mpw/template__sync1p5__CPN__rise__fall__1.sp
 
   # SYNC2 with D constraint
   - pattern: "*SYNC2*"
@@ -59,7 +59,7 @@ templates:
     rel_pin: CP
     rel_dir: fall
     constr_dir: rise
-    template: min_pulse_width/template__CP__sync2__D__fall__rise__1.sp
+    template: N2P_v1.0/mpw/template__CP__sync2__D__fall__rise__1.sp
     note: "SYNC2 CP-D fall/rise"
 
   # SYNC2 generic
@@ -68,14 +68,14 @@ templates:
     rel_pin: CP
     rel_dir: fall
     constr_dir: rise
-    template: min_pulse_width/template__sync2__CP__fall__rise__1.sp
+    template: N2P_v1.0/mpw/template__sync2__CP__fall__rise__1.sp
 
   - pattern: "*SYNC2*"
     arc_type: any
     rel_pin: CP
     rel_dir: rise
     constr_dir: fall
-    template: min_pulse_width/template__sync2__CP__rise__fall__1.sp
+    template: N2P_v1.0/mpw/template__sync2__CP__rise__fall__1.sp
 
   # SYNC3
   - pattern: "*SYNC3*"
@@ -83,14 +83,14 @@ templates:
     rel_pin: CP
     rel_dir: fall
     constr_dir: rise
-    template: min_pulse_width/template__CP__sync3__D__fall__rise__1.sp
+    template: N2P_v1.0/mpw/template__CP__sync3__D__fall__rise__1.sp
 
   - pattern: "*SYNC3*"
     arc_type: any
     rel_pin: CP
     rel_dir: any
     constr_dir: any
-    template: min_pulse_width/template__sync3__CP__fall__rise__1.sp
+    template: N2P_v1.0/mpw/template__sync3__CP__fall__rise__1.sp
 
   # SYNC4
   - pattern: "*SYNC4*"
@@ -98,14 +98,14 @@ templates:
     rel_pin: CP
     rel_dir: fall
     constr_dir: rise
-    template: min_pulse_width/template__CP__sync4__D__fall__rise__1.sp
+    template: N2P_v1.0/mpw/template__CP__sync4__D__fall__rise__1.sp
 
   - pattern: "*SYNC4*"
     arc_type: any
     rel_pin: CP
     rel_dir: any
     constr_dir: any
-    template: min_pulse_width/template__sync4__CP__fall__rise__1.sp
+    template: N2P_v1.0/mpw/template__sync4__CP__fall__rise__1.sp
 
   # SYNC5
   - pattern: "*SYNC5*"
@@ -113,7 +113,7 @@ templates:
     rel_pin: CP
     rel_dir: any
     constr_dir: any
-    template: min_pulse_width/template__CP__sync5__D__fall__rise__1.sp
+    template: N2P_v1.0/mpw/template__CP__sync5__D__fall__rise__1.sp
 
   # SYNC6
   - pattern: "*SYNC6*"
@@ -121,7 +121,7 @@ templates:
     rel_pin: CP
     rel_dir: any
     constr_dir: any
-    template: min_pulse_width/template__CP__sync6__D__fall__rise__1.sp
+    template: N2P_v1.0/mpw/template__CP__sync6__D__fall__rise__1.sp
 
   # SYNCx generic (D and notD variants)
   - pattern: "*SYNC*"
@@ -129,7 +129,7 @@ templates:
     rel_pin: CP
     rel_dir: fall
     constr_dir: rise
-    template: min_pulse_width/template__CP__syncx__D__fall__rise__1.sp
+    template: N2P_v1.0/mpw/template__CP__syncx__D__fall__rise__1.sp
     note: "Generic SYNCx with D"
 
   # ============================================================
@@ -141,42 +141,42 @@ templates:
     rel_pin: any
     rel_dir: fall
     constr_dir: rise
-    template: min_pulse_width/template__CKGMUX3__fall__rise__1.sp
+    template: N2P_v1.0/mpw/template__CKGMUX3__fall__rise__1.sp
 
   - pattern: "*CKGMUX3*"
     arc_type: any
     rel_pin: any
     rel_dir: rise
     constr_dir: fall
-    template: min_pulse_width/template__CKGMUX3__rise__fall__1.sp
+    template: N2P_v1.0/mpw/template__CKGMUX3__rise__fall__1.sp
 
   - pattern: "*CKGOR2*"
     arc_type: any
     rel_pin: any
     rel_dir: fall
     constr_dir: rise
-    template: min_pulse_width/template__CKGOR2__fall__rise__1.sp
+    template: N2P_v1.0/mpw/template__CKGOR2__fall__rise__1.sp
 
   - pattern: "*CKGOR2*"
     arc_type: any
     rel_pin: any
     rel_dir: rise
     constr_dir: fall
-    template: min_pulse_width/template__CKGOR2__rise__fall__1.sp
+    template: N2P_v1.0/mpw/template__CKGOR2__rise__fall__1.sp
 
   - pattern: "*PTCKG*"
     arc_type: any
     rel_pin: CP
     rel_dir: fall
     constr_dir: rise
-    template: min_pulse_width/template__PTCKG__CP__fall__rise__1.sp
+    template: N2P_v1.0/mpw/template__PTCKG__CP__fall__rise__1.sp
 
   - pattern: "*PTCKG*"
     arc_type: any
     rel_pin: CP
     rel_dir: rise
     constr_dir: fall
-    template: min_pulse_width/template__PTCKG__CP__rise__fall__1.sp
+    template: N2P_v1.0/mpw/template__PTCKG__CP__rise__fall__1.sp
 
   # ============================================================
   # DET (edge-triggered) cells
@@ -187,35 +187,35 @@ templates:
     rel_pin: CP
     rel_dir: fall
     constr_dir: rise
-    template: min_pulse_width/template__DET__LP__D__CP__fall__rise__1.sp
+    template: N2P_v1.0/mpw/template__DET__LP__D__CP__fall__rise__1.sp
 
   - pattern: "*DET*LP*"
     arc_type: any
     rel_pin: CP
     rel_dir: rise
     constr_dir: fall
-    template: min_pulse_width/template__DET__LP__D__CP__rise__fall__1.sp
+    template: N2P_v1.0/mpw/template__DET__LP__D__CP__rise__fall__1.sp
 
   - pattern: "*DET*RE*"
     arc_type: any
     rel_pin: CP
     rel_dir: fall
     constr_dir: rise
-    template: min_pulse_width/template__DET__RE__D__CP__fall__rise__1.sp
+    template: N2P_v1.0/mpw/template__DET__RE__D__CP__fall__rise__1.sp
 
   - pattern: "*DET*RE*"
     arc_type: any
     rel_pin: CP
     rel_dir: rise
     constr_dir: fall
-    template: min_pulse_width/template__DET__RE__D__CP__rise__fall__1.sp
+    template: N2P_v1.0/mpw/template__DET__RE__D__CP__rise__fall__1.sp
 
   - pattern: "*DET*"
     arc_type: any
     rel_pin: CP
     rel_dir: fall
     constr_dir: rise
-    template: min_pulse_width/template__DET__CP__fall__rise__1.sp
+    template: N2P_v1.0/mpw/template__DET__CP__fall__rise__1.sp
 
   # ============================================================
   # Special cell types
@@ -227,7 +227,7 @@ templates:
     rel_pin: any
     rel_dir: fall
     constr_dir: rise
-    template: min_pulse_width/template__LND2SR__fall_rise__1.sp
+    template: N2P_v1.0/mpw/template__LND2SR__fall_rise__1.sp
 
   # DRDF (dual-rail DFF)
   - pattern: "*DRDF*"
@@ -235,14 +235,14 @@ templates:
     rel_pin: CP
     rel_dir: fall
     constr_dir: rise
-    template: min_pulse_width/template__DRDF__CP__fall__rise__2.sp
+    template: N2P_v1.0/mpw/template__DRDF__CP__fall__rise__2.sp
 
   - pattern: "*DRDF*"
     arc_type: any
     rel_pin: CP
     rel_dir: rise
     constr_dir: fall
-    template: min_pulse_width/template__DRDF__CP__rise__fall__2.sp
+    template: N2P_v1.0/mpw/template__DRDF__CP__rise__fall__2.sp
 
   # Retention cells
   - pattern: "*RETN*"
@@ -250,14 +250,14 @@ templates:
     rel_pin: CP
     rel_dir: fall
     constr_dir: rise
-    template: min_pulse_width/template__retn__CP__fall__rise__2.sp
+    template: N2P_v1.0/mpw/template__retn__CP__fall__rise__2.sp
 
   - pattern: "*RETN*"
     arc_type: any
     rel_pin: CP
     rel_dir: rise
     constr_dir: fall
-    template: min_pulse_width/template__retn__CP__rise__fall__2.sp
+    template: N2P_v1.0/mpw/template__retn__CP__rise__fall__2.sp
 
   # AO2 cells
   - pattern: "*AO2*"
@@ -265,14 +265,14 @@ templates:
     rel_pin: any
     rel_dir: fall
     constr_dir: rise
-    template: min_pulse_width/template__AO2__fall__rise__1.sp
+    template: N2P_v1.0/mpw/template__AO2__fall__rise__1.sp
 
   - pattern: "*AO2*"
     arc_type: any
     rel_pin: any
     rel_dir: rise
     constr_dir: fall
-    template: min_pulse_width/template__AO2__rise__fall__1.sp
+    template: N2P_v1.0/mpw/template__AO2__rise__fall__1.sp
 
   # OR2 cells
   - pattern: "*OR2*"
@@ -280,14 +280,14 @@ templates:
     rel_pin: any
     rel_dir: fall
     constr_dir: rise
-    template: min_pulse_width/template__OR2__fall__rise__1.sp
+    template: N2P_v1.0/mpw/template__OR2__fall__rise__1.sp
 
   - pattern: "*OR2*"
     arc_type: any
     rel_pin: any
     rel_dir: rise
     constr_dir: fall
-    template: min_pulse_width/template__OR2__rise__fall__1.sp
+    template: N2P_v1.0/mpw/template__OR2__rise__fall__1.sp
 
   # DA cells
   - pattern: "*DA*"
@@ -295,14 +295,14 @@ templates:
     rel_pin: any
     rel_dir: fall
     constr_dir: rise
-    template: min_pulse_width/template__DA__fall__rise__1.sp
+    template: N2P_v1.0/mpw/template__DA__fall__rise__1.sp
 
   - pattern: "*DA*"
     arc_type: any
     rel_pin: any
     rel_dir: rise
     constr_dir: rise
-    template: min_pulse_width/template__DA__rise__rise__1.sp
+    template: N2P_v1.0/mpw/template__DA__rise__rise__1.sp
 
   # E-gate cells
   - pattern: "*"
@@ -310,7 +310,7 @@ templates:
     rel_pin: E
     rel_dir: rise
     constr_dir: rise
-    template: min_pulse_width/template__E__rise__rise__1.sp
+    template: N2P_v1.0/mpw/template__E__rise__rise__1.sp
 
   # EN-pin cells
   - pattern: "*"
@@ -318,7 +318,7 @@ templates:
     rel_pin: EN
     rel_dir: fall
     constr_dir: rise
-    template: min_pulse_width/template__EN__fall__rise__1.sp
+    template: N2P_v1.0/mpw/template__EN__fall__rise__1.sp
 
   # S-pin cells (scan/set)
   - pattern: "*"
@@ -326,14 +326,14 @@ templates:
     rel_pin: S
     rel_dir: fall
     constr_dir: rise
-    template: min_pulse_width/template__S__fall__rise__1.sp
+    template: N2P_v1.0/mpw/template__S__fall__rise__1.sp
 
   - pattern: "*"
     arc_type: any
     rel_pin: S
     rel_dir: rise
     constr_dir: fall
-    template: min_pulse_width/template__S__rise__fall__1.sp
+    template: N2P_v1.0/mpw/template__S__rise__fall__1.sp
 
   # WWL cells (word-line)
   - pattern: "*WWLN*"
@@ -341,42 +341,42 @@ templates:
     rel_pin: any
     rel_dir: fall
     constr_dir: rise
-    template: min_pulse_width/template__WWLN__fall__rise__1.sp
+    template: N2P_v1.0/mpw/template__WWLN__fall__rise__1.sp
 
   - pattern: "*WWL0N*"
     arc_type: any
     rel_pin: any
     rel_dir: fall
     constr_dir: rise
-    template: min_pulse_width/template__WWL0N__fall__rise__1.sp
+    template: N2P_v1.0/mpw/template__WWL0N__fall__rise__1.sp
 
   - pattern: "*WWL1N*"
     arc_type: any
     rel_pin: any
     rel_dir: fall
     constr_dir: rise
-    template: min_pulse_width/template__WWL1N__fall__rise__1.sp
+    template: N2P_v1.0/mpw/template__WWL1N__fall__rise__1.sp
 
   - pattern: "*WWL0*"
     arc_type: any
     rel_pin: any
     rel_dir: rise
     constr_dir: fall
-    template: min_pulse_width/template__WWL0__rise__fall__1.sp
+    template: N2P_v1.0/mpw/template__WWL0__rise__fall__1.sp
 
   - pattern: "*WWL1*"
     arc_type: any
     rel_pin: any
     rel_dir: rise
     constr_dir: fall
-    template: min_pulse_width/template__WWL1__rise__fall__1.sp
+    template: N2P_v1.0/mpw/template__WWL1__rise__fall__1.sp
 
   - pattern: "*WWL*"
     arc_type: any
     rel_pin: any
     rel_dir: rise
     constr_dir: fall
-    template: min_pulse_width/template__WWL__rise__fall__1.sp
+    template: N2P_v1.0/mpw/template__WWL__rise__fall__1.sp
 
   # I0 cells
   - pattern: "*I0*"
@@ -384,14 +384,14 @@ templates:
     rel_pin: any
     rel_dir: fall
     constr_dir: rise
-    template: min_pulse_width/template__I0__fall__rise__1.sp
+    template: N2P_v1.0/mpw/template__I0__fall__rise__1.sp
 
   - pattern: "*I0*"
     arc_type: any
     rel_pin: any
     rel_dir: rise
     constr_dir: fall
-    template: min_pulse_width/template__I0__rise__fall__1.sp
+    template: N2P_v1.0/mpw/template__I0__rise__fall__1.sp
 
   # ============================================================
   # Generic DFF (CP/CPN) -- fallback for DFF-like cells
@@ -402,28 +402,28 @@ templates:
     rel_pin: CPN
     rel_dir: fall
     constr_dir: rise
-    template: min_pulse_width/template__CPN__fall__rise__1.sp
+    template: N2P_v1.0/mpw/template__CPN__fall__rise__1.sp
 
   - pattern: "*"
     arc_type: any
     rel_pin: CPN
     rel_dir: rise
     constr_dir: fall
-    template: min_pulse_width/template__CPN__rise__fall__1.sp
+    template: N2P_v1.0/mpw/template__CPN__rise__fall__1.sp
 
   - pattern: "*"
     arc_type: any
     rel_pin: CP
     rel_dir: fall
     constr_dir: rise
-    template: min_pulse_width/template__CP__fall__rise__1.sp
+    template: N2P_v1.0/mpw/template__CP__fall__rise__1.sp
 
   - pattern: "*"
     arc_type: any
     rel_pin: CP
     rel_dir: rise
     constr_dir: fall
-    template: min_pulse_width/template__CP__rise__fall__1.sp
+    template: N2P_v1.0/mpw/template__CP__rise__fall__1.sp
 
   # ============================================================
   # Absolute fallback -- generic CP templates for anything
@@ -434,7 +434,7 @@ templates:
     rel_pin: any
     rel_dir: fall
     constr_dir: rise
-    template: min_pulse_width/template__CP__fall__rise__1.sp
+    template: N2P_v1.0/mpw/template__CP__fall__rise__1.sp
     note: "Fallback - using generic CP fall/rise template"
 
   - pattern: "*"
@@ -442,5 +442,5 @@ templates:
     rel_pin: any
     rel_dir: rise
     constr_dir: fall
-    template: min_pulse_width/template__CP__rise__fall__1.sp
+    template: N2P_v1.0/mpw/template__CP__rise__fall__1.sp
     note: "Fallback - using generic CP rise/fall template"
