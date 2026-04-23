@@ -107,6 +107,14 @@ def parse_args():
     p.add_argument('--nominal_only', action='store_true',
                    help='Generate only the nominal deck (skip MC)')
 
+    # Collateral mode (MCQC-parity, non-cons arcs)
+    p.add_argument('--node', default=None,
+                   help='Process node (e.g. N2P_v1.0). Enables collateral mode.')
+    p.add_argument('--lib_type', default=None,
+                   help='Library type subdir under {node}/ (required with --node).')
+    p.add_argument('--rescan', action='store_true',
+                   help='Force rescan of collateral manifest before running.')
+
     # Config and output
     p.add_argument('--config', default=None,
                    help='Path to global config.yaml')
@@ -232,6 +240,19 @@ def _run_batch(args, script_dir):
     from core.parsers.arc import parse_arc_list
     from core.parsers.corner import parse_corner_list
 
+    # Collateral mode validation
+    if args.node and not args.lib_type:
+        print("ERROR: --node requires --lib_type", file=sys.stderr)
+        sys.exit(1)
+    if args.lib_type and not args.node:
+        print("ERROR: --lib_type requires --node", file=sys.stderr)
+        sys.exit(1)
+
+    if args.rescan and args.node and args.lib_type:
+        from tools.scan_collateral import build_manifest
+        collateral_root = os.path.join(script_dir, 'collateral')
+        build_manifest(collateral_root, args.node, args.lib_type)
+
     # Collect arc identifiers
     arc_ids = []
     if args.arcs_file:
@@ -312,6 +333,8 @@ def _run_batch(args, script_dir):
         output_dir=args.output,
         nominal_only=args.nominal_only,
         num_samples=args.num_samples,
+        node=args.node,
+        lib_type=args.lib_type,
     )
 
     # Report fatal parse errors
