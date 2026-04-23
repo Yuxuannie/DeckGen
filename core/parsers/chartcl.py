@@ -108,3 +108,30 @@ class ChartclParser:
         """
         for cell, index in self._COND_LOAD_RE.findall(self.content_raw):
             self.conditions.setdefault(cell, {})['OUTPUT_LOAD'] = index
+
+    _COND_GLITCH_RE = re.compile(
+        r'if.{0,50}\{.{0,10}string compare.{0,10}"(\w{0,50})".{0,50}'
+        r'constraint_glitch_peak ([0-9\.\-\+e]{0,4})',
+        flags=re.DOTALL)
+
+    _COND_PUSHOUT_RE = re.compile(
+        r'if.{0,50}\{.{0,10}string compare.{0,10}"(\w{0,50})".{0,50}'
+        r'constraint_delay_degrade ([0-9\.\-\+e]{0,4})',
+        flags=re.DOTALL)
+
+    def parse_condition_glitch(self):
+        """Per-cell constraint_glitch_peak overrides.
+
+        MCQC parity: last-match wins; values stored as strings.
+        """
+        for cell, value in self._COND_GLITCH_RE.findall(self.content_raw):
+            self.conditions.setdefault(cell, {})['GLITCH'] = value
+
+    def parse_condition_delay_degrade(self):
+        """Per-cell constraint_delay_degrade overrides.
+
+        MCQC parity: key stored as 'PUSHOUT_PER' (not 'DELAY_DEGRADE');
+        last-match wins; values stored as strings.
+        """
+        for cell, value in self._COND_PUSHOUT_RE.findall(self.content_raw):
+            self.conditions.setdefault(cell, {})['PUSHOUT_PER'] = value

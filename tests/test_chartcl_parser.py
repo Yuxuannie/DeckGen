@@ -72,3 +72,28 @@ class TestParseConditionLoad:
         p.parse_condition_load()
         for cell in p.conditions:
             assert isinstance(p.conditions[cell]['OUTPUT_LOAD'], str)
+
+
+class TestParseConditionGlitch:
+    def test_glitch_values(self):
+        p = ChartclParser(os.path.join(FIX, 'conditions_glitch.tcl'))
+        p.parse_condition_glitch()
+        assert p.conditions['CELLA']['GLITCH'] == '0.05'
+        assert p.conditions['CELLB']['GLITCH'] == '0.1'
+        assert p.conditions['CELLC']['GLITCH'] == '1e-3'
+
+
+class TestParseConditionPushout:
+    def test_pushout_values(self):
+        p = ChartclParser(os.path.join(FIX, 'conditions_pushout.tcl'))
+        p.parse_condition_delay_degrade()
+        assert p.conditions['DFFQ1']['PUSHOUT_PER'] == '0.25'
+        assert p.conditions['SYNC2DFF']['PUSHOUT_PER'] == '0.5'
+
+
+class TestLastMatchWins:
+    def test_later_value_overwrites(self):
+        p = ChartclParser(os.path.join(FIX, 'last_match_wins.tcl'))
+        p.parse_condition_glitch()
+        # MCQC parity: last regex match wins
+        assert p.conditions['DFFQ1']['GLITCH'] == '0.2'
