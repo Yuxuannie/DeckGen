@@ -176,6 +176,10 @@ def build_arc_info(arc, cell_info, template_info, chartcl, corner,
         '_constraint_is_3d': False,
     }
 
+    # MCQC parity: per-arc metric_thresh overrides all (highest precedence)
+    if arc.get('metric') == 'glitch' and arc.get('metric_thresh'):
+        info['GLITCH'] = str(arc['metric_thresh']).strip('"')
+
     info.update(probe_fields)
 
     # Inject SIS pintype glitch thresholds if the template has a sidecar.
