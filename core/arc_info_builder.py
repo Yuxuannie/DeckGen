@@ -70,6 +70,21 @@ def build_arc_info(arc, cell_info, template_info, chartcl, corner,
     index_1_list = tpl.get('index_1', []) or template_info['global'].get('index_1', [])
     index_2_list = tpl.get('index_2', []) or template_info['global'].get('index_2', [])
 
+    # Honor define_index override if one matches this (cell, pin, rel_pin, when)
+    from core.parsers.template_tcl import find_define_index_override
+    _di_override = find_define_index_override(
+        template_info.get('index_overrides', []),
+        cell=cell_name,
+        pin=arc.get('pin', ''),
+        rel_pin=arc.get('rel_pin', ''),
+        when=arc.get('when', ''),
+    )
+    if _di_override:
+        if _di_override.get('index_1'):
+            index_1_list = _di_override['index_1']
+        if _di_override.get('index_2'):
+            index_2_list = _di_override['index_2']
+
     idx1 = overrides.get('index_1_index')
     idx2 = overrides.get('index_2_index')
 
