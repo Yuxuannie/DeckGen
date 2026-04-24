@@ -377,7 +377,7 @@ def resolve_all_from_collateral(
     from core.collateral import CollateralStore, CollateralError
     from core.parsers.chartcl import chartcl_parse_all
     from core.parsers.template_tcl import parse_template_tcl_full
-    from core.arc_info_builder import build_arc_info
+    from core.arc_info_builder import build_arc_infos
 
     overrides = overrides or {}
 
@@ -438,14 +438,18 @@ def resolve_all_from_collateral(
     waveform_file = waveform_override or overrides.get(
         'waveform_file', '/server/default/stdvs_wv.spi')
 
-    # 8. Hand off to arc_info_builder
-    return build_arc_info(
+    # 8. Hand off to arc_info_builder (may return 1 or 3 dicts for 3D arcs)
+    results = build_arc_infos(
         arc=arc, cell_info=cell_info,
         template_info=template_info, chartcl=chartcl,
         corner=corner,
         netlist_path=netlist_path, netlist_pins=netlist_pins,
         include_file=include_file, waveform_file=waveform_file,
         overrides=overrides)
+    # Backward-compat: return a single dict when only one result
+    if len(results) == 1:
+        return results[0]
+    return results
 
 
 def _find_matching_arc(template_info, cell_name, arc_type, rel_pin, rel_dir):

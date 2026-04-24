@@ -228,11 +228,12 @@ def execute_jobs(jobs, output_dir, nominal_only=False, num_samples=5000, files=N
             nominal_lines = build_deck(arc_info, slew=slew, load=load,
                                        when=when, max_slew=max_slew)
 
-            # Append corner to dirname to avoid collisions with multiple corners
+            # Append corner and 3D suffix to dirname to avoid collisions
             corner_suffix = '_' + job['corner'] if job.get('corner') else ''
+            deck_suffix = job.get('_deck_suffix', '') or arc_info.get('_deck_suffix', '')
             deck_dir = os.path.join(
                 output_dir,
-                get_deck_dirname(arc_info, when) + corner_suffix
+                get_deck_dirname(arc_info, when) + corner_suffix + deck_suffix
             )
             os.makedirs(deck_dir, exist_ok=True)
 
@@ -363,13 +364,25 @@ def _plan_jobs_from_collateral(arc_ids, corner_names, node, lib_type,
             errors.append(f"Cannot parse arc identifier: {arc_id!r}")
             continue
 
+        # MPW skip check
+        from core.mpw_skip import skip_this_arc
+        if skip_this_arc(
+                cell_name=arc['cell_name'],
+                arc_type=arc['arc_type'],
+                rel_pin=arc['rel_pin'],
+                rel_pin_dir=arc['rel_dir'],
+                pin=arc.get('probe_pin', ''),
+                pin_dir=arc.get('probe_dir', ''),
+                when=arc.get('when', ''),
+                probe_list=[arc.get('probe_pin', '')]):
+            continue
+
         for corner_name in corner_names:
             corner_name = corner_name.strip()
             if not corner_name:
                 continue
-            job_id += 1
             try:
-                arc_info = resolve_all_from_collateral(
+                result = resolve_all_from_collateral(
                     cell_name=arc['cell_name'],
                     arc_type=arc['arc_type'],
                     rel_pin=arc['rel_pin'],
@@ -381,20 +394,26 @@ def _plan_jobs_from_collateral(arc_ids, corner_names, node, lib_type,
                     collateral_root=collateral_root,
                     overrides=overrides,
                 )
-                jobs.append({
-                    'id': job_id,
-                    'arc_id': arc_id,
-                    'corner': corner_name,
-                    'cell': arc['cell_name'],
-                    'arc_type': arc['arc_type'],
-                    'vdd': arc_info['VDD_VALUE'],
-                    'temperature': arc_info['TEMPERATURE'],
-                    'template': None,
-                    'arc_info': arc_info,
-                    'warnings': [],
-                    'error': None,
-                })
+                # Normalize to list (backward-compat: resolver returns dict for 1 result)
+                arc_info_list = result if isinstance(result, list) else [result]
+                for arc_info in arc_info_list:
+                    job_id += 1
+                    jobs.append({
+                        'id': job_id,
+                        'arc_id': arc_id,
+                        'corner': corner_name,
+                        'cell': arc['cell_name'],
+                        'arc_type': arc['arc_type'],
+                        'vdd': arc_info['VDD_VALUE'],
+                        'temperature': arc_info['TEMPERATURE'],
+                        'template': None,
+                        'arc_info': arc_info,
+                        '_deck_suffix': arc_info.get('_deck_suffix', ''),
+                        'warnings': [],
+                        'error': None,
+                    })
             except ResolutionError as e:
+                job_id += 1
                 jobs.append({
                     'id': job_id,
                     'arc_id': arc_id,

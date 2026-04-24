@@ -196,3 +196,49 @@ class TestFormatIndexValue:
 
     def test_integer_value(self):
         assert format_index_value(1.0, 'n') == '1n'
+
+
+class TestDefineIndexOverride:
+    def test_define_index_overrides_template_indices(self):
+        from core.parsers.template_tcl import parse_template_tcl_full
+        from core.arc_info_builder import build_arc_info
+        import os
+        FIX2 = os.path.join(os.path.dirname(__file__), 'fixtures', 'template_tcl')
+        info = parse_template_tcl_full(os.path.join(FIX2, 'define_index_override.tcl'))
+        arc = info['arcs'][0]
+        cell = info['cells']['DFFQ1']
+        corner = {'process':'ssgnp','vdd':'0.450','temperature':'-40',
+                  'rc_type':'cworst_CCworst_T','netlist_dir':'/fake'}
+        # With override, index_1[0] should be 0.3 (from define_index), NOT 0.1 (from template)
+        result = build_arc_info(arc, cell, info, None, corner,
+                                netlist_path='', netlist_pins='',
+                                include_file='', waveform_file='',
+                                overrides={'index_1_index': 1, 'index_2_index': 1})
+        assert result['INDEX_1_VALUE'] == '0.3n'
+        # index_2[0] overridden: 0.08; suffix 'n' for hold
+        assert result['INDEX_2_VALUE'] == '0.08n'
+
+
+class TestMetricPrecedence:
+    def test_metric_thresh_overrides_chartcl_glitch(self):
+        from core.parsers.template_tcl import parse_template_tcl_full
+        from core.arc_info_builder import build_arc_info
+        import os
+        FIX3 = os.path.join(os.path.dirname(__file__), 'fixtures', 'template_tcl')
+        info = parse_template_tcl_full(os.path.join(FIX3, 'with_metric.tcl'))
+        arc = info['arcs'][0]
+        cell = info['cells']['DFFQ1']
+
+        # Build a chartcl parser with a conflicting global glitch
+        class _fake_chartcl:
+            vars = {'constraint_glitch_peak': '0.1'}
+            conditions = {}
+
+        corner = {'process':'ssgnp','vdd':'0.450','temperature':'-40',
+                  'rc_type':'cworst_CCworst_T','netlist_dir':'/fake'}
+        ai = build_arc_info(arc, cell, info, _fake_chartcl(), corner,
+                            netlist_path='', netlist_pins='',
+                            include_file='', waveform_file='',
+                            overrides={'index_1_index': 1, 'index_2_index': 1})
+        # MCQC precedence: per-arc metric_thresh (0.55) wins over chartcl (0.1)
+        assert ai['GLITCH'] == '0.55'

@@ -28,6 +28,63 @@ from core.batch import plan_jobs, execute_jobs, _job_to_arc_info
 
 
 # ---------------------------------------------------------------------------
+# Collateral helpers (module-level so tests can import directly)
+# ---------------------------------------------------------------------------
+
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_DEFAULT_COLLATERAL_ROOT = os.path.join(_SCRIPT_DIR, 'collateral')
+
+
+def _api_list_nodes():
+    root = getattr(DeckgenHandler, 'COLLATERAL_ROOT', _DEFAULT_COLLATERAL_ROOT)
+    if not os.path.isdir(root):
+        return []
+    return sorted(d for d in os.listdir(root)
+                  if os.path.isdir(os.path.join(root, d)))
+
+
+def _api_list_lib_types(node):
+    root = getattr(DeckgenHandler, 'COLLATERAL_ROOT', _DEFAULT_COLLATERAL_ROOT)
+    nd = os.path.join(root, node)
+    if not os.path.isdir(nd):
+        return []
+    return sorted(d for d in os.listdir(nd)
+                  if os.path.isdir(os.path.join(nd, d)))
+
+
+def _api_list_corners(node, lib_type):
+    from core.collateral import CollateralStore, CollateralError
+    root = getattr(DeckgenHandler, 'COLLATERAL_ROOT', _DEFAULT_COLLATERAL_ROOT)
+    try:
+        return CollateralStore(root, node, lib_type).list_corners()
+    except CollateralError:
+        return []
+    except Exception:
+        return []
+
+
+def _api_list_cells(node, lib_type):
+    from core.collateral import CollateralStore, CollateralError
+    root = getattr(DeckgenHandler, 'COLLATERAL_ROOT', _DEFAULT_COLLATERAL_ROOT)
+    try:
+        return CollateralStore(root, node, lib_type).list_cells()
+    except CollateralError:
+        return []
+    except Exception:
+        return []
+
+
+def _api_rescan(node, lib_type):
+    from tools.scan_collateral import build_manifest
+    root = getattr(DeckgenHandler, 'COLLATERAL_ROOT', _DEFAULT_COLLATERAL_ROOT)
+    try:
+        build_manifest(root, node, lib_type)
+        return {'ok': True}
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+
+
+# ---------------------------------------------------------------------------
 # HTML page (ASCII-only: no em-dashes, no smart quotes, no emojis)
 # ---------------------------------------------------------------------------
 
@@ -163,6 +220,31 @@ tbody td { padding: 5px 8px; vertical-align: middle; }
 
   <!-- Left pane -->
   <div class="pane-left">
+
+    <div id="collateral-panel" style="border:1px solid #e2e8f0; border-radius:6px; padding:12px; margin-bottom:4px; background:#f8fafc;">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <strong>Collateral Mode</strong>
+        <button type="button" onclick="togglecol()">toggle</button>
+        <span id="col-status" style="color:#64748b; font-size:12px;"></span>
+      </div>
+      <div id="col-body" style="margin-top:10px; display:none;">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+          <label>Node<br><select id="col-node" style="width:100%;"></select></label>
+          <label>Library Type<br><select id="col-lib" style="width:100%;"></select></label>
+        </div>
+        <label style="display:block; margin-bottom:8px;">Corners (multi-select)<br>
+          <select id="col-corners" multiple size="5" style="width:100%;"></select></label>
+        <label style="display:block; margin-bottom:8px;">Cell (for Single Arc)<br>
+          <input type="text" id="col-cell" placeholder="DFFQ1" style="width:100%;"></label>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button type="button" onclick="colRescan()">Rescan</button>
+          <button type="button" onclick="colFillArcs()">Populate Arcs+Corners</button>
+          <button type="button" onclick="colPreviewV2()">Preview v2</button>
+          <button type="button" onclick="colGenerateV2()">Generate v2</button>
+        </div>
+        <pre id="col-results" style="margin-top:10px; background:#0f172a; color:#e2e8f0; padding:10px; border-radius:4px; font-size:11px; max-height:200px; overflow:auto; display:none;"></pre>
+      </div>
+    </div>
 
     <div class="card">
       <div class="card-hd" onclick="tog(this)"><h2>Targets (arc identifiers)</h2><span class="tog">[collapse]</span></div>
@@ -628,6 +710,141 @@ window.addEventListener('load', function() {
     if (s.corners) dCorn();
   } catch(e) {}
 });
+
+// ---------------------------------------------------------------------------
+// Collateral Mode panel
+// ---------------------------------------------------------------------------
+
+async function pjv2(path, body) {
+  var r = await fetch(path, {method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body || {})});
+  return r.json();
+}
+
+async function colRefreshNodes() {
+  var r = await pjv2('/api/nodes', {});
+  var sel = document.getElementById('col-node');
+  sel.innerHTML = '';
+  (r.nodes || []).forEach(function(n) {
+    var o = document.createElement('option');
+    o.value = o.textContent = n;
+    sel.appendChild(o);
+  });
+  if ((r.nodes || []).length) {
+    sel.value = r.nodes[0];
+    colRefreshLibs();
+  }
+}
+
+async function colRefreshLibs() {
+  var node = document.getElementById('col-node').value;
+  var r = await pjv2('/api/lib_types', {node: node});
+  var sel = document.getElementById('col-lib');
+  sel.innerHTML = '';
+  (r.lib_types || []).forEach(function(l) {
+    var o = document.createElement('option');
+    o.value = o.textContent = l;
+    sel.appendChild(o);
+  });
+  if ((r.lib_types || []).length) {
+    sel.value = r.lib_types[0];
+    colRefreshCorners();
+  }
+}
+
+async function colRefreshCorners() {
+  var node = document.getElementById('col-node').value;
+  var lib  = document.getElementById('col-lib').value;
+  var rc = await pjv2('/api/corners', {node: node, lib_type: lib});
+  var rk = await pjv2('/api/cells',   {node: node, lib_type: lib});
+  var sel = document.getElementById('col-corners');
+  sel.innerHTML = '';
+  (rc.corners || []).forEach(function(c) {
+    var o = document.createElement('option');
+    o.value = o.textContent = c;
+    sel.appendChild(o);
+  });
+  document.getElementById('col-status').textContent =
+    (rc.corners || []).length + ' corners / ' + (rk.cells || []).length + ' cells';
+}
+
+async function colRescan() {
+  var node = document.getElementById('col-node').value;
+  var lib  = document.getElementById('col-lib').value;
+  document.getElementById('col-status').textContent = 'Rescanning...';
+  var r = await pjv2('/api/rescan', {node: node, lib_type: lib});
+  document.getElementById('col-status').textContent =
+    r.ok ? 'Rescan complete' : ('Rescan failed: ' + (r.error || ''));
+  colRefreshCorners();
+}
+
+function colFillArcs() {
+  var selected = Array.from(document.getElementById('col-corners').selectedOptions)
+    .map(function(o){return o.value;});
+  var cornerArea = document.getElementById('ta-corners') ||
+                   document.querySelector('textarea[name="corners"]');
+  if (cornerArea) cornerArea.value = selected.join('\n');
+  document.getElementById('col-status').textContent =
+    'Populated ' + selected.length + ' corners';
+}
+
+async function colPreviewV2() {
+  var body = collectCollateralBody();
+  document.getElementById('col-results').style.display = 'block';
+  document.getElementById('col-results').textContent = 'Previewing...';
+  var r = await pjv2('/api/preview_v2', body);
+  document.getElementById('col-results').textContent = JSON.stringify(r, null, 2);
+}
+
+async function colGenerateV2() {
+  var body = collectCollateralBody();
+  document.getElementById('col-results').style.display = 'block';
+  document.getElementById('col-results').textContent = 'Generating...';
+  var r = await pjv2('/api/generate_v2', body);
+  document.getElementById('col-results').textContent = JSON.stringify(r, null, 2);
+}
+
+function collectCollateralBody() {
+  var node = document.getElementById('col-node').value;
+  var lib  = document.getElementById('col-lib').value;
+  var corners = Array.from(document.getElementById('col-corners').selectedOptions)
+    .map(function(o){return o.value;});
+  var arcArea = document.getElementById('ta-arcs') ||
+                document.querySelector('textarea[name="arcs"]');
+  var arc_ids = [];
+  if (arcArea) {
+    arc_ids = arcArea.value.split('\n').map(function(s){return s.trim();}).filter(Boolean);
+  }
+  var outputEl = document.getElementById('f-out') ||
+                 document.querySelector('input[name="output"]');
+  var output = outputEl ? outputEl.value : './output';
+  return {
+    mode: 'batch', node: node, lib_type: lib,
+    corners: corners, arc_ids: arc_ids, output: output,
+    cell: document.getElementById('col-cell').value,
+  };
+}
+
+function togglecol() {
+  var b = document.getElementById('col-body');
+  b.style.display = (b.style.display === 'none') ? 'block' : 'none';
+}
+
+(function(){
+  var onReady = function() { colRefreshNodes(); };
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', onReady);
+  } else {
+    onReady();
+  }
+  setTimeout(function(){
+    var n = document.getElementById('col-node');
+    var l = document.getElementById('col-lib');
+    if (n) n.addEventListener('change', colRefreshLibs);
+    if (l) l.addEventListener('change', colRefreshCorners);
+  }, 100);
+})();
 </script>
 </body>
 </html>
@@ -639,6 +856,8 @@ window.addEventListener('load', function() {
 # ---------------------------------------------------------------------------
 
 class DeckgenHandler(http.server.BaseHTTPRequestHandler):
+
+    COLLATERAL_ROOT = _DEFAULT_COLLATERAL_ROOT
 
     def log_message(self, fmt, *args):
         pass  # suppress request logs
@@ -679,6 +898,22 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
         elif path == '/api/match':
             result = self._handle_match(data)
             self._send_json(result)
+        elif path == '/api/nodes':
+            self._send_json({'nodes': _api_list_nodes()}); return
+        elif path == '/api/lib_types':
+            self._send_json({'lib_types': _api_list_lib_types(data.get('node', ''))}); return
+        elif path == '/api/corners':
+            self._send_json({'corners': _api_list_corners(
+                data.get('node', ''), data.get('lib_type', ''))}); return
+        elif path == '/api/cells':
+            self._send_json({'cells': _api_list_cells(
+                data.get('node', ''), data.get('lib_type', ''))}); return
+        elif path == '/api/rescan':
+            self._send_json(_api_rescan(data.get('node', ''), data.get('lib_type', ''))); return
+        elif path == '/api/preview_v2':
+            self._handle_preview_v2(data); return
+        elif path == '/api/generate_v2':
+            self._handle_generate_v2(data); return
         else:
             self.send_response(404)
             self.end_headers()
@@ -804,6 +1039,80 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
                 self.wfile.flush()
             except BrokenPipeError:
                 break
+
+    # ------------------------------------------------------------------
+    # /api/preview_v2  (collateral-backed preview)
+    # ------------------------------------------------------------------
+
+    def _handle_preview_v2(self, data):
+        """Preview: plan jobs via collateral, return job summary."""
+        try:
+            mode = data.get('mode', 'batch')
+            if mode == 'single':
+                arc_id = self._build_arc_id_single(data)
+                arc_ids = [arc_id] if arc_id else []
+            else:
+                arc_ids = data.get('arc_ids', [])
+
+            jobs, errors = plan_jobs(
+                arc_ids=arc_ids,
+                corner_names=data.get('corners', []),
+                files={},
+                node=data.get('node') or None,
+                lib_type=data.get('lib_type') or None,
+                collateral_root=DeckgenHandler.COLLATERAL_ROOT)
+            safe_jobs = []
+            for j in jobs:
+                safe_jobs.append({
+                    k: v for k, v in j.items() if k != 'arc_info'
+                })
+            self._send_json({'jobs': safe_jobs, 'errors': errors})
+        except Exception as e:
+            self._send_json({'error': str(e)})
+
+    # ------------------------------------------------------------------
+    # /api/generate_v2  (collateral-backed generate)
+    # ------------------------------------------------------------------
+
+    def _handle_generate_v2(self, data):
+        """Generate: run the batch using collateral-backed planning."""
+        from core.batch import run_batch
+        try:
+            mode = data.get('mode', 'batch')
+            if mode == 'single':
+                arc_id = self._build_arc_id_single(data)
+                arc_ids = [arc_id] if arc_id else []
+            else:
+                arc_ids = data.get('arc_ids', [])
+
+            jobs, results, errors = run_batch(
+                arc_ids=arc_ids,
+                corner_names=data.get('corners', []),
+                files={},
+                output_dir=data.get('output', './output'),
+                node=data.get('node') or None,
+                lib_type=data.get('lib_type') or None,
+                collateral_root=DeckgenHandler.COLLATERAL_ROOT)
+            self._send_json({
+                'job_count': len(jobs),
+                'results': results,
+                'errors': errors,
+            })
+        except Exception as e:
+            self._send_json({'error': str(e)})
+
+    @staticmethod
+    def _build_arc_id_single(data):
+        """Construct a synthetic arc_id from single-mode inputs."""
+        at  = data.get('arc_type', 'combinational')
+        c   = data.get('cell', '')
+        p   = data.get('probe', 'Q')
+        pd  = data.get('probe_dir', 'rise')
+        rp  = data.get('rel_pin', '')
+        rd  = data.get('rel_dir', 'rise')
+        if not (c and rp):
+            return ''
+        return f"{at}_{c}_{p}_{pd}_{rp}_{rd}_NO_CONDITION_1_1"
 
     # ------------------------------------------------------------------
     # /api/preview_one  (SPICE preview for a single job row)

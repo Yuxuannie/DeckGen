@@ -403,3 +403,27 @@ Builds on 2a. Required for hold/setup/mpw/si_immunity arcs.
 - [ ] Per-arc `metric` / `metric_thresh` extraction
 - [ ] Constraint-arc verification against MCQC
 - [ ] (optional) MPW skip logic (MB/SYNC/CKL cell arc filtering)
+
+---
+
+## Point 2b -- Done
+
+Constraint parity delivered:
+- `define_index` override parser + `find_define_index_override` lookup helper
+- `build_arc_infos` (plural) with 3D constraint expansion (5x5x5 -> 3 decks)
+- SIS template sidecar parsing + pintype glitch injection (O/I)
+- Per-arc `metric_thresh` precedence (highest glitch override)
+- `core/mpw_skip.skip_this_arc` for SYNC2/3/4 Q removal arcs
+- `core/resolver.resolve_all_from_collateral` returns list for 3D, dict otherwise (back-compat)
+- Batch deck directories get `-2/-3/-4` suffix for 3D arcs
+
+## Point 5 -- Done
+
+GUI polish delivered:
+- `/api/nodes`, `/api/lib_types`, `/api/corners`, `/api/cells`, `/api/rescan`
+- `/api/preview_v2`, `/api/generate_v2` endpoints (collateral-backed)
+- Collateral Mode panel in existing GUI: node/lib_type dropdowns, corner multi-select,
+  Rescan button, Populate Arcs+Corners, Preview v2, Generate v2
+- Collapsible panel; does not displace legacy v0.3 batch mode UI
+
+Final test count: 200 passing (96 legacy + 104 new across 2a + 2b + GUI).

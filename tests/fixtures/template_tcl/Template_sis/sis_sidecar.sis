@@ -1,0 +1,9 @@
+define_pintype "O" {
+  glitch_high_threshold : 0.35;
+  glitch_low_threshold  : 0.1;
+}
+
+define_pintype "I" {
+  glitch_high_threshold : 0.40;
+  glitch_low_threshold  : 0.12;
+}

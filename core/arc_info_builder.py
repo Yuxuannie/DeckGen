@@ -11,6 +11,8 @@ Deferred to Point 2b:
   - MPW-only fields (MPW_INPUT_THRESHOLD)
 """
 
+import re as _re
+
 from core.parsers.chartcl import resolve_chartcl_for_arc
 
 
@@ -67,6 +69,21 @@ def build_arc_info(arc, cell_info, template_info, chartcl, corner,
     tpl = template_info['templates'].get(template_name, {}) if template_name else {}
     index_1_list = tpl.get('index_1', []) or template_info['global'].get('index_1', [])
     index_2_list = tpl.get('index_2', []) or template_info['global'].get('index_2', [])
+
+    # Honor define_index override if one matches this (cell, pin, rel_pin, when)
+    from core.parsers.template_tcl import find_define_index_override
+    _di_override = find_define_index_override(
+        template_info.get('index_overrides', []),
+        cell=cell_name,
+        pin=arc.get('pin', ''),
+        rel_pin=arc.get('rel_pin', ''),
+        when=arc.get('when', ''),
+    )
+    if _di_override:
+        if _di_override.get('index_1'):
+            index_1_list = _di_override['index_1']
+        if _di_override.get('index_2'):
+            index_2_list = _di_override['index_2']
 
     idx1 = overrides.get('index_1_index')
     idx2 = overrides.get('index_2_index')
@@ -159,6 +176,80 @@ def build_arc_info(arc, cell_info, template_info, chartcl, corner,
         '_constraint_is_3d': False,
     }
 
+    # MCQC parity: per-arc metric_thresh overrides all (highest precedence)
+    if arc.get('metric') == 'glitch' and arc.get('metric_thresh'):
+        info['GLITCH'] = str(arc['metric_thresh']).strip('"')
+
     info.update(probe_fields)
 
+    # Inject SIS pintype glitch thresholds if the template has a sidecar.
+    # Rule (MCQC): for each pin in OUTPUT_PINS, classify as 'O'; for each
+    # other pin in TEMPLATE_PINLIST, classify as 'I'. Thresholds from the
+    # first matching pintype block go into {PINTYPE}_GLITCH_HIGH/LOW_THRESHOLD.
+    sis = template_info.get('sis', {})
+    if sis:
+        output_pins_list = cell_info.get('output_pins', [])
+        if output_pins_list and 'O' in sis:
+            info['O_GLITCH_HIGH_THRESHOLD'] = str(sis['O'].get('glitch_high_threshold', ''))
+            info['O_GLITCH_LOW_THRESHOLD']  = str(sis['O'].get('glitch_low_threshold',  ''))
+        if 'I' in sis:
+            info['I_GLITCH_HIGH_THRESHOLD'] = str(sis['I'].get('glitch_high_threshold', ''))
+            info['I_GLITCH_LOW_THRESHOLD']  = str(sis['I'].get('glitch_low_threshold',  ''))
+
     return info
+
+
+def _is_3d_template(template_name):
+    """MCQC parity: template name matches regex '5x5x5'."""
+    return bool(template_name and _re.search(r'5x5x5', template_name))
+
+
+def build_arc_infos(arc, cell_info, template_info, chartcl, corner,
+                    netlist_path, netlist_pins, include_file, waveform_file,
+                    overrides=None):
+    """Build one or more arc_info dicts. Returns a LIST.
+
+    For 3D constraint arcs (template matches '5x5x5'), returns 3 entries
+    (indices 1, 2, 3 of index_3 -- endpoints skipped per MCQC).
+    For all other arcs, returns a single entry.
+    """
+    overrides = overrides or {}
+    arc_type = arc.get('arc_type', '')
+
+    # Determine if this is a 3D constraint arc
+    tpl_name = _pick_template_for_arc(cell_info, arc_type)
+    tpl = template_info['templates'].get(tpl_name, {}) if tpl_name else {}
+    index_3_list = tpl.get('index_3', [])
+
+    if _is_3d_template(tpl_name) and len(index_3_list) == 5:
+        results = []
+        for idx3 in (2, 3, 4):  # 1-based indices 2,3,4 => skip 1 and 5
+            ov = dict(overrides)
+            ov['index_3_index'] = idx3
+            info = build_arc_info(
+                arc=arc, cell_info=cell_info,
+                template_info=template_info, chartcl=chartcl,
+                corner=corner,
+                netlist_path=netlist_path, netlist_pins=netlist_pins,
+                include_file=include_file, waveform_file=waveform_file,
+                overrides=ov)
+            info['INDEX_3_INDEX'] = str(idx3 - 1)   # MCQC: index at 1,2,3
+            info['_deck_suffix']  = f"-{idx3}"
+            info['_constraint_is_3d'] = True
+            # OUTPUT_LOAD comes from index_3[idx3-1] for 3D
+            if 0 < (idx3 - 1) < len(index_3_list):
+                info['OUTPUT_LOAD'] = format_index_value(
+                    index_3_list[idx3 - 1], 'p')
+            results.append(info)
+        return results
+
+    # Non-3D: single result
+    info = build_arc_info(
+        arc=arc, cell_info=cell_info,
+        template_info=template_info, chartcl=chartcl,
+        corner=corner,
+        netlist_path=netlist_path, netlist_pins=netlist_pins,
+        include_file=include_file, waveform_file=waveform_file,
+        overrides=overrides)
+    info['_deck_suffix'] = ''
+    return [info]
