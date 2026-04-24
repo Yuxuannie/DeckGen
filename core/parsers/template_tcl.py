@@ -205,11 +205,37 @@ _DEFINE_CELL_RE = re.compile(
 _DEFINE_ARC_RE = re.compile(
     r'define_arc\s*\{((?:[^{}]|\{[^{}]*\})*)\}',
     flags=re.DOTALL)
+_DEFINE_INDEX_RE = re.compile(
+    r'define_index\s*\{((?:[^{}]|\{[^{}]*\})*)\}',
+    flags=re.DOTALL)
+_INDEX_N_RE = re.compile(r'index_(\d)\s*\(\s*"([^"]*)"\s*\)\s*;?')
 # Matches  key : "quoted";  or  key : {braced};  or  key : bare_token;
 _FIELD_COLON_RE = re.compile(
     r'(\w+)\s*:\s*(?:"([^"]*)"|\{([^}]*)\}|([^;\s][^;]*?))\s*;')
 # Matches  key { braced }  (no colon, no semicolon -- used by pinlist/output_pins)
 _FIELD_BRACE_RE = re.compile(r'(\w+)\s*\{([^}]*)\}')
+
+
+def find_define_index_override(overrides, cell, pin, rel_pin, when):
+    """Return the first matching define_index entry, or None.
+
+    Matching (MCQC parity): exact cell, exact pin, rel_pin match (or '*'),
+    when fnmatch.
+    """
+    import fnmatch as _fn
+    for o in overrides:
+        if o.get('cell') != cell:
+            continue
+        if o.get('pin') != pin and o.get('pin') != '*':
+            continue
+        rp = o.get('rel_pin')
+        if rp and rp != '*' and not _fn.fnmatch(rel_pin or '', rp):
+            continue
+        w = o.get('when')
+        if w and not _fn.fnmatch(when or '', w):
+            continue
+        return o
+    return None
 
 
 def _parse_block_fields(block_body):
@@ -309,9 +335,36 @@ def parse_template_tcl_full(path):
             'metric_thresh': f.get('metric_thresh', ''),
         })
 
+    def _floats(s):
+        s = (s or '').replace('"', '').strip()
+        try:
+            return [float(x) for x in s.split()]
+        except ValueError:
+            return []
+
+    index_overrides = []
+    for m in _DEFINE_INDEX_RE.finditer(content):
+        body = m.group(1)
+        # Extract index_N ("...") entries via dedicated regex (paren+quote syntax)
+        idx_fields = {}
+        for im in _INDEX_N_RE.finditer(body):
+            idx_fields['index_' + im.group(1)] = im.group(2)
+        # Extract key : value; fields for cell/pin/rel_pin/when
+        f = _parse_block_fields(body)
+        index_overrides.append({
+            'cell':    f.get('cell', ''),
+            'pin':     f.get('pin', ''),
+            'rel_pin': f.get('rel_pin', ''),
+            'when':    f.get('when', ''),
+            'index_1': _floats(idx_fields.get('index_1', '')),
+            'index_2': _floats(idx_fields.get('index_2', '')),
+            'index_3': _floats(idx_fields.get('index_3', '')),
+        })
+
     return {
-        'templates': base['templates'],
-        'cells':     cells,
-        'arcs':      arcs,
-        'global':    base['global'],
+        'templates':      base['templates'],
+        'cells':          cells,
+        'arcs':           arcs,
+        'global':         base['global'],
+        'index_overrides': index_overrides,
     }
