@@ -363,6 +363,19 @@ def _plan_jobs_from_collateral(arc_ids, corner_names, node, lib_type,
             errors.append(f"Cannot parse arc identifier: {arc_id!r}")
             continue
 
+        # MPW skip check
+        from core.mpw_skip import skip_this_arc
+        if skip_this_arc(
+                cell_name=arc['cell_name'],
+                arc_type=arc['arc_type'],
+                rel_pin=arc['rel_pin'],
+                rel_pin_dir=arc['rel_dir'],
+                pin=arc.get('probe_pin', ''),
+                pin_dir=arc.get('probe_dir', ''),
+                when=arc.get('when', ''),
+                probe_list=[arc.get('probe_pin', '')]):
+            continue
+
         for corner_name in corner_names:
             corner_name = corner_name.strip()
             if not corner_name:
