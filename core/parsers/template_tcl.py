@@ -266,6 +266,32 @@ def _parse_block_fields(block_body):
     return fields
 
 
+import os as _os
+
+_DEFINE_PINTYPE_RE = re.compile(
+    r'define_pintype\s+"([^"]+)"\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}',
+    flags=re.DOTALL)
+
+
+def _parse_sis_sidecar(tcl_path):
+    """If a <stem>.sis file exists alongside tcl_path in a Template_sis/
+    directory, parse it and return {pintype: {key: value}}.
+    """
+    stem = _os.path.splitext(_os.path.basename(tcl_path))[0]
+    dirname = _os.path.dirname(tcl_path)
+    sis_path = _os.path.join(dirname, 'Template_sis', stem + '.sis')
+    if not _os.path.isfile(sis_path):
+        return {}
+    with open(sis_path, 'r') as f:
+        content = f.read()
+    result = {}
+    for m in _DEFINE_PINTYPE_RE.finditer(content):
+        name = m.group(1)
+        fields = _parse_block_fields(m.group(2))
+        result[name] = fields
+    return result
+
+
 def parse_template_tcl_full(path):
     """Full MCQC-style template.tcl parse.
 
@@ -361,10 +387,13 @@ def parse_template_tcl_full(path):
             'index_3': _floats(idx_fields.get('index_3', '')),
         })
 
+    sis = _parse_sis_sidecar(path)
+
     return {
         'templates':      base['templates'],
         'cells':          cells,
         'arcs':           arcs,
         'global':         base['global'],
         'index_overrides': index_overrides,
+        'sis':            sis,
     }

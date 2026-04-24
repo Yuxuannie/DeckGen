@@ -178,6 +178,20 @@ def build_arc_info(arc, cell_info, template_info, chartcl, corner,
 
     info.update(probe_fields)
 
+    # Inject SIS pintype glitch thresholds if the template has a sidecar.
+    # Rule (MCQC): for each pin in OUTPUT_PINS, classify as 'O'; for each
+    # other pin in TEMPLATE_PINLIST, classify as 'I'. Thresholds from the
+    # first matching pintype block go into {PINTYPE}_GLITCH_HIGH/LOW_THRESHOLD.
+    sis = template_info.get('sis', {})
+    if sis:
+        output_pins_list = cell_info.get('output_pins', [])
+        if output_pins_list and 'O' in sis:
+            info['O_GLITCH_HIGH_THRESHOLD'] = str(sis['O'].get('glitch_high_threshold', ''))
+            info['O_GLITCH_LOW_THRESHOLD']  = str(sis['O'].get('glitch_low_threshold',  ''))
+        if 'I' in sis:
+            info['I_GLITCH_HIGH_THRESHOLD'] = str(sis['I'].get('glitch_high_threshold', ''))
+            info['I_GLITCH_LOW_THRESHOLD']  = str(sis['I'].get('glitch_low_threshold',  ''))
+
     return info
 
 
