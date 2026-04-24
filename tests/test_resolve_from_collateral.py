@@ -78,3 +78,16 @@ def test_pushout_per_from_chartcl(collateral_root):
         node=NODE, lib_type=LIB, corner_name=CORNER,
         collateral_root=collateral_root, overrides={})
     assert info['PUSHOUT_PER'] == '0.25'
+
+
+def test_resolve_returns_dict_for_non_3d(collateral_root):
+    """Backward compat: non-3D arcs return a single dict."""
+    result = resolve_all_from_collateral(
+        cell_name='DFFQ1', arc_type='combinational',
+        rel_pin='CP', rel_dir='rise',
+        constr_pin='CP', constr_dir='rise',
+        probe_pin='Q',
+        node=NODE, lib_type=LIB, corner_name=CORNER,
+        collateral_root=collateral_root, overrides={})
+    assert isinstance(result, dict)
+    assert result['CELL_NAME'] == 'DFFQ1'
