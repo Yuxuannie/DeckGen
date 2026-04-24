@@ -28,6 +28,63 @@ from core.batch import plan_jobs, execute_jobs, _job_to_arc_info
 
 
 # ---------------------------------------------------------------------------
+# Collateral helpers (module-level so tests can import directly)
+# ---------------------------------------------------------------------------
+
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_DEFAULT_COLLATERAL_ROOT = os.path.join(_SCRIPT_DIR, 'collateral')
+
+
+def _api_list_nodes():
+    root = getattr(DeckgenHandler, 'COLLATERAL_ROOT', _DEFAULT_COLLATERAL_ROOT)
+    if not os.path.isdir(root):
+        return []
+    return sorted(d for d in os.listdir(root)
+                  if os.path.isdir(os.path.join(root, d)))
+
+
+def _api_list_lib_types(node):
+    root = getattr(DeckgenHandler, 'COLLATERAL_ROOT', _DEFAULT_COLLATERAL_ROOT)
+    nd = os.path.join(root, node)
+    if not os.path.isdir(nd):
+        return []
+    return sorted(d for d in os.listdir(nd)
+                  if os.path.isdir(os.path.join(nd, d)))
+
+
+def _api_list_corners(node, lib_type):
+    from core.collateral import CollateralStore, CollateralError
+    root = getattr(DeckgenHandler, 'COLLATERAL_ROOT', _DEFAULT_COLLATERAL_ROOT)
+    try:
+        return CollateralStore(root, node, lib_type).list_corners()
+    except CollateralError:
+        return []
+    except Exception:
+        return []
+
+
+def _api_list_cells(node, lib_type):
+    from core.collateral import CollateralStore, CollateralError
+    root = getattr(DeckgenHandler, 'COLLATERAL_ROOT', _DEFAULT_COLLATERAL_ROOT)
+    try:
+        return CollateralStore(root, node, lib_type).list_cells()
+    except CollateralError:
+        return []
+    except Exception:
+        return []
+
+
+def _api_rescan(node, lib_type):
+    from tools.scan_collateral import build_manifest
+    root = getattr(DeckgenHandler, 'COLLATERAL_ROOT', _DEFAULT_COLLATERAL_ROOT)
+    try:
+        build_manifest(root, node, lib_type)
+        return {'ok': True}
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+
+
+# ---------------------------------------------------------------------------
 # HTML page (ASCII-only: no em-dashes, no smart quotes, no emojis)
 # ---------------------------------------------------------------------------
 
@@ -640,6 +697,8 @@ window.addEventListener('load', function() {
 
 class DeckgenHandler(http.server.BaseHTTPRequestHandler):
 
+    COLLATERAL_ROOT = _DEFAULT_COLLATERAL_ROOT
+
     def log_message(self, fmt, *args):
         pass  # suppress request logs
 
@@ -679,6 +738,22 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
         elif path == '/api/match':
             result = self._handle_match(data)
             self._send_json(result)
+        elif path == '/api/nodes':
+            self._send_json({'nodes': _api_list_nodes()}); return
+        elif path == '/api/lib_types':
+            self._send_json({'lib_types': _api_list_lib_types(data.get('node', ''))}); return
+        elif path == '/api/corners':
+            self._send_json({'corners': _api_list_corners(
+                data.get('node', ''), data.get('lib_type', ''))}); return
+        elif path == '/api/cells':
+            self._send_json({'cells': _api_list_cells(
+                data.get('node', ''), data.get('lib_type', ''))}); return
+        elif path == '/api/rescan':
+            self._send_json(_api_rescan(data.get('node', ''), data.get('lib_type', ''))); return
+        elif path == '/api/preview_v2':
+            self._handle_preview_v2(data); return
+        elif path == '/api/generate_v2':
+            self._handle_generate_v2(data); return
         else:
             self.send_response(404)
             self.end_headers()
@@ -804,6 +879,80 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
                 self.wfile.flush()
             except BrokenPipeError:
                 break
+
+    # ------------------------------------------------------------------
+    # /api/preview_v2  (collateral-backed preview)
+    # ------------------------------------------------------------------
+
+    def _handle_preview_v2(self, data):
+        """Preview: plan jobs via collateral, return job summary."""
+        try:
+            mode = data.get('mode', 'batch')
+            if mode == 'single':
+                arc_id = self._build_arc_id_single(data)
+                arc_ids = [arc_id] if arc_id else []
+            else:
+                arc_ids = data.get('arc_ids', [])
+
+            jobs, errors = plan_jobs(
+                arc_ids=arc_ids,
+                corner_names=data.get('corners', []),
+                files={},
+                node=data.get('node') or None,
+                lib_type=data.get('lib_type') or None,
+                collateral_root=DeckgenHandler.COLLATERAL_ROOT)
+            safe_jobs = []
+            for j in jobs:
+                safe_jobs.append({
+                    k: v for k, v in j.items() if k != 'arc_info'
+                })
+            self._send_json({'jobs': safe_jobs, 'errors': errors})
+        except Exception as e:
+            self._send_json({'error': str(e)})
+
+    # ------------------------------------------------------------------
+    # /api/generate_v2  (collateral-backed generate)
+    # ------------------------------------------------------------------
+
+    def _handle_generate_v2(self, data):
+        """Generate: run the batch using collateral-backed planning."""
+        from core.batch import run_batch
+        try:
+            mode = data.get('mode', 'batch')
+            if mode == 'single':
+                arc_id = self._build_arc_id_single(data)
+                arc_ids = [arc_id] if arc_id else []
+            else:
+                arc_ids = data.get('arc_ids', [])
+
+            jobs, results, errors = run_batch(
+                arc_ids=arc_ids,
+                corner_names=data.get('corners', []),
+                files={},
+                output_dir=data.get('output', './output'),
+                node=data.get('node') or None,
+                lib_type=data.get('lib_type') or None,
+                collateral_root=DeckgenHandler.COLLATERAL_ROOT)
+            self._send_json({
+                'job_count': len(jobs),
+                'results': results,
+                'errors': errors,
+            })
+        except Exception as e:
+            self._send_json({'error': str(e)})
+
+    @staticmethod
+    def _build_arc_id_single(data):
+        """Construct a synthetic arc_id from single-mode inputs."""
+        at  = data.get('arc_type', 'combinational')
+        c   = data.get('cell', '')
+        p   = data.get('probe', 'Q')
+        pd  = data.get('probe_dir', 'rise')
+        rp  = data.get('rel_pin', '')
+        rd  = data.get('rel_dir', 'rise')
+        if not (c and rp):
+            return ''
+        return f"{at}_{c}_{p}_{pd}_{rp}_{rd}_NO_CONDITION_1_1"
 
     # ------------------------------------------------------------------
     # /api/preview_one  (SPICE preview for a single job row)
