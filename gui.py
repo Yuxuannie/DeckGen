@@ -84,6 +84,22 @@ def _api_rescan(node, lib_type):
         return {'ok': False, 'error': str(e)}
 
 
+def _api_validate(deckgen_root, mcqc_root, filename, arc_types, max_detail):
+    from tools.validate_decks import validate
+    try:
+        at = arc_types if arc_types else None
+        report = validate(
+            deckgen_root=deckgen_root,
+            mcqc_root=mcqc_root,
+            filename=filename or 'nominal_sim.sp',
+            arc_types=at,
+            max_detail=max_detail or 100,
+        )
+        return {'ok': True, 'report': report}
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+
+
 # ---------------------------------------------------------------------------
 # HTML page (ASCII-only: no em-dashes, no smart quotes, no emojis)
 # ---------------------------------------------------------------------------
@@ -577,6 +593,40 @@ tbody td { padding: 8px 12px; vertical-align: middle; }
           <button type="button" class="btn btn-primary"   onclick="colGenerateV2()">Generate v2</button>
         </div>
         <pre id="col-results"></pre>
+      </div>
+    </div>
+
+    <div class="sec-label" style="margin-top:8px;">Validation</div>
+    <div class="card collapsed" id="val-card">
+      <div class="card-hd" onclick="tog(this)"><h2>Deck Validation (DeckGen vs MCQC)</h2><span class="tog">[expand]</span></div>
+      <div class="card-bd">
+        <p class="note">Compare a DeckGen output tree against MCQC output to check parity.</p>
+        <div class="field">
+          <label>DeckGen output root</label>
+          <input class="mono" type="text" id="val-dg" placeholder="/path/to/deckgen/lib/corner">
+        </div>
+        <div class="field">
+          <label>MCQC output root</label>
+          <input class="mono" type="text" id="val-mq" placeholder="/path/to/mcqc/root">
+        </div>
+        <div class="frow">
+          <div class="field">
+            <label>File</label>
+            <select id="val-file">
+              <option value="nominal_sim.sp">nominal_sim.sp</option>
+              <option value="mc_sim.sp">mc_sim.sp</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Arc types (optional)</label>
+            <input type="text" id="val-at" placeholder="delay hold mpw (blank=all)">
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <button class="btn btn-primary" id="btn-val" onclick="doValidate()">Run Validation</button>
+          <a id="val-report-link" href="#" target="_blank" style="display:none;font-size:12px;">Open Report</a>
+        </div>
+        <pre id="val-results" style="display:none;background:#0a0a0a;color:#e5e5e5;padding:10px 12px;border-radius:3px;font-family:var(--mono);font-size:11px;line-height:1.5;max-height:200px;overflow:auto;"></pre>
       </div>
     </div>
 
@@ -1181,6 +1231,69 @@ function togglecol() {
     if (l) l.addEventListener('change', colRefreshCorners);
   }, 100);
 })();
+
+// ---------------------------------------------------------------------------
+// Validation panel
+// ---------------------------------------------------------------------------
+
+async function doValidate() {
+  var dg = document.getElementById('val-dg').value.trim();
+  var mq = document.getElementById('val-mq').value.trim();
+  if (!dg || !mq) { addLog('wrn', 'Set DeckGen and MCQC roots first.'); return; }
+  var file = document.getElementById('val-file').value;
+  var atRaw = document.getElementById('val-at').value.trim();
+  var arcTypes = atRaw ? atRaw.split(/[\s,]+/).filter(Boolean) : [];
+  var res = document.getElementById('val-results');
+  res.style.display = 'block';
+  res.textContent = 'Running validation...';
+  document.getElementById('btn-val').disabled = true;
+  try {
+    var r = await pj('/api/validate', {
+      deckgen_root: dg, mcqc_root: mq,
+      file: file, arc_types: arcTypes, max_detail: 100
+    });
+    if (r.ok && r.report) {
+      var s = r.report.summary || {};
+      var lines = [
+        'Total pairs:  ' + s.total,
+        'Identical:    ' + s.identical,
+        'Different:    ' + s.different,
+      ];
+      Object.keys(r.report.arc_types || {}).forEach(function(at) {
+        var d = r.report.arc_types[at];
+        lines.push('');
+        lines.push('[' + at + '] pairs=' + d.total_pairs +
+          ' L1=' + d.level1_identical +
+          ' L2=' + d.level2_identical +
+          ' L3=' + d.level3_only_diffs +
+          ' orphans_dg=' + (d.orphans_deckgen||[]).length +
+          ' orphans_mq=' + (d.orphans_mcqc||[]).length);
+      });
+      res.textContent = lines.join('\n');
+      addLog('ok', 'Validation done: ' + s.total + ' pairs, ' + s.different + ' diffs.');
+      // Request HTML report path
+      try {
+        var hr = await pj('/api/validate_html', {
+          deckgen_root: dg, mcqc_root: mq,
+          file: file, arc_types: arcTypes, max_detail: 100
+        });
+        if (hr.html_path) {
+          var link = document.getElementById('val-report-link');
+          link.href = '/api/validate_html_serve?path=' + encodeURIComponent(hr.html_path);
+          link.style.display = '';
+        }
+      } catch(e) {}
+    } else {
+      res.textContent = 'Error: ' + (r.error || JSON.stringify(r));
+      addLog('err', 'Validation failed: ' + (r.error || ''));
+    }
+  } catch(e) {
+    res.textContent = 'Error: ' + e.message;
+    addLog('err', 'Validation error: ' + e.message);
+  } finally {
+    document.getElementById('btn-val').disabled = false;
+  }
+}
 </script>
 </body>
 </html>
@@ -1206,8 +1319,31 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
             self.send_header('Content-Length', str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+        elif self.path.startswith('/api/validate_html_serve'):
+            self._serve_validate_html()
         else:
             self.send_response(404)
+            self.end_headers()
+
+    def _serve_validate_html(self):
+        import urllib.parse
+        qs = urllib.parse.urlparse(self.path).query
+        params = urllib.parse.parse_qs(qs)
+        path = (params.get('path') or [''])[0]
+        if not path or not os.path.isfile(path):
+            self.send_response(404)
+            self.end_headers()
+            return
+        try:
+            with open(path, 'rb') as f:
+                body = f.read()
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except Exception:
+            self.send_response(500)
             self.end_headers()
 
     def do_POST(self):
@@ -1250,6 +1386,16 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
             self._handle_preview_v2(data); return
         elif path == '/api/generate_v2':
             self._handle_generate_v2(data); return
+        elif path == '/api/validate':
+            self._send_json(_api_validate(
+                data.get('deckgen_root', ''),
+                data.get('mcqc_root', ''),
+                data.get('file', 'nominal_sim.sp'),
+                data.get('arc_types') or None,
+                data.get('max_detail', 100),
+            )); return
+        elif path == '/api/validate_html':
+            self._send_json(self._handle_validate_html(data)); return
         else:
             self.send_response(404)
             self.end_headers()
@@ -1375,6 +1521,28 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
                 self.wfile.flush()
             except BrokenPipeError:
                 break
+
+    # ------------------------------------------------------------------
+    # /api/validate_html  (generate HTML report, return its path)
+    # ------------------------------------------------------------------
+
+    def _handle_validate_html(self, data):
+        from tools.validate_decks import validate, write_reports
+        import tempfile
+        try:
+            at = data.get('arc_types') or None
+            report = validate(
+                deckgen_root=data.get('deckgen_root', ''),
+                mcqc_root=data.get('mcqc_root', ''),
+                filename=data.get('file', 'nominal_sim.sp'),
+                arc_types=at,
+                max_detail=data.get('max_detail', 100),
+            )
+            out_dir = tempfile.mkdtemp(prefix='deckgen_val_')
+            _, html_path = write_reports(report, out_dir)
+            return {'ok': True, 'html_path': html_path}
+        except Exception as e:
+            return {'ok': False, 'error': str(e)}
 
     # ------------------------------------------------------------------
     # /api/preview_v2  (collateral-backed preview)
