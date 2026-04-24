@@ -238,13 +238,22 @@ def execute_jobs(jobs, output_dir, nominal_only=False, num_samples=5000, files=N
             nominal_lines = build_deck(arc_info, slew=slew, load=load,
                                        when=when, max_slew=max_slew)
 
-            # Append corner and 3D suffix to dirname to avoid collisions
-            corner_suffix = '_' + job['corner'] if job.get('corner') else ''
             deck_suffix = job.get('_deck_suffix', '') or arc_info.get('_deck_suffix', '')
-            deck_dir = os.path.join(
-                output_dir,
-                get_deck_dirname(arc_info, when) + corner_suffix + deck_suffix
-            )
+            # MCQC-matching layout: {lib_type}/{corner}/{arc_type}/{arc_id}[suffix]/
+            # When no lib_type is available (legacy path), fall back to previous behavior.
+            lib_type = job.get('lib_type') or ''
+            corner   = job.get('corner', '')
+            arc_type = arc_info.get('ARC_TYPE', 'unknown')
+            arc_id   = job.get('arc_id') or get_deck_dirname(arc_info, when)
+            if lib_type and corner:
+                deck_dir = os.path.join(output_dir, lib_type, corner,
+                                        arc_type, arc_id + deck_suffix)
+            else:
+                # Legacy path
+                corner_suffix = '_' + corner if corner else ''
+                deck_dir = os.path.join(output_dir,
+                                        get_deck_dirname(arc_info, when)
+                                        + corner_suffix + deck_suffix)
             os.makedirs(deck_dir, exist_ok=True)
 
             nominal_path = os.path.join(deck_dir, 'nominal_sim.sp')
@@ -416,6 +425,7 @@ def _plan_jobs_from_collateral(arc_ids, corner_names, node, lib_type,
                         'id': job_id,
                         'arc_id': arc_id,
                         'corner': corner_name,
+                        'lib_type': lib_type,
                         'cell': arc['cell_name'],
                         'arc_type': arc['arc_type'],
                         'vdd': arc_info['VDD_VALUE'],
