@@ -21,6 +21,31 @@ import webbrowser
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
 
+# Cache for parsed template.tcl files: tcl_path -> (mtime, parsed_dict)
+# Keyed by absolute path; invalidated when file mtime changes.
+_TCL_PARSE_CACHE = {}
+_TCL_PARSE_LOCK = threading.Lock()
+
+
+def _get_parsed_tcl(tcl_path):
+    """Return parse_template_tcl_full result for tcl_path, using a cache."""
+    from core.parsers.template_tcl import parse_template_tcl_full
+    try:
+        mtime = os.path.getmtime(tcl_path)
+    except OSError:
+        return None
+    with _TCL_PARSE_LOCK:
+        cached = _TCL_PARSE_CACHE.get(tcl_path)
+        if cached and cached[0] == mtime:
+            return cached[1]
+    try:
+        parsed = parse_template_tcl_full(tcl_path)
+    except Exception:
+        return None
+    with _TCL_PARSE_LOCK:
+        _TCL_PARSE_CACHE[tcl_path] = (mtime, parsed)
+    return parsed
+
 from core.resolver import ResolutionError, TemplateResolver
 from core.deck_builder import build_deck
 from core.parsers.arc import parse_arc_identifier, parse_arc_list
@@ -86,7 +111,6 @@ def _api_list_arcs(node, lib_type, cell):
          index_1: [float,...], index_2: [float,...]}
     """
     from core.collateral import CollateralStore, CollateralError
-    from core.parsers.template_tcl import parse_template_tcl_full
     root = getattr(DeckgenHandler, 'COLLATERAL_ROOT', _DEFAULT_COLLATERAL_ROOT)
     try:
         store = CollateralStore(root, node, lib_type)
@@ -108,9 +132,8 @@ def _api_list_arcs(node, lib_type, cell):
     if not tcl_path or not os.path.isfile(tcl_path):
         return []
 
-    try:
-        parsed = parse_template_tcl_full(tcl_path)
-    except Exception:
+    parsed = _get_parsed_tcl(tcl_path)
+    if parsed is None:
         return []
 
     raw_arcs = [a for a in parsed.get('arcs', []) if a.get('cell') == cell]
