@@ -478,6 +478,7 @@ table.vtbl tr:hover td{background:var(--tint);}
     </div>
     <div class="pf view-hidden" id="resultsFooter">
       <button class="btn btn-sm btn-ghost" onclick="copyAllPaths()">Copy all paths</button>
+      <button class="btn btn-sm btn-ghost" onclick="openOutputDir()" style="margin-left:6px;">Open output dir</button>
       <div class="spacer"></div>
     </div>
   </div>
@@ -555,6 +556,9 @@ table.vtbl tr:hover td{background:var(--tint);}
         <div class="fc on" onclick="setVFilter('all',this)">All</div>
         <div class="fc" onclick="setVFilter('l3',this)">L3 only</div>
         <div class="fc" onclick="setVFilter('hold',this)">hold</div>
+        <div class="fc" onclick="setVFilter('setup',this)">setup</div>
+        <div class="fc" onclick="setVFilter('recovery',this)">recovery</div>
+        <div class="fc" onclick="setVFilter('removal',this)">removal</div>
         <div class="fc" onclick="setVFilter('combinational',this)">combinational</div>
         <div class="fc" onclick="setVFilter('mpw',this)">mpw</div>
       </div>
@@ -814,6 +818,10 @@ function showQueueView(){
 function copyAllPaths(){var paths=S.results.filter(function(r){return r.output_path;})
   .map(function(r){return r.output_path;}).join('\n');
   navigator.clipboard.writeText(paths).catch(function(){});}
+function openOutputDir(){var row=document.querySelector('#resultList .result-row');
+  if(!row)return;var path=row.dataset.path||'';
+  var dir=path.split('/').slice(0,-1).join('/');
+  if(dir){navigator.clipboard.writeText(dir).then(function(){alert('Output directory path copied: '+dir);}).catch(function(){});}}
 function openDeck(row,path,title){
   document.querySelectorAll('.rrow').forEach(function(r){r.classList.remove('sel');});
   if(row)row.classList.add('sel');S.lastDeckPath=path;
@@ -1235,8 +1243,8 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
     # ------------------------------------------------------------------
 
     def _handle_generate_v2(self, data):
-        """Generate: run the batch using collateral-backed planning."""
-        from core.batch import run_batch
+        """Generate: run the batch using collateral-backed planning (streams NDJSON)."""
+        from core.batch import plan_jobs, execute_jobs
         try:
             mode = data.get('mode', 'batch')
             # Expand arc_ids using table_points if provided.
@@ -1262,21 +1270,71 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
             else:
                 arc_ids = data.get('arc_ids', [])
 
-            jobs, results, errors = run_batch(
-                arc_ids=arc_ids,
+            jobs, errors = plan_jobs(
+                arc_ids,
                 corner_names=data.get('corners', []),
                 files={},
-                output_dir=data.get('output', './output'),
+                overrides=None,
                 node=data.get('node') or None,
                 lib_type=data.get('lib_type') or None,
                 collateral_root=DeckgenHandler.COLLATERAL_ROOT)
-            self._send_json({
-                'job_count': len(jobs),
-                'results': results,
-                'errors': errors,
-            })
         except Exception as e:
-            self._send_json({'error': str(e)})
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/x-ndjson')
+            self.send_header('Transfer-Encoding', 'chunked')
+            self.end_headers()
+            line = json.dumps({'status': 'done', 'succeeded': 0, 'failed': 0,
+                               'results': [], 'errors': [str(e)]}) + '\n'
+            self.wfile.write(line.encode('utf-8'))
+            self.wfile.flush()
+            return
+
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/x-ndjson')
+        self.send_header('Transfer-Encoding', 'chunked')
+        self.end_headers()
+
+        output_dir = data.get('output', './output')
+        total = len(jobs)
+        all_results = []
+        done_count = 0
+
+        for job in jobs:
+            arc_id = job.get('arc_id', '')
+            results = execute_jobs(
+                [job], output_dir,
+                nominal_only=data.get('nominal_only', False),
+                num_samples=data.get('num_samples', 5000),
+                files={})
+            for r in results:
+                all_results.append(r)
+            done_count += 1
+            prog = json.dumps({
+                'status': 'progress',
+                'done': done_count,
+                'total': total,
+                'current': arc_id,
+            }) + '\n'
+            try:
+                self.wfile.write(prog.encode('utf-8'))
+                self.wfile.flush()
+            except BrokenPipeError:
+                return
+
+        succeeded = sum(1 for r in all_results if r.get('success'))
+        failed = sum(1 for r in all_results if not r.get('success'))
+        final = json.dumps({
+            'status': 'done',
+            'succeeded': succeeded,
+            'failed': failed,
+            'results': all_results,
+            'errors': errors,
+        }) + '\n'
+        try:
+            self.wfile.write(final.encode('utf-8'))
+            self.wfile.flush()
+        except BrokenPipeError:
+            pass
 
     @staticmethod
     def _build_arc_id_single(data):
