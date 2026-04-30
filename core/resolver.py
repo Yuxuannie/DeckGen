@@ -438,6 +438,21 @@ def resolve_all_from_collateral(
     waveform_file = waveform_override or overrides.get(
         'waveform_file', '/server/default/stdvs_wv.spi')
 
+    # 7b. SPICE template (deck) -- resolve via TemplateResolver (registry + map)
+    template_deck_path = template_override or ''
+    if not template_deck_path:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        registry_path = os.path.normpath(
+            os.path.join(script_dir, '..', 'config', 'template_registry.yaml'))
+        templates_dir = os.path.normpath(
+            os.path.join(script_dir, '..', 'templates'))
+        try:
+            tpl = TemplateResolver(registry_path, templates_dir, node=node)
+            template_deck_path = tpl.resolve(
+                cell_name, arc_type, rel_pin, rel_dir, constr_dir)
+        except ResolutionError:
+            template_deck_path = ''
+
     # 8. Hand off to arc_info_builder (may return 1 or 3 dicts for 3D arcs)
     results = build_arc_infos(
         arc=arc, cell_info=cell_info,
@@ -446,6 +461,12 @@ def resolve_all_from_collateral(
         netlist_path=netlist_path, netlist_pins=netlist_pins,
         include_file=include_file, waveform_file=waveform_file,
         overrides=overrides)
+
+    # Stamp TEMPLATE_DECK_PATH onto every result so deck_builder/writer can
+    # load + substitute the SPICE template file.
+    for r in results:
+        r['TEMPLATE_DECK_PATH'] = template_deck_path
+        r['TEMPLATE_DECK'] = template_deck_path
     # Backward-compat: return a single dict when only one result
     if len(results) == 1:
         return results[0]

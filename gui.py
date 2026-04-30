@@ -84,6 +84,22 @@ def _api_rescan(node, lib_type):
         return {'ok': False, 'error': str(e)}
 
 
+def _api_validate(deckgen_root, mcqc_root, filename, arc_types, max_detail):
+    from tools.validate_decks import validate
+    try:
+        at = arc_types if arc_types else None
+        report = validate(
+            deckgen_root=deckgen_root,
+            mcqc_root=mcqc_root,
+            filename=filename or 'nominal_sim.sp',
+            arc_types=at,
+            max_detail=max_detail or 100,
+        )
+        return {'ok': True, 'report': report}
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+
+
 # ---------------------------------------------------------------------------
 # HTML page (ASCII-only: no em-dashes, no smart quotes, no emojis)
 # ---------------------------------------------------------------------------
@@ -95,120 +111,443 @@ HTML_PAGE = r"""<!DOCTYPE html>
 <title>deckgen v0.3 - SPICE Deck Generator</title>
 <style>
 :root {
-  --blue:   #2563eb;
-  --green:  #10b981;
-  --red:    #ef4444;
-  --bg:     #f8fafc;
-  --panel:  #ffffff;
-  --border: #e2e8f0;
-  --text:   #0f172a;
-  --muted:  #64748b;
-  --label:  #475569;
-  --mono:   'SF Mono', Menlo, Consolas, 'Courier New', monospace;
-  --sans:   -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  --r:      6px;
-  --rc:     8px;
-  --sh:     0 1px 2px rgba(0,0,0,0.04);
+  --bg:       #fafafa;
+  --panel:    #ffffff;
+  --text:     #0a0a0a;
+  --text-2:   #525252;
+  --muted:    #a3a3a3;
+  --border:   #e5e5e5;
+  --border-2: #d4d4d4;
+  --accent:   #171717;
+  --accent-h: #404040;
+  --green:    #16a34a;
+  --yellow:   #ca8a04;
+  --red:      #dc2626;
+  --blue:     #2563eb;
+  --mono: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
-* { box-sizing: border-box; margin: 0; padding: 0; }
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; }
-body { font-family: var(--sans); background: var(--bg); color: var(--text); font-size: 13px; display: flex; flex-direction: column; overflow: hidden; }
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
 
-/* Top bar */
-.topbar { display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--border); flex-shrink: 0; }
-.topbar h1 { font-size: 15px; font-weight: 700; }
-.topbar .ver { font-size: 10px; color: var(--muted); margin-right: 4px; }
-.topbar .desc { font-size: 11px; color: var(--muted); }
+/* ---- Topbar ---- */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 24px;
+  height: 48px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 0 rgba(0,0,0,0.04);
+  flex-shrink: 0;
+}
+.topbar-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.topbar-brand h1 {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+.topbar .ver {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 400;
+}
+.topbar .desc {
+  font-size: 12px;
+  color: var(--muted);
+}
 .spacer { flex: 1; }
-.btn { padding: 6px 13px; border: none; border-radius: var(--r); font-size: 12px; font-weight: 600; cursor: pointer; transition: background 0.1s; }
+
+/* ---- Buttons ---- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 3px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: var(--sans);
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+  white-space: nowrap;
+}
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn-primary { background: var(--blue); color: #fff; }
-.btn-primary:hover:not(:disabled) { background: #1d4ed8; }
-.btn-secondary { background: #e2e8f0; color: var(--text); }
-.btn-secondary:hover:not(:disabled) { background: #cbd5e1; }
+.btn-primary {
+  background: var(--accent);
+  color: #ffffff;
+  border: none;
+}
+.btn-primary:hover:not(:disabled) { background: var(--accent-h); }
+.btn-secondary {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border-2);
+}
+.btn-secondary:hover:not(:disabled) { background: var(--bg); border-color: var(--muted); }
+.btn-ghost {
+  background: transparent;
+  color: var(--text-2);
+  border: none;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.btn-ghost:hover:not(:disabled) { background: #f5f5f5; color: var(--text); }
 
-/* Layout */
-.main { display: flex; flex: 1; min-height: 0; overflow: hidden; }
-.pane-left { width: 400px; min-width: 280px; flex-shrink: 0; overflow-y: auto; padding: 12px; border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 9px; }
-.pane-right { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: column; gap: 9px; padding: 12px; }
+/* ---- Layout ---- */
+.main {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.pane-left {
+  width: 380px;
+  min-width: 260px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  padding: 20px 16px;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pane-right {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 20px 20px 16px;
+}
 
-/* Cards */
-.card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--rc); box-shadow: var(--sh); overflow: hidden; }
-.card-hd { display: flex; align-items: center; justify-content: space-between; padding: 7px 11px; cursor: pointer; user-select: none; background: #f8fafc; }
-.card-hd:hover { background: #f1f5f9; }
-.card-hd h2 { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--label); }
-.card-hd .tog { font-size: 10px; color: var(--muted); }
-.card-bd { padding: 11px; display: flex; flex-direction: column; gap: 8px; }
+/* ---- Section label ---- */
+.sec-label {
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  padding: 4px 0 6px;
+}
+
+/* ---- Cards ---- */
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.card-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.card-hd:hover { background: #f5f5f5; }
+.card-hd h2 {
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-2);
+}
+.card-hd .tog {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 400;
+}
+.card-bd {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 1px solid var(--border);
+}
 .card.collapsed .card-bd { display: none; }
 
-/* Fields */
-.field { display: flex; flex-direction: column; gap: 3px; }
-.field label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: var(--label); }
-.field input, .field select, .field textarea {
-  padding: 5px 8px; border: 1px solid var(--border); border-radius: var(--r);
-  font-size: 12px; font-family: var(--sans); background: var(--panel); color: var(--text);
-  transition: border-color 0.1s, box-shadow 0.1s;
+/* ---- Fields ---- */
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field label {
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-2);
 }
-.field input:focus, .field select:focus, .field textarea:focus {
-  outline: none; border-color: var(--blue); box-shadow: 0 0 0 2px rgba(37,99,235,0.12);
+.field input,
+.field select,
+.field textarea {
+  padding: 6px 10px;
+  border: 1px solid var(--border-2);
+  border-radius: 3px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+  font-family: var(--sans);
+  transition: border-color 0.1s;
 }
-.field textarea { resize: vertical; font-family: var(--mono); font-size: 11px; line-height: 1.5; }
-.field .mono { font-family: var(--mono); font-size: 11px; }
-.frow { display: flex; gap: 7px; }
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
+  outline: 2px solid rgba(23,23,23,0.12);
+  outline-offset: 0;
+  border-color: var(--accent);
+}
+.field input:disabled,
+.field select:disabled,
+.field textarea:disabled { opacity: 0.5; cursor: not-allowed; }
+.field textarea {
+  resize: vertical;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.field .mono { font-family: var(--mono); font-size: 12px; }
+.frow { display: flex; gap: 8px; }
 .frow .field { flex: 1; }
 .brow { display: flex; gap: 6px; align-items: flex-end; }
 .brow .field { flex: 1; }
-.browse-btn { padding: 5px 9px; background: #f1f5f9; border: 1px solid var(--border); border-radius: var(--r); font-size: 11px; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
-.browse-btn:hover { background: #e2e8f0; }
-.st { font-size: 10px; margin-top: 2px; }
-.st-ok { color: var(--green); }
+.browse-btn {
+  padding: 6px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border-2);
+  border-radius: 3px;
+  font-size: 12px;
+  font-family: var(--sans);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  color: var(--text-2);
+}
+.browse-btn:hover { background: var(--bg); border-color: var(--muted); }
+.st { font-size: 11px; color: var(--muted); }
+.st-ok  { color: var(--green); }
 .st-err { color: var(--red); }
 .st-muted { color: var(--muted); }
+.note { font-size: 12px; color: var(--muted); }
 
-/* Note text */
-.note { font-size: 11px; color: var(--muted); }
+/* ---- Collateral panel ---- */
+.col-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.col-panel-hd {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--panel);
+}
+.col-panel-hd strong {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-2);
+}
+#col-status {
+  font-size: 11px;
+  color: var(--muted);
+  flex: 1;
+}
+.col-panel-bd {
+  padding: 12px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.col-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.col-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+#col-results {
+  display: none;
+  margin-top: 4px;
+  background: #0a0a0a;
+  color: #e5e5e5;
+  padding: 10px 12px;
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  max-height: 180px;
+  overflow: auto;
+}
 
-/* Table */
-.tbl-wrap { flex: 2; min-height: 0; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--r); background: var(--panel); }
-table { width: 100%; border-collapse: collapse; font-size: 11px; }
-thead th { position: sticky; top: 0; background: #f8fafc; padding: 5px 8px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--label); border-bottom: 1px solid var(--border); z-index: 1; white-space: nowrap; }
-tbody tr { border-bottom: 1px solid #f1f5f9; cursor: pointer; }
-tbody tr:hover { background: #f8fafc; }
-tbody tr.sel { background: #eff6ff; }
-tbody td { padding: 5px 8px; vertical-align: middle; }
-.s-ok  { color: var(--green); font-weight: 600; }
-.s-err { color: var(--red);   font-weight: 600; }
-.s-pen { color: var(--muted); }
-.s-run { color: var(--blue);  }
+/* ---- Table ---- */
+.tbl-wrap {
+  flex: 2;
+  min-height: 0;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  margin-bottom: 12px;
+}
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+thead th {
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  padding: 8px 12px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-2);
+  border-bottom: 1px solid var(--border);
+  z-index: 1;
+  white-space: nowrap;
+}
+tbody tr { border-bottom: 1px solid #f5f5f5; cursor: pointer; }
+tbody tr:hover { background: var(--bg); }
+tbody tr.sel { background: #f5f5f5; }
+tbody td { padding: 8px 12px; vertical-align: middle; }
+.s-ok  {
+  color: var(--green);
+  background: rgba(22,163,74,0.08);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  display: inline-block;
+}
+.s-err {
+  color: var(--red);
+  background: rgba(220,38,38,0.08);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  display: inline-block;
+}
+.s-pen {
+  color: var(--muted);
+  background: rgba(163,163,163,0.12);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  display: inline-block;
+}
+.s-run { color: var(--blue); }
 .td-clip { max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* Log */
-.log { flex-shrink: 0; height: 100px; overflow-y: auto; background: #0f172a; color: #94a3b8; border-radius: var(--r); padding: 7px 10px; font-family: var(--mono); font-size: 11px; line-height: 1.5; }
-.lok  { color: #34d399; }
+/* ---- Log ---- */
+.log {
+  flex-shrink: 0;
+  height: 88px;
+  overflow-y: auto;
+  background: #0a0a0a;
+  color: #737373;
+  border-radius: 4px;
+  padding: 8px 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+.lok  { color: #4ade80; }
 .lerr { color: #f87171; }
 .lwrn { color: #fbbf24; }
 .linf { color: #60a5fa; }
 
-/* SPICE preview */
-.sp-wrap { flex: 3; min-height: 0; display: flex; flex-direction: column; }
-.sp-hd { display: flex; align-items: center; justify-content: space-between; padding: 2px 0 5px; flex-shrink: 0; }
-.sp-hd span { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: var(--label); }
-.copy-btn { padding: 3px 8px; background: #1e293b; color: #94a3b8; border: 1px solid #334155; border-radius: 4px; font-size: 10px; cursor: pointer; }
-.copy-btn:hover { background: #334155; color: #e2e8f0; }
-.copy-btn.copied { background: #065f46; color: #a7f3d0; border-color: #065f46; }
-.sp-pre { flex: 1; min-height: 0; overflow-y: auto; background: #0f172a; color: #e2e8f0; padding: 9px 11px; border-radius: var(--r); font-family: var(--mono); font-size: 11px; line-height: 1.5; white-space: pre; }
-.sp-empty { color: #475569; font-style: italic; }
+/* ---- SPICE preview ---- */
+.sp-wrap {
+  flex: 3;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.sp-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0 6px;
+  flex-shrink: 0;
+}
+.sp-hd span {
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.copy-btn {
+  padding: 3px 10px;
+  background: #1a1a1a;
+  color: #737373;
+  border: 1px solid #2a2a2a;
+  border-radius: 3px;
+  font-size: 11px;
+  font-family: var(--sans);
+  cursor: pointer;
+}
+.copy-btn:hover { background: #262626; color: #e5e5e5; }
+.copy-btn.copied { background: #14532d; color: #bbf7d0; border-color: #14532d; }
+.sp-pre {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: #0a0a0a;
+  color: #e5e5e5;
+  padding: 12px 16px;
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+}
+.sp-empty { color: #525252; font-style: italic; }
 
-/* Spinner */
-.spin { display: inline-block; width: 11px; height: 11px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: rot 0.5s linear infinite; vertical-align: middle; margin-right: 4px; }
+/* ---- Spinner ---- */
+.spin {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 2px solid rgba(255,255,255,0.25);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: rot 0.5s linear infinite;
+  vertical-align: middle;
+}
 @keyframes rot { to { transform: rotate(360deg); } }
+
+/* ---- Scrollbars (webkit) ---- */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d4d4d4; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #a3a3a3; }
 </style>
 </head>
 <body>
 
 <div class="topbar">
-  <h1>deckgen</h1>
-  <span class="ver">v0.3</span>
+  <div class="topbar-brand">
+    <h1>DeckGen</h1>
+    <span class="ver">v0.3</span>
+  </div>
   <span class="desc">SPICE Deck Generator -- delay / slew / hold</span>
   <div class="spacer"></div>
   <button class="btn btn-secondary" onclick="clearAll()">Clear</button>
@@ -221,30 +560,77 @@ tbody td { padding: 5px 8px; vertical-align: middle; }
   <!-- Left pane -->
   <div class="pane-left">
 
-    <div id="collateral-panel" style="border:1px solid #e2e8f0; border-radius:6px; padding:12px; margin-bottom:4px; background:#f8fafc;">
-      <div style="display:flex; align-items:center; gap:8px;">
+    <div class="sec-label">Collateral</div>
+    <div id="collateral-panel" class="col-panel">
+      <div class="col-panel-hd">
         <strong>Collateral Mode</strong>
-        <button type="button" onclick="togglecol()">toggle</button>
-        <span id="col-status" style="color:#64748b; font-size:12px;"></span>
+        <span id="col-status"></span>
+        <button type="button" class="btn btn-ghost" onclick="togglecol()">toggle</button>
       </div>
-      <div id="col-body" style="margin-top:10px; display:none;">
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
-          <label>Node<br><select id="col-node" style="width:100%;"></select></label>
-          <label>Library Type<br><select id="col-lib" style="width:100%;"></select></label>
+      <div id="col-body" class="col-panel-bd" style="display:none;">
+        <div class="col-grid">
+          <div class="field">
+            <label>Node</label>
+            <select id="col-node"></select>
+          </div>
+          <div class="field">
+            <label>Library Type</label>
+            <select id="col-lib"></select>
+          </div>
         </div>
-        <label style="display:block; margin-bottom:8px;">Corners (multi-select)<br>
-          <select id="col-corners" multiple size="5" style="width:100%;"></select></label>
-        <label style="display:block; margin-bottom:8px;">Cell (for Single Arc)<br>
-          <input type="text" id="col-cell" placeholder="DFFQ1" style="width:100%;"></label>
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button type="button" onclick="colRescan()">Rescan</button>
-          <button type="button" onclick="colFillArcs()">Populate Arcs+Corners</button>
-          <button type="button" onclick="colPreviewV2()">Preview v2</button>
-          <button type="button" onclick="colGenerateV2()">Generate v2</button>
+        <div class="field">
+          <label>Corners (multi-select)</label>
+          <select id="col-corners" multiple size="4"></select>
         </div>
-        <pre id="col-results" style="margin-top:10px; background:#0f172a; color:#e2e8f0; padding:10px; border-radius:4px; font-size:11px; max-height:200px; overflow:auto; display:none;"></pre>
+        <div class="field">
+          <label>Cell (for Single Arc)</label>
+          <input type="text" id="col-cell" placeholder="DFFQ1">
+        </div>
+        <div class="col-actions">
+          <button type="button" class="btn btn-secondary" onclick="colRescan()">Rescan</button>
+          <button type="button" class="btn btn-secondary" onclick="colFillArcs()">Populate Arcs+Corners</button>
+          <button type="button" class="btn btn-secondary" onclick="colPreviewV2()">Preview v2</button>
+          <button type="button" class="btn btn-primary"   onclick="colGenerateV2()">Generate v2</button>
+        </div>
+        <pre id="col-results"></pre>
       </div>
     </div>
+
+    <div class="sec-label" style="margin-top:8px;">Validation</div>
+    <div class="card collapsed" id="val-card">
+      <div class="card-hd" onclick="tog(this)"><h2>Deck Validation (DeckGen vs MCQC)</h2><span class="tog">[expand]</span></div>
+      <div class="card-bd">
+        <p class="note">Compare a DeckGen output tree against MCQC output to check parity.</p>
+        <div class="field">
+          <label>DeckGen output root</label>
+          <input class="mono" type="text" id="val-dg" placeholder="/path/to/deckgen/lib/corner">
+        </div>
+        <div class="field">
+          <label>MCQC output root</label>
+          <input class="mono" type="text" id="val-mq" placeholder="/path/to/mcqc/root">
+        </div>
+        <div class="frow">
+          <div class="field">
+            <label>File</label>
+            <select id="val-file">
+              <option value="nominal_sim.sp">nominal_sim.sp</option>
+              <option value="mc_sim.sp">mc_sim.sp</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Arc types (optional)</label>
+            <input type="text" id="val-at" placeholder="delay hold mpw (blank=all)">
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <button class="btn btn-primary" id="btn-val" onclick="doValidate()">Run Validation</button>
+          <a id="val-report-link" href="#" target="_blank" style="display:none;font-size:12px;">Open Report</a>
+        </div>
+        <pre id="val-results" style="display:none;background:#0a0a0a;color:#e5e5e5;padding:10px 12px;border-radius:3px;font-family:var(--mono);font-size:11px;line-height:1.5;max-height:200px;overflow:auto;"></pre>
+      </div>
+    </div>
+
+    <div class="sec-label" style="margin-top:8px;">Inputs</div>
 
     <div class="card">
       <div class="card-hd" onclick="tog(this)"><h2>Targets (arc identifiers)</h2><span class="tog">[collapse]</span></div>
@@ -314,7 +700,7 @@ tbody td { padding: 5px 8px; vertical-align: middle; }
         <div class="frow">
           <div class="field"><label>MC samples</label><input type="number" id="ov-samp" value="5000" min="1"></div>
           <div class="field" style="justify-content:flex-end;align-items:flex-end;">
-            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;text-transform:none;font-weight:normal;font-size:12px;">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;text-transform:none;font-weight:400;font-size:13px;color:var(--text-2);">
               <input type="checkbox" id="ov-nom"> Nominal only
             </label>
           </div>
@@ -343,7 +729,7 @@ tbody td { padding: 5px 8px; vertical-align: middle; }
           <div class="field"><label>When</label><input type="text" id="sm-when" value="NO_CONDITION"></div>
         </div>
         <div style="display:flex;justify-content:flex-end;">
-          <button class="btn btn-secondary" style="font-size:11px;padding:5px 10px;" onclick="addSingle()">Add to Targets</button>
+          <button class="btn btn-secondary" onclick="addSingle()">Add to Targets</button>
         </div>
       </div>
     </div>
@@ -363,7 +749,7 @@ tbody td { padding: 5px 8px; vertical-align: middle; }
           </tr>
         </thead>
         <tbody id="tbody">
-          <tr><td colspan="9" style="text-align:center;padding:18px;color:#94a3b8;font-style:italic;">Click Preview or Run Batch to populate.</td></tr>
+          <tr><td colspan="9" style="text-align:center;padding:20px;color:var(--muted);font-style:italic;font-size:13px;">Click Preview or Run Batch to populate.</td></tr>
         </tbody>
       </table>
     </div>
@@ -845,6 +1231,69 @@ function togglecol() {
     if (l) l.addEventListener('change', colRefreshCorners);
   }, 100);
 })();
+
+// ---------------------------------------------------------------------------
+// Validation panel
+// ---------------------------------------------------------------------------
+
+async function doValidate() {
+  var dg = document.getElementById('val-dg').value.trim();
+  var mq = document.getElementById('val-mq').value.trim();
+  if (!dg || !mq) { addLog('wrn', 'Set DeckGen and MCQC roots first.'); return; }
+  var file = document.getElementById('val-file').value;
+  var atRaw = document.getElementById('val-at').value.trim();
+  var arcTypes = atRaw ? atRaw.split(/[\s,]+/).filter(Boolean) : [];
+  var res = document.getElementById('val-results');
+  res.style.display = 'block';
+  res.textContent = 'Running validation...';
+  document.getElementById('btn-val').disabled = true;
+  try {
+    var r = await pj('/api/validate', {
+      deckgen_root: dg, mcqc_root: mq,
+      file: file, arc_types: arcTypes, max_detail: 100
+    });
+    if (r.ok && r.report) {
+      var s = r.report.summary || {};
+      var lines = [
+        'Total pairs:  ' + s.total,
+        'Identical:    ' + s.identical,
+        'Different:    ' + s.different,
+      ];
+      Object.keys(r.report.arc_types || {}).forEach(function(at) {
+        var d = r.report.arc_types[at];
+        lines.push('');
+        lines.push('[' + at + '] pairs=' + d.total_pairs +
+          ' L1=' + d.level1_identical +
+          ' L2=' + d.level2_identical +
+          ' L3=' + d.level3_only_diffs +
+          ' orphans_dg=' + (d.orphans_deckgen||[]).length +
+          ' orphans_mq=' + (d.orphans_mcqc||[]).length);
+      });
+      res.textContent = lines.join('\n');
+      addLog('ok', 'Validation done: ' + s.total + ' pairs, ' + s.different + ' diffs.');
+      // Request HTML report path
+      try {
+        var hr = await pj('/api/validate_html', {
+          deckgen_root: dg, mcqc_root: mq,
+          file: file, arc_types: arcTypes, max_detail: 100
+        });
+        if (hr.html_path) {
+          var link = document.getElementById('val-report-link');
+          link.href = '/api/validate_html_serve?path=' + encodeURIComponent(hr.html_path);
+          link.style.display = '';
+        }
+      } catch(e) {}
+    } else {
+      res.textContent = 'Error: ' + (r.error || JSON.stringify(r));
+      addLog('err', 'Validation failed: ' + (r.error || ''));
+    }
+  } catch(e) {
+    res.textContent = 'Error: ' + e.message;
+    addLog('err', 'Validation error: ' + e.message);
+  } finally {
+    document.getElementById('btn-val').disabled = false;
+  }
+}
 </script>
 </body>
 </html>
@@ -870,8 +1319,31 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
             self.send_header('Content-Length', str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+        elif self.path.startswith('/api/validate_html_serve'):
+            self._serve_validate_html()
         else:
             self.send_response(404)
+            self.end_headers()
+
+    def _serve_validate_html(self):
+        import urllib.parse
+        qs = urllib.parse.urlparse(self.path).query
+        params = urllib.parse.parse_qs(qs)
+        path = (params.get('path') or [''])[0]
+        if not path or not os.path.isfile(path):
+            self.send_response(404)
+            self.end_headers()
+            return
+        try:
+            with open(path, 'rb') as f:
+                body = f.read()
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except Exception:
+            self.send_response(500)
             self.end_headers()
 
     def do_POST(self):
@@ -914,6 +1386,16 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
             self._handle_preview_v2(data); return
         elif path == '/api/generate_v2':
             self._handle_generate_v2(data); return
+        elif path == '/api/validate':
+            self._send_json(_api_validate(
+                data.get('deckgen_root', ''),
+                data.get('mcqc_root', ''),
+                data.get('file', 'nominal_sim.sp'),
+                data.get('arc_types') or None,
+                data.get('max_detail', 100),
+            )); return
+        elif path == '/api/validate_html':
+            self._send_json(self._handle_validate_html(data)); return
         else:
             self.send_response(404)
             self.end_headers()
@@ -1039,6 +1521,28 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
                 self.wfile.flush()
             except BrokenPipeError:
                 break
+
+    # ------------------------------------------------------------------
+    # /api/validate_html  (generate HTML report, return its path)
+    # ------------------------------------------------------------------
+
+    def _handle_validate_html(self, data):
+        from tools.validate_decks import validate, write_reports
+        import tempfile
+        try:
+            at = data.get('arc_types') or None
+            report = validate(
+                deckgen_root=data.get('deckgen_root', ''),
+                mcqc_root=data.get('mcqc_root', ''),
+                filename=data.get('file', 'nominal_sim.sp'),
+                arc_types=at,
+                max_detail=data.get('max_detail', 100),
+            )
+            out_dir = tempfile.mkdtemp(prefix='deckgen_val_')
+            _, html_path = write_reports(report, out_dir)
+            return {'ok': True, 'html_path': html_path}
+        except Exception as e:
+            return {'ok': False, 'error': str(e)}
 
     # ------------------------------------------------------------------
     # /api/preview_v2  (collateral-backed preview)

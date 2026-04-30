@@ -218,23 +218,42 @@ def execute_jobs(jobs, output_dir, nominal_only=False, num_samples=5000, files=N
             return {'id': job['id'], 'success': False,
                     'nominal': None, 'mc': None, 'error': job['error']}
         try:
-            arc_info = _job_to_arc_info(job, files)
-            slew = (job.get('constr_slew') or '0',
-                    job.get('rel_slew') or '0')
-            load = job.get('output_load') or '0'
-            max_slew = job.get('max_slew')
-            when = job.get('when', 'NO_CONDITION')
+            # Collateral-backed jobs already carry a fully-resolved arc_info;
+            # legacy jobs have only field-level data, so reconstruct there.
+            if job.get('arc_info'):
+                arc_info = job['arc_info']
+                slew = (arc_info.get('INDEX_1_VALUE') or '0',
+                        arc_info.get('INDEX_1_VALUE') or '0')
+                load = arc_info.get('OUTPUT_LOAD') or '0'
+                max_slew = arc_info.get('MAX_SLEW') or '0'
+                when = arc_info.get('WHEN', 'NO_CONDITION')
+            else:
+                arc_info = _job_to_arc_info(job, files)
+                slew = (job.get('constr_slew') or '0',
+                        job.get('rel_slew') or '0')
+                load = job.get('output_load') or '0'
+                max_slew = job.get('max_slew')
+                when = job.get('when', 'NO_CONDITION')
 
             nominal_lines = build_deck(arc_info, slew=slew, load=load,
                                        when=when, max_slew=max_slew)
 
-            # Append corner and 3D suffix to dirname to avoid collisions
-            corner_suffix = '_' + job['corner'] if job.get('corner') else ''
             deck_suffix = job.get('_deck_suffix', '') or arc_info.get('_deck_suffix', '')
-            deck_dir = os.path.join(
-                output_dir,
-                get_deck_dirname(arc_info, when) + corner_suffix + deck_suffix
-            )
+            # MCQC-matching layout: {lib_type}/{corner}/{arc_type}/{arc_id}[suffix]/
+            # When no lib_type is available (legacy path), fall back to previous behavior.
+            lib_type = job.get('lib_type') or ''
+            corner   = job.get('corner', '')
+            arc_type = arc_info.get('ARC_TYPE', 'unknown')
+            arc_id   = job.get('arc_id') or get_deck_dirname(arc_info, when)
+            if lib_type and corner:
+                deck_dir = os.path.join(output_dir, lib_type, corner,
+                                        arc_type, arc_id + deck_suffix)
+            else:
+                # Legacy path
+                corner_suffix = '_' + corner if corner else ''
+                deck_dir = os.path.join(output_dir,
+                                        get_deck_dirname(arc_info, when)
+                                        + corner_suffix + deck_suffix)
             os.makedirs(deck_dir, exist_ok=True)
 
             nominal_path = os.path.join(deck_dir, 'nominal_sim.sp')
@@ -382,13 +401,17 @@ def _plan_jobs_from_collateral(arc_ids, corner_names, node, lib_type,
             if not corner_name:
                 continue
             try:
+                # MCQC convention: constraint arcs have constr_dir opposite of rel_dir
+                is_constraint = arc['arc_type'] in CONSTRAINT_ARC_TYPES
+                default_constr_dir = (_opposite_dir(arc['rel_dir'])
+                                      if is_constraint else arc['rel_dir'])
                 result = resolve_all_from_collateral(
                     cell_name=arc['cell_name'],
                     arc_type=arc['arc_type'],
                     rel_pin=arc['rel_pin'],
                     rel_dir=arc['rel_dir'],
                     constr_pin=overrides.get('constr_pin', arc['rel_pin']),
-                    constr_dir=overrides.get('constr_dir', arc['rel_dir']),
+                    constr_dir=overrides.get('constr_dir', default_constr_dir),
                     probe_pin=arc['probe_pin'],
                     node=node, lib_type=lib_type, corner_name=corner_name,
                     collateral_root=collateral_root,
@@ -402,6 +425,7 @@ def _plan_jobs_from_collateral(arc_ids, corner_names, node, lib_type,
                         'id': job_id,
                         'arc_id': arc_id,
                         'corner': corner_name,
+                        'lib_type': lib_type,
                         'cell': arc['cell_name'],
                         'arc_type': arc['arc_type'],
                         'vdd': arc_info['VDD_VALUE'],
