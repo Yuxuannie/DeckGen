@@ -785,7 +785,10 @@ function doGenerate(){var body=buildGenerateBody();showResultsView();
       buf+=decoder.decode(chunk.value,{stream:true});
       var lines=buf.split('\n');buf=lines.pop();
       lines.forEach(function(line){if(!line.trim())return;
-        try{var r=JSON.parse(line);S.results.push(r);appendResultRow(r);}catch(e){}});
+        try{var r=JSON.parse(line);
+          if(r.status==='progress')return;
+          if(r.status==='done'){(r.results||[]).forEach(function(res){S.results.push(res);appendResultRow(res);});return;}
+          S.results.push(r);appendResultRow(r);}catch(e){}});
       return pump();});}
     return pump();}).catch(function(e){
     document.getElementById('genStatus').textContent='Error: '+e.message;});}
@@ -877,7 +880,10 @@ function directGenerate(){var lines=document.getElementById('directTA').value.sp
       buf+=decoder.decode(chunk.value,{stream:true});
       var ls=buf.split('\n');buf=ls.pop();
       ls.forEach(function(line){if(!line.trim())return;
-        try{var r=JSON.parse(line);S.results.push(r);appendResultRow(r);}catch(e){}});
+        try{var r=JSON.parse(line);
+          if(r.status==='progress')return;
+          if(r.status==='done'){(r.results||[]).forEach(function(res){S.results.push(res);appendResultRow(res);});return;}
+          S.results.push(r);appendResultRow(r);}catch(e){}});
       return pump();});}return pump();});}
 var _vAllRows=[];
 function runValidation(){post('/api/validate',{
