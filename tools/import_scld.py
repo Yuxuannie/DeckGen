@@ -241,14 +241,17 @@ def main():
                    help='Suppress per-file output')
     args = p.parse_args()
 
+    # --- Destination: where collateral/<node>/<lib>/ will live ---
     if args.deckgen_root:
-        root = os.path.abspath(args.deckgen_root)
+        deckgen_root = os.path.abspath(args.deckgen_root)
     else:
-        root = os.path.normpath(
+        deckgen_root = os.path.normpath(
             os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
+    # --- Source: where to find SCLD lib folders ---
     if args.src:
         libs = [os.path.abspath(args.src)]
+        src_label = os.path.dirname(libs[0])
     elif args.src_parent:
         parent = os.path.abspath(args.src_parent)
         if not os.path.isdir(parent):
@@ -263,26 +266,33 @@ def main():
                 continue
             if _looks_like_scld_lib(full):
                 libs.append(full)
+        src_label = parent
     else:
         # --auto: walk recursively up to depth 4 to find SCLD libs anywhere
-        root = os.path.abspath(args.auto)
-        if not os.path.isdir(root):
-            print(f"ERROR: --auto not found: {root}", file=sys.stderr)
+        auto_root = os.path.abspath(args.auto)
+        if not os.path.isdir(auto_root):
+            print(f"ERROR: --auto not found: {auto_root}", file=sys.stderr)
             sys.exit(1)
-        libs = _autodiscover_libs(root)
+        libs = _autodiscover_libs(auto_root)
         if args.filter:
             libs = [l for l in libs
                     if args.filter in os.path.basename(l)]
-        print(f"Auto-discovered {len(libs)} SCLD lib folder(s) under {root}")
+        print(f"Auto-discovered {len(libs)} SCLD lib folder(s) under {auto_root}")
+        src_label = auto_root
 
     if not libs:
         print("ERROR: no SCLD lib folders to import.", file=sys.stderr)
         sys.exit(1)
 
+    # Make sure the destination root exists so the importer can create
+    # collateral/<node>/<lib>/Char etc. underneath it.
+    os.makedirs(os.path.join(deckgen_root, 'collateral', args.node),
+                exist_ok=True)
+
     total = {'char_files': 0, 'template_files': 0,
              'netlist_dirs': 0, 'skipped': 0, 'errors': 0}
-    print(f"Importing {len(libs)} library/libraries -> "
-          f"{root}/collateral/{args.node}/")
+    print(f"Importing {len(libs)} library/libraries from {src_label} -> "
+          f"{deckgen_root}/collateral/{args.node}/")
     if args.dry_run:
         print("(dry-run; no files written)")
     print()
@@ -290,7 +300,7 @@ def main():
     for src_lib in libs:
         lib_type = os.path.basename(os.path.normpath(src_lib))
         print(f"== {lib_type} ==")
-        c = import_one_lib(src_lib, root, args.node,
+        c = import_one_lib(src_lib, deckgen_root, args.node,
                            link=args.link, dry_run=args.dry_run,
                            verbose=not args.quiet)
         for k in total:
