@@ -44,16 +44,26 @@ def _parse_corner(name):
 
 
 def _find_char_files(char_dir):
-    """Scan Char/ and bucket files by corner + kind."""
+    """Scan Char/ and bucket files by corner + kind.
+
+    Returns (result, warnings, lib_global) where:
+      result    -- {corner_key: {kind: relpath}} for files with corner in name
+      warnings  -- list of strings
+      lib_global -- {kind: relpath} for files with NO corner in name (e.g.,
+                    SCLD's lib-wide char_<lib>.cons.tcl). These will be bound
+                    to every discovered corner by the caller.
+    """
     result = {}
     warnings = []
+    lib_global = {}
     if not os.path.isdir(char_dir):
-        return result, warnings
+        return result, warnings, lib_global
 
     # Priority-ordered suffixes (longest first)
     SUFFIXES = [
         ('char_cons',     '.cons.tcl'),
         ('char_non_cons', '.non_cons.tcl'),
+        ('char_combined', '.tcl'),       # plain *.tcl after .cons/.non_cons fail
         ('inc_delay',     '.delay.inc'),
         ('inc_hold',      '.hold.inc'),
         ('inc_setup',     '.setup.inc'),
@@ -67,16 +77,31 @@ def _find_char_files(char_dir):
         if not os.path.isfile(full):
             continue
 
+        # Skip template tcl files that ended up in Char/ (we collect them
+        # under Template/ separately).
+        if fname.endswith('.template.tcl'):
+            continue
+
         matched = False
         for kind, suffix in SUFFIXES:
             if not fname.endswith(suffix):
                 continue
             stem = fname[:-len(suffix)]
             corner_parse = _parse_corner(stem)
+
+            # No corner in the filename -> SCLD lib-global char file
+            # (only meaningful for the cons/non_cons/combined char tcl files;
+            # *.inc / *.usage.l without a corner is unusual -- skip with warning).
             if corner_parse is None:
+                if kind in ('char_cons', 'char_non_cons', 'char_combined'):
+                    rel = os.path.relpath(full, os.path.dirname(char_dir))
+                    lib_global.setdefault(kind, rel)
+                    matched = True
+                    break
                 warnings.append(f"Char/{fname}: no corner pattern matched")
                 matched = True
                 break
+
             process, vdd, temp, rc = corner_parse
             vdd_raw = vdd.replace('.', 'p')
             temp_raw = ('m' + temp[1:]) if temp.startswith('-') else temp
@@ -89,7 +114,7 @@ def _find_char_files(char_dir):
         if not matched:
             warnings.append(f"Char/{fname}: unknown suffix")
 
-    return result, warnings
+    return result, warnings, lib_global
 
 
 def _find_template_files(template_dir):
@@ -159,9 +184,18 @@ def scan_one(collateral_root, node, lib_type):
 
     warnings = []
 
-    char_map,     w = _find_char_files(char_dir);     warnings.extend(w)
+    char_map, w, lib_global_char = _find_char_files(char_dir); warnings.extend(w)
     template_map, w = _find_template_files(template_dir); warnings.extend(w)
     lpe_dirs, cells  = _find_netlist_dirs(netlist_dir)
+
+    # SCLD pattern: char_<lib>.cons.tcl / .non_cons.tcl have NO corner in name.
+    # Bind such lib-global files to every corner discovered via .inc files.
+    if lib_global_char:
+        # Make sure every corner with .inc files has a char entry to receive
+        # the lib-global tcl. (corners may exist via .inc only.)
+        for corner_key, entry in char_map.items():
+            for k, v in lib_global_char.items():
+                entry.setdefault(k, v)
 
     corners = {}
     for corner_key, char in char_map.items():
