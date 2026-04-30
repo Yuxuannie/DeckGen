@@ -189,1196 +189,722 @@ def _parse_table_points(text):
 # HTML page (ASCII-only: no em-dashes, no smart quotes, no emojis)
 # ---------------------------------------------------------------------------
 
-HTML_PAGE = r"""<!DOCTYPE html>
+HTML_PAGE = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>deckgen v0.3 - SPICE Deck Generator</title>
+<title>DeckGen</title>
 <style>
 :root {
-  --bg:       #fafafa;
-  --panel:    #ffffff;
-  --text:     #0a0a0a;
-  --text-2:   #525252;
-  --muted:    #a3a3a3;
-  --border:   #e5e5e5;
-  --border-2: #d4d4d4;
-  --accent:   #171717;
-  --accent-h: #404040;
-  --green:    #16a34a;
-  --yellow:   #ca8a04;
-  --red:      #dc2626;
-  --blue:     #2563eb;
-  --mono: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
-  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --bg:#f5f5f5; --panel:#fff; --text:#0a0a0a; --text-2:#525252;
+  --text-3:#a3a3a3; --border:#e5e5e5; --border-2:#d4d4d4;
+  --accent:#171717; --accent-h:#404040; --tint:#f5f5f5;
+  --ok:#16a34a; --warn:#ca8a04; --err:#dc2626; --info:#2563eb;
+  --tag-bg:#f1f5f9; --tag-fg:#475569;
 }
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { height: 100%; }
-body {
-  font-family: var(--sans);
-  background: var(--bg);
-  color: var(--text);
-  font-size: 14px;
-  line-height: 1.5;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-/* ---- Topbar ---- */
-.topbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 0 24px;
-  height: 48px;
-  background: var(--panel);
-  border-bottom: 1px solid var(--border);
-  box-shadow: 0 1px 0 rgba(0,0,0,0.04);
-  flex-shrink: 0;
-}
-.topbar-brand {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-}
-.topbar-brand h1 {
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  color: var(--text);
-}
-.topbar .ver {
-  font-size: 11px;
-  color: var(--muted);
-  font-weight: 400;
-}
-.topbar .desc {
-  font-size: 12px;
-  color: var(--muted);
-}
-.spacer { flex: 1; }
-
-/* ---- Buttons ---- */
-.btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  border-radius: 3px;
-  font-size: 13px;
-  font-weight: 500;
-  font-family: var(--sans);
-  cursor: pointer;
-  transition: background 0.1s, border-color 0.1s;
-  white-space: nowrap;
-}
-.btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn-primary {
-  background: var(--accent);
-  color: #ffffff;
-  border: none;
-}
-.btn-primary:hover:not(:disabled) { background: var(--accent-h); }
-.btn-secondary {
-  background: var(--panel);
-  color: var(--text);
-  border: 1px solid var(--border-2);
-}
-.btn-secondary:hover:not(:disabled) { background: var(--bg); border-color: var(--muted); }
-.btn-ghost {
-  background: transparent;
-  color: var(--text-2);
-  border: none;
-  padding: 4px 8px;
-  font-size: 12px;
-}
-.btn-ghost:hover:not(:disabled) { background: #f5f5f5; color: var(--text); }
-
-/* ---- Layout ---- */
-.main {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-}
-.pane-left {
-  width: 380px;
-  min-width: 260px;
-  flex-shrink: 0;
-  overflow-y: auto;
-  padding: 20px 16px;
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.pane-right {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  padding: 20px 20px 16px;
-}
-
-/* ---- Section label ---- */
-.sec-label {
-  font-size: 11px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--muted);
-  padding: 4px 0 6px;
-}
-
-/* ---- Cards ---- */
-.card {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  overflow: hidden;
-}
-.card-hd {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
-  cursor: pointer;
-  user-select: none;
-}
-.card-hd:hover { background: #f5f5f5; }
-.card-hd h2 {
-  font-size: 11px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-2);
-}
-.card-hd .tog {
-  font-size: 11px;
-  color: var(--muted);
-  font-weight: 400;
-}
-.card-bd {
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  border-top: 1px solid var(--border);
-}
-.card.collapsed .card-bd { display: none; }
-
-/* ---- Fields ---- */
-.field { display: flex; flex-direction: column; gap: 4px; }
-.field label {
-  font-size: 12px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-2);
-}
-.field input,
-.field select,
-.field textarea {
-  padding: 6px 10px;
-  border: 1px solid var(--border-2);
-  border-radius: 3px;
-  background: var(--panel);
-  color: var(--text);
-  font-size: 13px;
-  font-family: var(--sans);
-  transition: border-color 0.1s;
-}
-.field input:focus,
-.field select:focus,
-.field textarea:focus {
-  outline: 2px solid rgba(23,23,23,0.12);
-  outline-offset: 0;
-  border-color: var(--accent);
-}
-.field input:disabled,
-.field select:disabled,
-.field textarea:disabled { opacity: 0.5; cursor: not-allowed; }
-.field textarea {
-  resize: vertical;
-  font-family: var(--mono);
-  font-size: 12px;
-  line-height: 1.5;
-}
-.field .mono { font-family: var(--mono); font-size: 12px; }
-.frow { display: flex; gap: 8px; }
-.frow .field { flex: 1; }
-.brow { display: flex; gap: 6px; align-items: flex-end; }
-.brow .field { flex: 1; }
-.browse-btn {
-  padding: 6px 10px;
-  background: var(--panel);
-  border: 1px solid var(--border-2);
-  border-radius: 3px;
-  font-size: 12px;
-  font-family: var(--sans);
-  cursor: pointer;
-  white-space: nowrap;
-  flex-shrink: 0;
-  color: var(--text-2);
-}
-.browse-btn:hover { background: var(--bg); border-color: var(--muted); }
-.st { font-size: 11px; color: var(--muted); }
-.st-ok  { color: var(--green); }
-.st-err { color: var(--red); }
-.st-muted { color: var(--muted); }
-.note { font-size: 12px; color: var(--muted); }
-
-/* ---- Collateral panel ---- */
-.col-panel {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  overflow: hidden;
-}
-.col-panel-hd {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  background: var(--panel);
-}
-.col-panel-hd strong {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-2);
-}
-#col-status {
-  font-size: 11px;
-  color: var(--muted);
-  flex: 1;
-}
-.col-panel-bd {
-  padding: 12px;
-  border-top: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.col-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.col-actions { display: flex; gap: 6px; flex-wrap: wrap; }
-#col-results {
-  display: none;
-  margin-top: 4px;
-  background: #0a0a0a;
-  color: #e5e5e5;
-  padding: 10px 12px;
-  border-radius: 3px;
-  font-family: var(--mono);
-  font-size: 11px;
-  line-height: 1.5;
-  max-height: 180px;
-  overflow: auto;
-}
-
-/* ---- Table ---- */
-.tbl-wrap {
-  flex: 2;
-  min-height: 0;
-  overflow-y: auto;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--panel);
-  margin-bottom: 12px;
-}
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-thead th {
-  position: sticky;
-  top: 0;
-  background: var(--bg);
-  padding: 8px 12px;
-  text-align: left;
-  font-size: 11px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-2);
-  border-bottom: 1px solid var(--border);
-  z-index: 1;
-  white-space: nowrap;
-}
-tbody tr { border-bottom: 1px solid #f5f5f5; cursor: pointer; }
-tbody tr:hover { background: var(--bg); }
-tbody tr.sel { background: #f5f5f5; }
-tbody td { padding: 8px 12px; vertical-align: middle; }
-.s-ok  {
-  color: var(--green);
-  background: rgba(22,163,74,0.08);
-  padding: 2px 8px;
-  border-radius: 10px;
-  font-size: 11px;
-  font-weight: 500;
-  display: inline-block;
-}
-.s-err {
-  color: var(--red);
-  background: rgba(220,38,38,0.08);
-  padding: 2px 8px;
-  border-radius: 10px;
-  font-size: 11px;
-  font-weight: 500;
-  display: inline-block;
-}
-.s-pen {
-  color: var(--muted);
-  background: rgba(163,163,163,0.12);
-  padding: 2px 8px;
-  border-radius: 10px;
-  font-size: 11px;
-  display: inline-block;
-}
-.s-run { color: var(--blue); }
-.td-clip { max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-/* ---- Log ---- */
-.log {
-  flex-shrink: 0;
-  height: 88px;
-  overflow-y: auto;
-  background: #0a0a0a;
-  color: #737373;
-  border-radius: 4px;
-  padding: 8px 12px;
-  font-family: var(--mono);
-  font-size: 11px;
-  line-height: 1.5;
-  margin-bottom: 12px;
-}
-.lok  { color: #4ade80; }
-.lerr { color: #f87171; }
-.lwrn { color: #fbbf24; }
-.linf { color: #60a5fa; }
-
-/* ---- SPICE preview ---- */
-.sp-wrap {
-  flex: 3;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-.sp-hd {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 0 6px;
-  flex-shrink: 0;
-}
-.sp-hd span {
-  font-size: 11px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--muted);
-}
-.copy-btn {
-  padding: 3px 10px;
-  background: #1a1a1a;
-  color: #737373;
-  border: 1px solid #2a2a2a;
-  border-radius: 3px;
-  font-size: 11px;
-  font-family: var(--sans);
-  cursor: pointer;
-}
-.copy-btn:hover { background: #262626; color: #e5e5e5; }
-.copy-btn.copied { background: #14532d; color: #bbf7d0; border-color: #14532d; }
-.sp-pre {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  background: #0a0a0a;
-  color: #e5e5e5;
-  padding: 12px 16px;
-  border-radius: 4px;
-  font-family: var(--mono);
-  font-size: 12px;
-  line-height: 1.5;
-  white-space: pre;
-}
-.sp-empty { color: #525252; font-style: italic; }
-
-/* ---- Spinner ---- */
-.spin {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border: 2px solid rgba(255,255,255,0.25);
-  border-top-color: #fff;
-  border-radius: 50%;
-  animation: rot 0.5s linear infinite;
-  vertical-align: middle;
-}
-@keyframes rot { to { transform: rotate(360deg); } }
-
-/* ---- Scrollbars (webkit) ---- */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #d4d4d4; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #a3a3a3; }
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{background:var(--bg);color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  font-size:13px;line-height:1.45;height:100%;overflow:hidden;}
+.topbar{height:48px;background:var(--panel);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;padding:0 20px;gap:20px;
+  position:fixed;top:0;left:0;right:0;z-index:100;}
+.brand{font-weight:700;font-size:15px;letter-spacing:-.02em;}
+.tabs{display:flex;gap:2px;height:100%;align-items:stretch;}
+.tab{display:flex;align-items:center;padding:0 16px;font-size:13px;font-weight:500;
+  color:var(--text-2);border-bottom:2px solid transparent;cursor:pointer;user-select:none;}
+.tab:hover{color:var(--text);}
+.tab.active{color:var(--text);border-bottom-color:var(--accent);}
+.spacer{flex:1;}
+.status-pill{font-size:11px;color:var(--text-2);background:var(--tint);
+  padding:4px 10px;border-radius:10px;border:1px solid var(--border);}
+.dbar{background:var(--panel);border-bottom:1px solid var(--border);
+  padding:10px 20px;display:flex;gap:12px;align-items:flex-end;
+  position:fixed;top:48px;left:0;right:0;z-index:99;}
+.fl{display:flex;flex-direction:column;gap:4px;}
+.fl-label{font-size:10px;font-weight:600;text-transform:uppercase;
+  letter-spacing:.06em;color:var(--text-3);}
+.fl select,.fl input[type=text]{height:30px;padding:0 8px;
+  border:1px solid var(--border-2);border-radius:4px;background:var(--panel);
+  font-size:13px;font-family:inherit;color:var(--text);}
+.fl select:focus,.fl input[type=text]:focus{
+  outline:2px solid rgba(23,23,23,.12);border-color:var(--accent);}
+.ctl{height:30px;padding:0 8px;border:1px solid var(--border-2);border-radius:4px;
+  background:var(--panel);display:flex;align-items:center;gap:5px;
+  cursor:pointer;min-width:280px;max-width:420px;overflow:hidden;position:relative;}
+.ctl:hover{background:#fafafa;}
+.chip{font-size:11px;background:var(--tag-bg);color:var(--tag-fg);
+  padding:2px 7px;border-radius:8px;white-space:nowrap;
+  font-family:"SF Mono",Menlo,monospace;}
+.chip-more{font-size:11px;color:var(--text-3);white-space:nowrap;}
+.caret{margin-left:auto;color:var(--text-3);font-size:9px;flex-shrink:0;}
+.cdrop{display:none;position:absolute;top:34px;left:0;min-width:360px;
+  background:var(--panel);border:1px solid var(--border);border-radius:6px;
+  box-shadow:0 8px 24px rgba(0,0,0,.08);z-index:200;}
+.cdrop.open{display:block;}
+.msearch{padding:8px;border-bottom:1px solid var(--border);
+  position:sticky;top:0;background:var(--panel);}
+.msearch input{width:100%;height:28px;padding:0 10px;
+  border:1px solid var(--border-2);border-radius:3px;font-size:12px;}
+.mlist{max-height:220px;overflow-y:auto;}
+.mitem{padding:7px 12px;font-size:12px;font-family:"SF Mono",Menlo,monospace;
+  cursor:pointer;display:flex;align-items:center;gap:8px;}
+.mitem:hover{background:var(--tint);}
+.mitem input[type=checkbox]{margin:0;cursor:pointer;}
+.main{position:fixed;top:104px;left:0;right:0;bottom:0;
+  display:grid;grid-template-columns:1fr 380px;overflow:hidden;}
+.main-full{grid-template-columns:1fr;}
+.panel{background:var(--panel);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;min-height:0;overflow:hidden;}
+.panel:last-child{border-right:none;}
+.ph{padding:11px 16px;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:8px;flex-shrink:0;}
+.pt{font-size:11px;font-weight:600;text-transform:uppercase;
+  letter-spacing:.08em;color:var(--text-2);}
+.pb{flex:1;overflow-y:auto;min-height:0;padding:14px 16px;}
+.pf{padding:10px 16px;border-top:1px solid var(--border);
+  display:flex;gap:8px;align-items:center;flex-shrink:0;}
+.btn{height:30px;padding:0 12px;border:1px solid var(--border-2);border-radius:4px;
+  background:var(--panel);font-size:12px;font-weight:500;color:var(--text);
+  cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;
+  gap:5px;white-space:nowrap;}
+.btn:hover{background:var(--tint);}
+.btn-primary{background:var(--accent);color:#fff;border-color:var(--accent);}
+.btn-primary:hover{background:var(--accent-h);border-color:var(--accent-h);}
+.btn-ghost{border-color:transparent;color:var(--text-2);}
+.btn-ghost:hover{background:var(--tint);color:var(--text);}
+.btn-sm{height:26px;padding:0 9px;font-size:11px;}
+.btn[disabled]{opacity:.38;cursor:not-allowed;pointer-events:none;}
+.atag{font-size:10px;padding:1px 6px;border-radius:8px;
+  background:var(--tag-bg);color:var(--tag-fg);
+  font-family:"SF Mono",Menlo,monospace;}
+.srow{display:flex;gap:8px;margin-bottom:10px;align-items:center;}
+.swrap{flex:1;position:relative;}
+.swrap input{width:100%;height:30px;padding:0 10px 0 30px;
+  border:1px solid var(--border-2);border-radius:4px;font-size:13px;font-family:inherit;}
+.swrap input:focus{outline:2px solid rgba(23,23,23,.12);border-color:var(--accent);}
+.sico{position:absolute;left:9px;top:8px;color:var(--text-3);font-size:13px;pointer-events:none;}
+.fbar{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:10px;}
+.fc{font-size:11px;padding:3px 10px;border:1px solid var(--border-2);border-radius:10px;
+  cursor:pointer;background:var(--panel);}
+.fc:hover{background:var(--tint);}
+.fc.on{background:var(--accent);color:#fff;border-color:var(--accent);}
+.clist{display:flex;flex-direction:column;}
+.crow{border-bottom:1px solid var(--border);}
+.crow:last-child{border-bottom:none;}
+.chead{padding:8px 4px;display:flex;align-items:center;gap:7px;cursor:pointer;}
+.chead:hover{background:var(--tint);}
+.twisty{width:14px;text-align:center;color:var(--text-3);font-size:9px;user-select:none;}
+.cname{font-family:"SF Mono",Menlo,monospace;font-size:12px;}
+.ctags{margin-left:auto;display:flex;gap:3px;flex-wrap:wrap;}
+.alist{margin:2px 0 6px 21px;border-left:2px solid var(--border);}
+.arow{padding:5px 10px;display:flex;align-items:center;gap:8px;
+  font-family:"SF Mono",Menlo,monospace;font-size:11px;color:var(--text-2);cursor:pointer;}
+.arow:hover{background:var(--tint);color:var(--text);}
+.adesc{flex:1;}
+.abtn{font-size:10px;font-weight:600;color:var(--accent);
+  border:1px solid var(--border-2);border-radius:3px;padding:2px 7px;white-space:nowrap;}
+.arow:hover .abtn{background:var(--accent);color:#fff;border-color:var(--accent);}
+.arow.inq{color:var(--text-3);}
+.arow.inq .abtn{background:#dcfce7;color:var(--ok);border-color:#bbf7d0;}
+.cell-loading{padding:24px;text-align:center;color:var(--text-3);font-size:12px;font-style:italic;}
+.qsl{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--text-3);margin:14px 0 6px;display:flex;align-items:center;gap:6px;}
+.qsl:first-child{margin-top:0;}
+.qrow{display:flex;align-items:center;gap:6px;padding:6px 4px;
+  border-bottom:1px solid var(--border);font-family:"SF Mono",Menlo,monospace;font-size:11px;}
+.qrow:last-child{border-bottom:none;}
+.qrow:hover{background:var(--tint);}
+.qtext{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-2);}
+.qx{width:18px;height:18px;display:flex;align-items:center;justify-content:center;
+  border-radius:3px;color:var(--text-3);font-size:14px;cursor:pointer;user-select:none;flex-shrink:0;}
+.qx:hover{background:var(--err);color:#fff;}
+.qempty{text-align:center;color:var(--text-3);font-size:12px;padding:24px 12px;font-style:italic;}
+.tprow{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+.tprow:last-child{margin-bottom:0;}
+.tpin{flex:1;height:28px;padding:0 8px;border:1px solid var(--border-2);
+  border-radius:4px;font-size:11px;font-family:"SF Mono",Menlo,monospace;color:var(--text);}
+.tpin:focus{outline:2px solid rgba(23,23,23,.12);border-color:var(--accent);}
+.tp-hint{font-size:10px;color:var(--text-3);margin-top:6px;margin-bottom:4px;}
+.qsum{background:var(--tint);border:1px solid var(--border);
+  border-radius:4px;padding:10px 12px;font-size:12px;}
+.qsrow{display:flex;align-items:center;justify-content:space-between;
+  padding:2px 0;color:var(--text-2);}
+.qsrow.total{border-top:1px solid var(--border-2);margin-top:6px;
+  padding-top:8px;color:var(--text);font-weight:600;}
+.qnum{font-family:"SF Mono",Menlo,monospace;}
+.rrow{display:flex;align-items:center;gap:6px;padding:7px 4px;
+  border-bottom:1px solid var(--border);cursor:pointer;}
+.rrow:last-child{border-bottom:none;}
+.rrow:hover{background:var(--tint);}
+.rico{font-size:13px;flex-shrink:0;}
+.rtxt{flex:1;overflow:hidden;min-width:0;}
+.rname{font-family:"SF Mono",Menlo,monospace;font-size:11px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.rmeta{font-size:10px;color:var(--text-3);margin-top:1px;}
+.rarrow{color:var(--text-3);font-size:11px;flex-shrink:0;}
+.rrow:hover .rarrow,.rrow.sel .rarrow{color:var(--text);}
+.rrow.sel{background:#f0f9ff;}
+.deck-ov{display:none;position:fixed;top:104px;left:0;right:380px;bottom:0;
+  background:var(--panel);z-index:50;flex-direction:column;
+  border-right:1px solid var(--border);}
+.deck-ov.open{display:flex;}
+.dvh{padding:11px 16px;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:10px;flex-shrink:0;}
+.dvtitle{font-family:"SF Mono",Menlo,monospace;font-size:12px;flex:1;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dvbody{flex:1;overflow:auto;padding:16px;background:#1a1a2e;}
+.dvbody pre{margin:0;font-family:"SF Mono",Menlo,monospace;font-size:11px;
+  color:#c9d1d9;line-height:1.6;white-space:pre;}
+.dgrid{display:grid;grid-template-columns:1fr 1fr;height:100%;}
+.dgrid .panel{border-right:1px solid var(--border);}
+.dgrid .panel:last-child{border-right:none;}
+.dta{width:100%;height:100%;border:none;resize:none;outline:none;
+  font-family:"SF Mono",Menlo,monospace;font-size:12px;padding:14px 16px;
+  line-height:1.6;background:var(--panel);color:var(--text);}
+.vi{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;}
+.vi .fl{flex:1;min-width:200px;}
+.vi .fl input{width:100%;font-family:"SF Mono",Menlo,monospace;font-size:12px;}
+.vcards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;}
+.vcard{border:1px solid var(--border);border-radius:6px;padding:12px 14px;background:var(--panel);}
+.vc-lbl{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3);}
+.vc-num{font-size:26px;font-weight:700;font-family:"SF Mono",Menlo,monospace;margin-top:4px;}
+.vc-num.ok{color:var(--ok);}.vc-num.warn{color:var(--warn);}.vc-num.err{color:var(--err);}
+table.vtbl{width:100%;border-collapse:collapse;font-size:12px;}
+table.vtbl th{text-align:left;font-size:10px;font-weight:600;text-transform:uppercase;
+  letter-spacing:.06em;color:var(--text-2);padding:8px 10px;
+  border-bottom:1px solid var(--border);background:#fafafa;position:sticky;top:0;}
+table.vtbl td{padding:8px 10px;border-bottom:1px solid var(--border);
+  font-family:"SF Mono",Menlo,monospace;}
+table.vtbl tr:hover td{background:var(--tint);}
+.l1{color:var(--ok);font-weight:600;}.l2{color:var(--warn);font-weight:600;}.l3{color:var(--err);font-weight:600;}
+.view-hidden{display:none!important;}
 </style>
 </head>
 <body>
-
 <div class="topbar">
-  <div class="topbar-brand">
-    <h1>DeckGen</h1>
-    <span class="ver">v0.3</span>
+  <div class="brand">DeckGen</div>
+  <div class="tabs">
+    <div class="tab active" onclick="showTab('explore')">Explore</div>
+    <div class="tab" onclick="showTab('direct')">Direct</div>
+    <div class="tab" onclick="showTab('validate')">Validate</div>
   </div>
-  <span class="desc">SPICE Deck Generator -- delay / slew / hold</span>
   <div class="spacer"></div>
-  <button class="btn btn-secondary" onclick="clearAll()">Clear</button>
-  <button class="btn btn-secondary" id="btn-prev" onclick="doPreview()">Preview</button>
-  <button class="btn btn-primary"   id="btn-run"  onclick="doRun()">Run Batch</button>
+  <div class="status-pill" id="statusPill">Loading&#x2026;</div>
 </div>
-
-<div class="main">
-
-  <!-- Left pane -->
-  <div class="pane-left">
-
-    <div class="sec-label">Collateral</div>
-    <div id="collateral-panel" class="col-panel">
-      <div class="col-panel-hd">
-        <strong>Collateral Mode</strong>
-        <span id="col-status"></span>
-        <button type="button" class="btn btn-ghost" onclick="togglecol()">toggle</button>
-      </div>
-      <div id="col-body" class="col-panel-bd" style="display:none;">
-        <div class="col-grid">
-          <div class="field">
-            <label>Node</label>
-            <select id="col-node"></select>
-          </div>
-          <div class="field">
-            <label>Library Type</label>
-            <select id="col-lib"></select>
-          </div>
-        </div>
-        <div class="field">
-          <label>Corners (multi-select)</label>
-          <select id="col-corners" multiple size="4"></select>
-        </div>
-        <div class="field">
-          <label>Cell (for Single Arc)</label>
-          <input type="text" id="col-cell" placeholder="DFFQ1">
-        </div>
-        <div class="col-actions">
-          <button type="button" class="btn btn-secondary" onclick="colRescan()">Rescan</button>
-          <button type="button" class="btn btn-secondary" onclick="colFillArcs()">Populate Arcs+Corners</button>
-          <button type="button" class="btn btn-secondary" onclick="colPreviewV2()">Preview v2</button>
-          <button type="button" class="btn btn-primary"   onclick="colGenerateV2()">Generate v2</button>
-        </div>
-        <pre id="col-results"></pre>
-      </div>
+<div class="dbar" id="dbar">
+  <div class="fl">
+    <span class="fl-label">Node</span>
+    <select id="selNode" onchange="onNodeChange()"></select>
+  </div>
+  <div class="fl">
+    <span class="fl-label">Library type</span>
+    <select id="selLibtype" onchange="onLibtypeChange()"></select>
+  </div>
+  <div class="fl" style="position:relative;">
+    <span class="fl-label">Corners (multi-select)</span>
+    <div class="ctl" onclick="toggleCornerMenu()">
+      <span id="cornerChips" style="display:flex;gap:4px;flex:1;overflow:hidden;">
+        <span style="color:var(--text-3);font-size:11px;">none selected</span>
+      </span>
+      <span class="caret">&#9660;</span>
     </div>
-
-    <div class="sec-label" style="margin-top:8px;">Validation</div>
-    <div class="card collapsed" id="val-card">
-      <div class="card-hd" onclick="tog(this)"><h2>Deck Validation (DeckGen vs MCQC)</h2><span class="tog">[expand]</span></div>
-      <div class="card-bd">
-        <p class="note">Compare a DeckGen output tree against MCQC output to check parity.</p>
-        <div class="field">
-          <label>DeckGen output root</label>
-          <input class="mono" type="text" id="val-dg" placeholder="/path/to/deckgen/lib/corner">
-        </div>
-        <div class="field">
-          <label>MCQC output root</label>
-          <input class="mono" type="text" id="val-mq" placeholder="/path/to/mcqc/root">
-        </div>
-        <div class="frow">
-          <div class="field">
-            <label>File</label>
-            <select id="val-file">
-              <option value="nominal_sim.sp">nominal_sim.sp</option>
-              <option value="mc_sim.sp">mc_sim.sp</option>
-            </select>
-          </div>
-          <div class="field">
-            <label>Arc types (optional)</label>
-            <input type="text" id="val-at" placeholder="delay hold mpw (blank=all)">
-          </div>
-        </div>
-        <div style="display:flex;gap:6px;align-items:center;">
-          <button class="btn btn-primary" id="btn-val" onclick="doValidate()">Run Validation</button>
-          <a id="val-report-link" href="#" target="_blank" style="display:none;font-size:12px;">Open Report</a>
-        </div>
-        <pre id="val-results" style="display:none;background:#0a0a0a;color:#e5e5e5;padding:10px 12px;border-radius:3px;font-family:var(--mono);font-size:11px;line-height:1.5;max-height:200px;overflow:auto;"></pre>
-      </div>
+    <div class="cdrop" id="cdrop">
+      <div class="msearch"><input type="text" id="cornerSearch" placeholder="Search corners&#x2026;" oninput="filterCorners()"></div>
+      <div class="mlist" id="cornerList"></div>
     </div>
-
-    <div class="sec-label" style="margin-top:8px;">Inputs</div>
-
-    <div class="card">
-      <div class="card-hd" onclick="tog(this)"><h2>Targets (arc identifiers)</h2><span class="tog">[collapse]</span></div>
-      <div class="card-bd">
-        <div class="field">
-          <label>One cell_arc_pt ID per line</label>
-          <textarea id="ta-arcs" rows="5"
-            placeholder="combinational_ND2MDLIMZD0P7BWP130HPNPN3P48CPD_ZN_rise_A1_fall_NO_CONDITION_4_4&#10;hold_DFFQ1_Q_rise_CP_rise_notSE_SI_3_2"
-            oninput="dArc()"></textarea>
-          <div class="st" id="st-arcs"></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-hd" onclick="tog(this)"><h2>Corners</h2><span class="tog">[collapse]</span></div>
-      <div class="card-bd">
-        <div class="field">
-          <label>One per line or comma-separated</label>
-          <textarea id="ta-corners" rows="3"
-            placeholder="ssgnp_0p450v_m40c&#10;ttgnp_0p800v_25c"
-            oninput="dCorn()"></textarea>
-          <div class="st" id="st-corners"></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-hd" onclick="tog(this)"><h2>Files</h2><span class="tog">[collapse]</span></div>
-      <div class="card-bd">
-        <div class="brow">
-          <div class="field"><label>Netlist directory</label><input class="mono" type="text" id="f-nd" placeholder="/path/to/netlists/"></div>
-          <input type="file" id="pk-nd" webkitdirectory style="display:none" onchange="fromPick('f-nd',this)">
-          <button class="browse-btn" onclick="document.getElementById('pk-nd').click()">Browse</button>
-        </div>
-        <div class="brow">
-          <div class="field"><label>Model file</label><input class="mono" type="text" id="f-model" placeholder="/path/to/model.spi"></div>
-          <input type="file" id="pk-model" style="display:none" onchange="fromPick('f-model',this)">
-          <button class="browse-btn" onclick="document.getElementById('pk-model').click()">Browse</button>
-        </div>
-        <div class="brow">
-          <div class="field"><label>Waveform file</label><input class="mono" type="text" id="f-wv" placeholder="/path/to/waveform.spi"></div>
-          <input type="file" id="pk-wv" style="display:none" onchange="fromPick('f-wv',this)">
-          <button class="browse-btn" onclick="document.getElementById('pk-wv').click()">Browse</button>
-        </div>
-        <div class="brow">
-          <div class="field"><label>Template.tcl dir (optional)</label><input class="mono" type="text" id="f-tcl" placeholder="/path/to/tcl/ (optional)"></div>
-          <input type="file" id="pk-tcl" webkitdirectory style="display:none" onchange="fromPick('f-tcl',this)">
-          <button class="browse-btn" onclick="document.getElementById('pk-tcl').click()">Browse</button>
-        </div>
-        <div class="field"><label>Output directory</label><input class="mono" type="text" id="f-out" value="./output"></div>
-      </div>
-    </div>
-
-    <div class="card collapsed">
-      <div class="card-hd" onclick="tog(this)"><h2>Overrides</h2><span class="tog">[expand]</span></div>
-      <div class="card-bd">
-        <div class="frow">
-          <div class="field"><label>VDD</label><input type="text" id="ov-vdd" placeholder="auto from corner"></div>
-          <div class="field"><label>Temp</label><input type="text" id="ov-temp" placeholder="auto from corner"></div>
-        </div>
-        <div class="frow">
-          <div class="field"><label>Slew</label><input type="text" id="ov-slew" placeholder="auto from tcl"></div>
-          <div class="field"><label>Load</label><input type="text" id="ov-load" placeholder="auto from tcl"></div>
-          <div class="field"><label>Max slew</label><input type="text" id="ov-mslew" placeholder="auto"></div>
-        </div>
-        <div class="frow">
-          <div class="field"><label>MC samples</label><input type="number" id="ov-samp" value="5000" min="1"></div>
-          <div class="field" style="justify-content:flex-end;align-items:flex-end;">
-            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;text-transform:none;font-weight:400;font-size:13px;color:var(--text-2);">
-              <input type="checkbox" id="ov-nom"> Nominal only
-            </label>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="card collapsed">
-      <div class="card-hd" onclick="tog(this)"><h2>Single Mode (manual fields)</h2><span class="tog">[expand]</span></div>
-      <div class="card-bd">
-        <p class="note">No identifier? Fill these fields to add a synthetic entry to Targets.</p>
-        <div class="frow">
-          <div class="field"><label>Cell</label><input type="text" id="sm-cell" placeholder="e.g. DFFQ1"></div>
-          <div class="field"><label>Arc type</label>
-            <select id="sm-at"><option value="hold">hold</option><option value="delay">delay</option><option value="slew">slew</option></select>
-          </div>
-        </div>
-        <div class="frow">
-          <div class="field"><label>Related pin</label><input type="text" id="sm-rp" placeholder="CP"></div>
-          <div class="field"><label>Rel dir</label>
-            <select id="sm-rd"><option value="rise">rise</option><option value="fall">fall</option></select>
-          </div>
-        </div>
-        <div class="frow">
-          <div class="field"><label>Probe pin</label><input type="text" id="sm-pp" placeholder="Q"></div>
-          <div class="field"><label>When</label><input type="text" id="sm-when" value="NO_CONDITION"></div>
-        </div>
-        <div style="display:flex;justify-content:flex-end;">
-          <button class="btn btn-secondary" onclick="addSingle()">Add to Targets</button>
-        </div>
-      </div>
-    </div>
-
-  </div><!-- end pane-left -->
-
-  <!-- Right pane -->
-  <div class="pane-right">
-
-    <div class="tbl-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th style="width:28px;"><input type="checkbox" id="chk-all" onchange="chkAll(this)"></th>
-            <th>#</th><th>Cell</th><th>Arc</th><th>Corner</th><th>Template</th>
-            <th>Slew</th><th>Load</th><th>Status</th>
-          </tr>
-        </thead>
-        <tbody id="tbody">
-          <tr><td colspan="9" style="text-align:center;padding:20px;color:var(--muted);font-style:italic;font-size:13px;">Click Preview or Run Batch to populate.</td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <div class="log" id="log">
-      <span class="linf">Ready. Enter identifiers and corners, then click Preview or Run Batch.</span>
-    </div>
-
-    <div class="sp-wrap">
-      <div class="sp-hd">
-        <span>SPICE Preview</span>
-        <button class="copy-btn" id="copy-btn" onclick="copySpice(this)">Copy</button>
-      </div>
-      <pre class="sp-pre" id="sp-pre"><span class="sp-empty">Select a row to preview its deck.</span></pre>
-    </div>
-
-  </div><!-- end pane-right -->
+  </div>
+  <div class="spacer"></div>
+  <button class="btn" onclick="doRescan()">Rescan</button>
 </div>
-
+<div class="main" id="view-explore">
+  <div class="panel">
+    <div class="ph">
+      <span class="pt">Cells &amp; Arcs</span>
+      <span class="status-pill" id="cellsCount" style="margin-left:4px;">&#x2014;</span>
+    </div>
+    <div class="pb">
+      <div class="srow">
+        <div class="swrap">
+          <span class="sico">&#9906;</span>
+          <input type="text" id="cellSearch" placeholder="Search cells&#x2026;" oninput="filterCells()">
+        </div>
+      </div>
+      <div class="fbar" id="arcFilters">
+        <div class="fc on" onclick="setArcFilter('all',this)">All</div>
+        <div class="fc" onclick="setArcFilter('hold',this)">hold</div>
+        <div class="fc" onclick="setArcFilter('setup',this)">setup</div>
+        <div class="fc" onclick="setArcFilter('combinational',this)">combinational</div>
+        <div class="fc" onclick="setArcFilter('recovery',this)">recovery</div>
+        <div class="fc" onclick="setArcFilter('removal',this)">removal</div>
+        <div class="fc" onclick="setArcFilter('mpw',this)">mpw</div>
+      </div>
+      <div class="clist" id="cellList">
+        <div class="cell-loading">Select a node and library type to load cells.</div>
+      </div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="ph">
+      <span class="pt">Queue</span>
+      <span class="status-pill" id="queueCount" style="margin-left:4px;">0 arcs</span>
+      <div class="spacer"></div>
+    </div>
+    <div class="pb" id="queueBody">
+      <div class="qsl">Selected arcs <div class="spacer"></div>
+        <button class="btn btn-sm btn-ghost" onclick="clearQueue()">Clear all</button>
+      </div>
+      <div id="arcQueueList"><div class="qempty">Add arcs from the left panel.</div></div>
+      <div class="qsl" id="tpSection" style="margin-top:18px;">Table points per arc-type</div>
+      <div class="tp-hint" id="tpHint">Enter (i1,i2) pairs &mdash; e.g. <code style="font-size:10px;">(1,1) (2,3) (4,4)</code></div>
+      <div id="tpInputs" style="margin-top:10px;display:flex;flex-direction:column;gap:8px;"></div>
+      <div class="qsl" id="qSummaryLabel" style="margin-top:18px;">Summary</div>
+      <div class="qsum" id="qSummary">
+        <div class="qsrow total"><span>0 arcs &times; 0 corners</span><span class="qnum">0 total</span></div>
+      </div>
+    </div>
+    <div class="pf" id="queueFooter">
+      <div class="spacer"></div>
+      <button class="btn" onclick="doPreview()">Preview</button>
+      <button class="btn btn-primary" id="btnGenerate" onclick="doGenerate()">Generate</button>
+    </div>
+    <div class="pb view-hidden" id="resultsBody">
+      <div class="qsl">Generated decks
+        <div class="spacer"></div>
+        <button class="btn btn-sm btn-ghost" onclick="showQueueView()">&larr; Back</button>
+      </div>
+      <div id="genStatus" style="font-size:11px;color:var(--text-2);margin-bottom:10px;"></div>
+      <div id="resultList"></div>
+    </div>
+    <div class="pf view-hidden" id="resultsFooter">
+      <button class="btn btn-sm btn-ghost" onclick="copyAllPaths()">Copy all paths</button>
+      <div class="spacer"></div>
+    </div>
+  </div>
+</div>
+<div class="deck-ov" id="deckOv">
+  <div class="dvh">
+    <span class="pt">Deck</span>
+    <span class="dvtitle" id="dvTitle">&#x2014;</span>
+    <button class="btn btn-sm btn-ghost" onclick="closeDeck()">&#215; Close</button>
+    <button class="btn btn-sm" onclick="copyDeck()">Copy</button>
+  </div>
+  <div class="dvbody"><pre id="dvContent"></pre></div>
+</div>
+<div class="main view-hidden" id="view-direct">
+  <div class="dgrid">
+    <div class="panel" style="border-right:1px solid var(--border);">
+      <div class="ph">
+        <span class="pt">cell_arc_pt identifiers</span>
+        <span class="status-pill" style="margin-left:4px;">one per line</span>
+        <div class="spacer"></div>
+        <button class="btn btn-sm" onclick="directLoadFile()">Load file&hellip;</button>
+        <button class="btn btn-sm btn-ghost" onclick="directClear()">Clear</button>
+        <input type="file" id="directFile" accept=".txt" style="display:none" onchange="directFileChosen(event)">
+      </div>
+      <div style="flex:1;min-height:0;display:flex;flex-direction:column;">
+        <textarea class="dta" id="directTA" spellcheck="false" oninput="directParse()"></textarea>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="ph">
+        <span class="pt">Parsed summary</span>
+        <span class="status-pill" id="directPill" style="margin-left:4px;">&#x2014;</span>
+      </div>
+      <div class="pb" id="directSummary">
+        <div class="qempty">Paste identifiers or load a file to begin.</div>
+      </div>
+      <div class="pf">
+        <div class="spacer"></div>
+        <button class="btn" onclick="directPreview()">Preview</button>
+        <button class="btn btn-primary" onclick="directGenerate()">Generate</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="main main-full view-hidden" id="view-validate">
+  <div class="panel">
+    <div class="ph">
+      <span class="pt">Validate DeckGen vs MCQC</span>
+      <div class="spacer"></div>
+      <button class="btn btn-sm" onclick="runValidation()">Run validation</button>
+      <button class="btn btn-sm btn-ghost" onclick="exportHtml()">Export HTML report</button>
+    </div>
+    <div class="pb">
+      <div class="vi">
+        <div class="fl">
+          <span class="fl-label">DeckGen output root</span>
+          <input type="text" id="vDeckgenRoot" placeholder="./output/libtype/corner">
+        </div>
+        <div class="fl">
+          <span class="fl-label">MCQC output root</span>
+          <input type="text" id="vMcqcRoot" placeholder="/server/mcqc_run/.../corner">
+        </div>
+        <div class="fl" style="min-width:160px;max-width:200px;">
+          <span class="fl-label">File</span>
+          <select id="vFile"><option>nominal_sim.sp</option><option>mc_sim.sp</option></select>
+        </div>
+      </div>
+      <div class="vcards">
+        <div class="vcard"><div class="vc-lbl">Total pairs</div><div class="vc-num" id="vTotal">&#x2014;</div></div>
+        <div class="vcard"><div class="vc-lbl">Identical (L1)</div><div class="vc-num ok" id="vL1">&#x2014;</div></div>
+        <div class="vcard"><div class="vc-lbl">Normalized (L2)</div><div class="vc-num warn" id="vL2">&#x2014;</div></div>
+        <div class="vcard"><div class="vc-lbl">Different (L3)</div><div class="vc-num err" id="vL3">&#x2014;</div></div>
+      </div>
+      <div class="fbar" id="vFilters">
+        <div class="fc on" onclick="setVFilter('all',this)">All</div>
+        <div class="fc" onclick="setVFilter('l3',this)">L3 only</div>
+        <div class="fc" onclick="setVFilter('hold',this)">hold</div>
+        <div class="fc" onclick="setVFilter('combinational',this)">combinational</div>
+        <div class="fc" onclick="setVFilter('mpw',this)">mpw</div>
+      </div>
+      <div style="overflow-y:auto;">
+        <table class="vtbl" id="vTable">
+          <thead><tr>
+            <th>Type</th><th>Arc identifier</th><th>Level</th>
+            <th>Top diff class</th><th>Lines diff</th><th></th>
+          </tr></thead>
+          <tbody id="vTbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
 <script>
-'use strict';
-var SKEY = 'deckgen_v3';
-
-// Card toggle
-function tog(hd) {
-  var card = hd.parentElement;
-  card.classList.toggle('collapsed');
-  hd.querySelector('.tog').textContent = card.classList.contains('collapsed') ? '[expand]' : '[collapse]';
-}
-
-// File picker (browser can't expose full path; show what we get)
-function fromPick(id, inp) {
-  if (!inp.files || !inp.files.length) return;
-  var f = inp.files[0];
-  var p = f.webkitRelativePath || f.name || '';
-  document.getElementById(id).value = p;
-}
-
-// Debounced live parse
-var arcT = null, cornT = null;
-function dArc()  { clearTimeout(arcT);  arcT  = setTimeout(parseArcs,  300); }
-function dCorn() { clearTimeout(cornT); cornT = setTimeout(parseCorners,300); }
-
-async function parseArcs() {
-  var text = document.getElementById('ta-arcs').value;
-  var st = document.getElementById('st-arcs');
-  if (!text.trim()) { st.textContent = ''; return; }
-  try {
-    var r = await pj('/api/parse_arcs', {text: text});
-    var ok = (r.arcs||[]).length, bad = (r.errors||[]).length;
-    st.textContent = ok + ' valid' + (bad ? ', ' + bad + ' invalid' : '');
-    st.className = 'st ' + (bad ? 'st-err' : 'st-ok');
-  } catch(e) { st.textContent = ''; }
-}
-
-async function parseCorners() {
-  var text = document.getElementById('ta-corners').value;
-  var st = document.getElementById('st-corners');
-  if (!text.trim()) { st.textContent = ''; return; }
-  try {
-    var r = await pj('/api/parse_corners', {text: text});
-    var ok = (r.corners||[]).length, bad = (r.errors||[]).length;
-    st.textContent = ok + ' valid' + (bad ? ', ' + bad + ' invalid' : '');
-    st.className = 'st ' + (bad ? 'st-err' : 'st-ok');
-  } catch(e) { st.textContent = ''; }
-}
-
-// Collect form state into payload
-function payload() {
-  var arcIds = document.getElementById('ta-arcs').value
-    .split('\n').map(function(s){return s.trim();}).filter(Boolean);
-  var cornText = document.getElementById('ta-corners').value;
-  var cornNames = cornText.split(/[\n,;]+/).map(function(s){return s.trim();}).filter(Boolean);
-  var ov = {};
-  var vdd = v('ov-vdd'), temp = v('ov-temp'), slew = v('ov-slew'),
-      load = v('ov-load'), ms = v('ov-mslew');
-  if (vdd) ov.vdd = vdd;
-  if (temp) ov.temperature = temp;
-  if (slew) ov.slew = slew;
-  if (load) ov.load = load;
-  if (ms)   ov.max_slew = ms;
-  return {
-    arc_ids:         arcIds,
-    corner_names:    cornNames,
-    netlist_dir:     v('f-nd'),
-    model:           v('f-model'),
-    waveform:        v('f-wv'),
-    template_tcl_dir: v('f-tcl'),
-    output_dir:      v('f-out') || './output',
-    overrides:       ov,
-    num_samples:     parseInt(document.getElementById('ov-samp').value)||5000,
-    nominal_only:    document.getElementById('ov-nom').checked,
-  };
-}
-function v(id) { var el=document.getElementById(id); return el ? el.value.trim() : ''; }
-
-// Preview
-async function doPreview() {
-  var p = payload();
-  if (!p.arc_ids.length)    { addLog('wrn','No arc identifiers.'); return; }
-  if (!p.corner_names.length){ addLog('wrn','No corners.'); return; }
-  setBusy('btn-prev', true, 'Previewing...');
-  addLog('inf','Resolving ' + p.arc_ids.length + ' arc(s) x ' + p.corner_names.length + ' corner(s)...');
-  clearTbl();
-  try {
-    var r = await pj('/api/preview_batch', p);
-    (r.errors||[]).forEach(function(e){ addLog('err',e); });
-    fillTbl(r.jobs||[], false);
-    addLog('ok','Preview: ' + (r.jobs||[]).length + ' job(s) resolved.');
-    save();
-  } catch(e) {
-    addLog('err','Preview failed: ' + e.message);
-  } finally {
-    setBusy('btn-prev', false, 'Preview');
-  }
-}
-
-// Run batch
-async function doRun() {
-  var p = payload();
-  if (!p.arc_ids.length)    { addLog('wrn','No arc identifiers.'); return; }
-  if (!p.corner_names.length){ addLog('wrn','No corners.'); return; }
-  setBusy('btn-run', true, 'Running...');
-  addLog('inf','Batch: ' + p.arc_ids.length + ' arc(s) x ' + p.corner_names.length + ' corner(s)');
-  clearTbl();
-
-  // Phase 1: preview to show jobs
-  try {
-    var prev = await pj('/api/preview_batch', p);
-    (prev.errors||[]).forEach(function(e){ addLog('err',e); });
-    fillTbl(prev.jobs||[], true);
-  } catch(e) {
-    addLog('err','Resolution failed: ' + e.message);
-    setBusy('btn-run', false, 'Run Batch');
-    return;
-  }
-
-  // Phase 2: generate, stream results
-  var selIds = getSelIds();
-  var rp = Object.assign({}, p, {selected_ids: selIds.length ? selIds : null});
-  try {
-    var resp = await fetch('/api/generate_batch', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(rp)
-    });
-    var reader = resp.body.getReader();
-    var dec = new TextDecoder();
-    var buf = '';
-    while (true) {
-      var chunk = await reader.read();
-      if (chunk.done) break;
-      buf += dec.decode(chunk.value, {stream: true});
-      var lines = buf.split('\n');
-      buf = lines.pop();
-      lines.forEach(function(ln) {
-        ln = ln.trim();
-        if (!ln) return;
-        try {
-          var res = JSON.parse(ln);
-          updRow(res);
-          if (res.success) addLog('ok','[' + res.id + '] ' + (res.nominal||''));
-          else             addLog('err','[' + res.id + '] ' + (res.error||'failed'));
-        } catch(pe) {}
-      });
-    }
-    addLog('ok','Batch complete.');
-    save();
-  } catch(e) {
-    addLog('err','Run failed: ' + e.message);
-  } finally {
-    setBusy('btn-run', false, 'Run Batch');
-  }
-}
-
-// Table helpers
-function clearTbl() {
-  document.getElementById('tbody').innerHTML =
-    '<tr><td colspan="9" style="text-align:center;padding:14px;color:#94a3b8;font-style:italic;">Loading...</td></tr>';
-  document.getElementById('sp-pre').innerHTML = '<span class="sp-empty">Select a row to preview its deck.</span>';
-}
-
-function fillTbl(jobs, pending) {
-  var tb = document.getElementById('tbody');
-  if (!jobs.length) {
-    tb.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:14px;color:#94a3b8;font-style:italic;">No jobs resolved.</td></tr>';
-    return;
-  }
-  tb.innerHTML = '';
-  jobs.forEach(function(job) {
-    var tr = document.createElement('tr');
-    tr.id = 'row-' + job.id;
-    tr.dataset.jobId = job.id;
-    tr.dataset.job   = JSON.stringify(job);
-    tr.onclick = function() { selRow(tr, job); };
-    var sc = job.error ? 's-err' : (pending ? 's-pen' : 's-ok');
-    var st = job.error ? 'error' : (pending ? 'pending' : 'ready');
-    var arc = (job.probe_pin||'') + ' ' + (job.probe_dir||'') + ' / ' + (job.rel_pin||'') + ' ' + (job.rel_dir||'');
-    var tpl = job.template ? job.template.split('/').pop() : '--';
-    tr.innerHTML =
-      '<td><input type="checkbox" class="rchk" checked onclick="rChk(event)"></td>' +
-      '<td>' + job.id + '</td>' +
-      '<td class="td-clip" title="' + esc(job.cell||'') + '">' + esc(job.cell||'') + '</td>' +
-      '<td class="td-clip" title="' + esc(arc) + '">' + esc(arc) + '</td>' +
-      '<td>' + esc(job.corner||'') + '</td>' +
-      '<td class="td-clip" title="' + esc(job.template||'') + '">' + esc(tpl) + '</td>' +
-      '<td>' + (job.rel_slew||'--') + '</td>' +
-      '<td>' + (job.output_load||'--') + '</td>' +
-      '<td class="' + sc + '">' + st + '</td>';
-    tb.appendChild(tr);
-  });
-}
-
-function updRow(result) {
-  var tr = document.getElementById('row-' + result.id);
-  if (!tr) return;
-  var cells = tr.querySelectorAll('td');
-  var sc = cells[cells.length-1];
-  if (result.success) {
-    sc.textContent = 'ok'; sc.className = 's-ok';
-    tr.dataset.nominal = result.nominal || '';
-    tr.dataset.mc      = result.mc || '';
-  } else {
-    sc.textContent = 'fail'; sc.className = 's-err';
-    tr.dataset.error = result.error || '';
-  }
-}
-
-function selRow(tr, job) {
-  document.querySelectorAll('#tbody tr').forEach(function(r){r.classList.remove('sel');});
-  tr.classList.add('sel');
-  showPreview(job);
-}
-
-async function showPreview(job) {
-  document.getElementById('sp-pre').textContent = 'Loading...';
-  try {
-    var r = await pj('/api/preview_one', {job: job});
-    if (r.success) document.getElementById('sp-pre').textContent = r.deck;
-    else           document.getElementById('sp-pre').textContent = 'Error: ' + r.error;
-  } catch(e) {
-    document.getElementById('sp-pre').textContent = 'Error: ' + e.message;
-  }
-}
-
-function getSelIds() {
-  return Array.from(document.querySelectorAll('.rchk:checked'))
-    .map(function(c){ return parseInt(c.closest('tr').dataset.jobId); })
-    .filter(Boolean);
-}
-function chkAll(chk) { document.querySelectorAll('.rchk').forEach(function(c){c.checked=chk.checked;}); }
-function rChk(e) {
-  e.stopPropagation();
-  var all = document.querySelectorAll('.rchk').length;
-  var chk = document.querySelectorAll('.rchk:checked').length;
-  var ca = document.getElementById('chk-all');
-  ca.indeterminate = chk > 0 && chk < all;
-  ca.checked = chk === all;
-}
-
-// Single mode -> add to targets
-function addSingle() {
-  var cell = v('sm-cell');
-  if (!cell) { addLog('wrn','Cell required in Single Mode.'); return; }
-  var at   = document.getElementById('sm-at').value;
-  var rp   = v('sm-rp') || 'CP';
-  var rd   = document.getElementById('sm-rd').value;
-  var pp   = v('sm-pp') || 'Q';
-  var when = v('sm-when') || 'NO_CONDITION';
-  var id = at + '_' + cell + '_' + pp + '_rise_' + rp + '_' + rd + '_' + when.replace(/!/g,'not').replace(/&/g,'_') + '_1_1';
-  var ta = document.getElementById('ta-arcs');
-  ta.value = ta.value ? ta.value.trimEnd() + '\n' + id : id;
-  dArc();
-  addLog('inf','Added: ' + id);
-}
-
-// Helpers
-function setBusy(id, busy, lbl) {
-  var btn = document.getElementById(id);
-  btn.disabled = busy;
-  btn.innerHTML = busy ? '<span class="spin"></span>' + lbl : lbl;
-}
-
-function addLog(kind, msg) {
-  var log = document.getElementById('log');
-  var sp = document.createElement('span');
-  var cls = {ok:'lok', err:'lerr', wrn:'lwrn', inf:'linf'}[kind] || '';
-  sp.className = cls; sp.textContent = msg;
-  log.appendChild(document.createTextNode('\n'));
-  log.appendChild(sp);
-  log.scrollTop = log.scrollHeight;
-}
-
-function clearAll() {
-  document.getElementById('ta-arcs').value = '';
-  document.getElementById('ta-corners').value = '';
-  document.getElementById('st-arcs').textContent = '';
-  document.getElementById('st-corners').textContent = '';
-  clearTbl();
-  document.getElementById('log').innerHTML = '<span class="linf">Cleared.</span>';
-}
-
-function copySpice(btn) {
-  var text = document.getElementById('sp-pre').textContent;
-  navigator.clipboard.writeText(text).then(function() {
-    btn.className = 'copy-btn copied'; btn.textContent = 'Copied!';
-    setTimeout(function(){ btn.className = 'copy-btn'; btn.textContent = 'Copy'; }, 1400);
-  });
-}
-
-function esc(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-async function pj(url, body) {
-  var r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
-  if (!r.ok) throw new Error('HTTP ' + r.status);
-  return r.json();
-}
-
-// Persistence
-function save() {
-  try {
-    localStorage.setItem(SKEY, JSON.stringify({
-      arcs:    document.getElementById('ta-arcs').value,
-      corners: document.getElementById('ta-corners').value,
-      nd:      v('f-nd'), model: v('f-model'), wv: v('f-wv'),
-      tcl:     v('f-tcl'), out: v('f-out')
-    }));
-  } catch(e) {}
-}
-
-window.addEventListener('load', function() {
-  try {
-    var s = JSON.parse(localStorage.getItem(SKEY)||'{}');
-    if (s.arcs)    document.getElementById('ta-arcs').value    = s.arcs;
-    if (s.corners) document.getElementById('ta-corners').value = s.corners;
-    if (s.nd)    document.getElementById('f-nd').value    = s.nd;
-    if (s.model) document.getElementById('f-model').value = s.model;
-    if (s.wv)    document.getElementById('f-wv').value    = s.wv;
-    if (s.tcl)   document.getElementById('f-tcl').value   = s.tcl;
-    if (s.out)   document.getElementById('f-out').value   = s.out;
-    if (s.arcs)    dArc();
-    if (s.corners) dCorn();
-  } catch(e) {}
-});
-
-// ---------------------------------------------------------------------------
-// Collateral Mode panel
-// ---------------------------------------------------------------------------
-
-async function pjv2(path, body) {
-  var r = await fetch(path, {method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(body || {})});
-  return r.json();
-}
-
-async function colRefreshNodes() {
-  var r = await pjv2('/api/nodes', {});
-  var sel = document.getElementById('col-node');
-  sel.innerHTML = '';
-  (r.nodes || []).forEach(function(n) {
-    var o = document.createElement('option');
-    o.value = o.textContent = n;
-    sel.appendChild(o);
-  });
-  if ((r.nodes || []).length) {
-    sel.value = r.nodes[0];
-    colRefreshLibs();
-  }
-}
-
-async function colRefreshLibs() {
-  var node = document.getElementById('col-node').value;
-  var r = await pjv2('/api/lib_types', {node: node});
-  var sel = document.getElementById('col-lib');
-  sel.innerHTML = '';
-  (r.lib_types || []).forEach(function(l) {
-    var o = document.createElement('option');
-    o.value = o.textContent = l;
-    sel.appendChild(o);
-  });
-  if ((r.lib_types || []).length) {
-    sel.value = r.lib_types[0];
-    colRefreshCorners();
-  }
-}
-
-async function colRefreshCorners() {
-  var node = document.getElementById('col-node').value;
-  var lib  = document.getElementById('col-lib').value;
-  var rc = await pjv2('/api/corners', {node: node, lib_type: lib});
-  var rk = await pjv2('/api/cells',   {node: node, lib_type: lib});
-  var sel = document.getElementById('col-corners');
-  sel.innerHTML = '';
-  (rc.corners || []).forEach(function(c) {
-    var o = document.createElement('option');
-    o.value = o.textContent = c;
-    sel.appendChild(o);
-  });
-  document.getElementById('col-status').textContent =
-    (rc.corners || []).length + ' corners / ' + (rk.cells || []).length + ' cells';
-}
-
-async function colRescan() {
-  var node = document.getElementById('col-node').value;
-  var lib  = document.getElementById('col-lib').value;
-  document.getElementById('col-status').textContent = 'Rescanning...';
-  var r = await pjv2('/api/rescan', {node: node, lib_type: lib});
-  document.getElementById('col-status').textContent =
-    r.ok ? 'Rescan complete' : ('Rescan failed: ' + (r.error || ''));
-  colRefreshCorners();
-}
-
-function colFillArcs() {
-  var selected = Array.from(document.getElementById('col-corners').selectedOptions)
-    .map(function(o){return o.value;});
-  var cornerArea = document.getElementById('ta-corners') ||
-                   document.querySelector('textarea[name="corners"]');
-  if (cornerArea) cornerArea.value = selected.join('\n');
-  document.getElementById('col-status').textContent =
-    'Populated ' + selected.length + ' corners';
-}
-
-async function colPreviewV2() {
-  var body = collectCollateralBody();
-  document.getElementById('col-results').style.display = 'block';
-  document.getElementById('col-results').textContent = 'Previewing...';
-  var r = await pjv2('/api/preview_v2', body);
-  document.getElementById('col-results').textContent = JSON.stringify(r, null, 2);
-}
-
-async function colGenerateV2() {
-  var body = collectCollateralBody();
-  document.getElementById('col-results').style.display = 'block';
-  document.getElementById('col-results').textContent = 'Generating...';
-  var r = await pjv2('/api/generate_v2', body);
-  document.getElementById('col-results').textContent = JSON.stringify(r, null, 2);
-}
-
-function collectCollateralBody() {
-  var node = document.getElementById('col-node').value;
-  var lib  = document.getElementById('col-lib').value;
-  var corners = Array.from(document.getElementById('col-corners').selectedOptions)
-    .map(function(o){return o.value;});
-  var arcArea = document.getElementById('ta-arcs') ||
-                document.querySelector('textarea[name="arcs"]');
-  var arc_ids = [];
-  if (arcArea) {
-    arc_ids = arcArea.value.split('\n').map(function(s){return s.trim();}).filter(Boolean);
-  }
-  var outputEl = document.getElementById('f-out') ||
-                 document.querySelector('input[name="output"]');
-  var output = outputEl ? outputEl.value : './output';
-  return {
-    mode: 'batch', node: node, lib_type: lib,
-    corners: corners, arc_ids: arc_ids, output: output,
-    cell: document.getElementById('col-cell').value,
-  };
-}
-
-function togglecol() {
-  var b = document.getElementById('col-body');
-  b.style.display = (b.style.display === 'none') ? 'block' : 'none';
-}
-
-(function(){
-  var onReady = function() { colRefreshNodes(); };
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', onReady);
-  } else {
-    onReady();
-  }
-  setTimeout(function(){
-    var n = document.getElementById('col-node');
-    var l = document.getElementById('col-lib');
-    if (n) n.addEventListener('change', colRefreshLibs);
-    if (l) l.addEventListener('change', colRefreshCorners);
-  }, 100);
-})();
-
-// ---------------------------------------------------------------------------
-// Validation panel
-// ---------------------------------------------------------------------------
-
-async function doValidate() {
-  var dg = document.getElementById('val-dg').value.trim();
-  var mq = document.getElementById('val-mq').value.trim();
-  if (!dg || !mq) { addLog('wrn', 'Set DeckGen and MCQC roots first.'); return; }
-  var file = document.getElementById('val-file').value;
-  var atRaw = document.getElementById('val-at').value.trim();
-  var arcTypes = atRaw ? atRaw.split(/[\s,]+/).filter(Boolean) : [];
-  var res = document.getElementById('val-results');
-  res.style.display = 'block';
-  res.textContent = 'Running validation...';
-  document.getElementById('btn-val').disabled = true;
-  try {
-    var r = await pj('/api/validate', {
-      deckgen_root: dg, mcqc_root: mq,
-      file: file, arc_types: arcTypes, max_detail: 100
-    });
-    if (r.ok && r.report) {
-      var s = r.report.summary || {};
-      var lines = [
-        'Total pairs:  ' + s.total,
-        'Identical:    ' + s.identical,
-        'Different:    ' + s.different,
-      ];
-      Object.keys(r.report.arc_types || {}).forEach(function(at) {
-        var d = r.report.arc_types[at];
-        lines.push('');
-        lines.push('[' + at + '] pairs=' + d.total_pairs +
-          ' L1=' + d.level1_identical +
-          ' L2=' + d.level2_identical +
-          ' L3=' + d.level3_only_diffs +
-          ' orphans_dg=' + (d.orphans_deckgen||[]).length +
-          ' orphans_mq=' + (d.orphans_mcqc||[]).length);
-      });
-      res.textContent = lines.join('\n');
-      addLog('ok', 'Validation done: ' + s.total + ' pairs, ' + s.different + ' diffs.');
-      // Request HTML report path
-      try {
-        var hr = await pj('/api/validate_html', {
-          deckgen_root: dg, mcqc_root: mq,
-          file: file, arc_types: arcTypes, max_detail: 100
-        });
-        if (hr.html_path) {
-          var link = document.getElementById('val-report-link');
-          link.href = '/api/validate_html_serve?path=' + encodeURIComponent(hr.html_path);
-          link.style.display = '';
-        }
-      } catch(e) {}
-    } else {
-      res.textContent = 'Error: ' + (r.error || JSON.stringify(r));
-      addLog('err', 'Validation failed: ' + (r.error || ''));
-    }
-  } catch(e) {
-    res.textContent = 'Error: ' + e.message;
-    addLog('err', 'Validation error: ' + e.message);
-  } finally {
-    document.getElementById('btn-val').disabled = false;
-  }
-}
+var S={node:'',libtype:'',corners:[],selCorners:new Set(),cells:[],arcCache:{},
+  queue:[],arcFilter:'all',cellFilter:'',results:[],lastDeckPath:'',
+  vResults:[],vFilter:'all'};
+function showTab(name){
+  ['explore','direct','validate'].forEach(function(n){
+    document.getElementById('view-'+n).classList.toggle('view-hidden',n!==name);});
+  document.querySelectorAll('.tab').forEach(function(t,i){
+    t.classList.toggle('active',['explore','direct','validate'][i]===name);});
+  document.getElementById('dbar').style.display=name==='validate'?'none':'flex';
+  closeDeck();}
+function post(url,body){return fetch(url,{method:'POST',
+  headers:{'Content-Type':'application/json'},body:JSON.stringify(body)
+  }).then(function(r){return r.json();});}
+function loadNodes(){post('/api/nodes',{}).then(function(d){
+  var sel=document.getElementById('selNode');sel.innerHTML='';
+  (d.nodes||[]).forEach(function(n){var o=document.createElement('option');
+    o.value=o.textContent=n;sel.appendChild(o);});
+  if(d.nodes&&d.nodes.length){S.node=d.nodes[0];loadLibtypes();}
+  else updateStatusPill();}).catch(function(){updateStatusPill();});}
+function onNodeChange(){S.node=document.getElementById('selNode').value;
+  S.libtype='';S.selCorners=new Set();S.cells=[];S.arcCache={};loadLibtypes();}
+function loadLibtypes(){post('/api/lib_types',{node:S.node}).then(function(d){
+  var sel=document.getElementById('selLibtype');sel.innerHTML='';
+  (d.lib_types||[]).forEach(function(lt){var o=document.createElement('option');
+    o.value=o.textContent=lt;sel.appendChild(o);});
+  if(d.lib_types&&d.lib_types.length){S.libtype=d.lib_types[0];loadCorners();}
+  else updateStatusPill();});}
+function onLibtypeChange(){S.libtype=document.getElementById('selLibtype').value;
+  S.selCorners=new Set();S.cells=[];S.arcCache={};loadCorners();}
+function loadCorners(){post('/api/corners',{node:S.node,lib_type:S.libtype}).then(function(d){
+  S.corners=d.corners||[];S.selCorners=new Set(S.corners);
+  renderCornerChips();renderCornerMenu();loadCells();});}
+function renderCornerChips(){var el=document.getElementById('cornerChips');
+  var sel=Array.from(S.selCorners);
+  if(!sel.length){el.innerHTML='<span style="color:var(--text-3);font-size:11px;">none selected</span>';return;}
+  var html='';
+  sel.slice(0,2).forEach(function(c){
+    var short=c.split('_').slice(0,3).join('_');
+    html+='<span class="chip">'+short+'</span>';});
+  if(sel.length>2)html+='<span class="chip-more">+'+(sel.length-2)+' more</span>';
+  el.innerHTML=html;}
+function renderCornerMenu(){var list=document.getElementById('cornerList');
+  list.innerHTML='';
+  S.corners.forEach(function(c){
+    var div=document.createElement('div');div.className='mitem';
+    var chk=document.createElement('input');chk.type='checkbox';chk.checked=S.selCorners.has(c);
+    chk.addEventListener('change',function(){
+      if(this.checked)S.selCorners.add(c);else S.selCorners.delete(c);
+      renderCornerChips();updateStatusPill();renderQueue();});
+    div.appendChild(chk);div.appendChild(document.createTextNode(c));list.appendChild(div);});}
+function filterCorners(){var q=document.getElementById('cornerSearch').value.toLowerCase();
+  document.querySelectorAll('#cornerList .mitem').forEach(function(el){
+    el.style.display=el.textContent.toLowerCase().includes(q)?'':'none';});}
+function toggleCornerMenu(){document.getElementById('cdrop').classList.toggle('open');}
+document.addEventListener('click',function(e){
+  if(!e.target.closest('.fl'))document.getElementById('cdrop').classList.remove('open');});
+function doRescan(){post('/api/rescan',{node:S.node,lib_type:S.libtype}).then(function(){loadCells();});}
+function updateStatusPill(){var pill=document.getElementById('statusPill');
+  var nc=document.getElementById('cellsCount');
+  var n=S.node||'--';var lt=S.libtype?S.libtype.split('_').slice(-1)[0]:'--';
+  var c=S.selCorners.size;var cells=S.cells?S.cells.length:0;
+  pill.textContent=n+' / '+lt+' / '+c+' corners / '+cells+' cells';
+  if(nc)nc.textContent=cells+' cells';}
+function loadCells(){document.getElementById('cellList').innerHTML='<div class="cell-loading">Loading cells...</div>';
+  post('/api/cells',{node:S.node,lib_type:S.libtype}).then(function(d){
+    S.cells=d.cells||[];S.arcCache={};updateStatusPill();renderCells();});}
+function filterCells(){S.cellFilter=document.getElementById('cellSearch').value.toLowerCase();renderCells();}
+function setArcFilter(type,el){S.arcFilter=type;
+  document.querySelectorAll('.fbar .fc').forEach(function(c){c.classList.remove('on');});
+  el.classList.add('on');renderCells();}
+function renderCells(){var list=document.getElementById('cellList');
+  var filtered=S.cells.filter(function(c){
+    var name=(typeof c==='string')?c:c.name;
+    return !S.cellFilter||name.toLowerCase().includes(S.cellFilter);});
+  if(!filtered.length){list.innerHTML='<div class="cell-loading">No cells match.</div>';return;}
+  list.innerHTML='';
+  filtered.forEach(function(c){
+    var name=(typeof c==='string')?c:c.name;
+    var counts=(typeof c==='object'&&c.arc_counts)?c.arc_counts:{};
+    var row=document.createElement('div');row.className='crow';
+    var tagsHtml='';
+    Object.keys(counts).forEach(function(t){
+      if(S.arcFilter==='all'||S.arcFilter===t)
+        tagsHtml+='<span class="atag">'+t+':'+counts[t]+'</span>';});
+    row.innerHTML='<div class="chead" data-cell="'+encodeURIComponent(name)+'">'+
+      '<span class="twisty">&#9654;</span>'+
+      '<span class="cname">'+name+'</span>'+
+      '<div class="ctags">'+tagsHtml+'</div></div>';
+    row.querySelector('.chead').addEventListener('click',function(){
+      toggleCell(this,name);});
+    list.appendChild(row);});}
+function toggleCell(head,cellName){
+  var existing=head.nextElementSibling;
+  var twisty=head.querySelector('.twisty');
+  if(existing&&existing.classList.contains('alist')){
+    existing.style.display=existing.style.display==='none'?'':'none';
+    twisty.innerHTML=existing.style.display==='none'?'&#9654;':'&#9660;';return;}
+  twisty.innerHTML='&#9660;';
+  if(S.arcCache[cellName]){renderArcList(head,cellName,S.arcCache[cellName]);}
+  else{post('/api/arcs',{node:S.node,lib_type:S.libtype,cell:cellName}).then(function(d){
+    S.arcCache[cellName]=d.arcs||[];renderArcList(head,cellName,S.arcCache[cellName]);});}}
+function renderArcList(head,cellName,arcs){
+  var alist=document.createElement('div');alist.className='alist';
+  var filtered=S.arcFilter==='all'?arcs:arcs.filter(function(a){return a.arc_type===S.arcFilter;});
+  if(!filtered.length){alist.innerHTML='<div style="padding:6px 12px;font-size:11px;color:var(--text-3);">No arcs for this filter.</div>';}
+  filtered.forEach(function(a){
+    var arcId=buildArcId(cellName,a);
+    var inQueue=S.queue.some(function(q){return q.arc_id===arcId;});
+    var div=document.createElement('div');
+    div.className='arow'+(inQueue?' inq':'');
+    div.dataset.arcId=arcId;
+    div.innerHTML='<span class="adesc">'+a.arc_type+' &nbsp;|&nbsp; '+
+      a.probe_pin+'/'+a.probe_dir+' &nbsp;&middot;&nbsp; '+
+      a.rel_pin+'/'+a.rel_dir+' &nbsp;|&nbsp; '+(a.when||'NO_CONDITION')+'</span>'+
+      '<span class="abtn">'+(inQueue?'&#10003; added':'+ Add')+'</span>';
+    if(!inQueue){div.addEventListener('click',function(){addToQueue(cellName,a,div);});}
+    alist.appendChild(div);});
+  head.parentNode.insertBefore(alist,head.nextSibling);}
+function buildArcId(cellName,a){
+  return [a.arc_type,cellName,a.probe_pin,a.probe_dir,a.rel_pin,a.rel_dir,a.when||'NO_CONDITION'].join('_');}
+function addToQueue(cellName,a,rowEl){
+  var arcId=buildArcId(cellName,a);
+  if(S.queue.some(function(q){return q.arc_id===arcId;}))return;
+  S.queue.push({arc_type:a.arc_type,probe_pin:a.probe_pin,probe_dir:a.probe_dir,
+    rel_pin:a.rel_pin,rel_dir:a.rel_dir,when:a.when||'NO_CONDITION',
+    cell:cellName,arc_id:arcId,index_1:a.index_1||[],index_2:a.index_2||[]});
+  rowEl.classList.add('inq');rowEl.querySelector('.abtn').textContent='added';rowEl.onclick=null;
+  renderQueue();}
+function clearQueue(){S.queue=[];
+  document.querySelectorAll('.arow.inq').forEach(function(r){
+    r.classList.remove('inq');r.querySelector('.abtn').textContent='+ Add';});
+  renderQueue();}
+function removeFromQueue(arcId){
+  S.queue=S.queue.filter(function(q){return q.arc_id!==arcId;});
+  var el=document.querySelector('.arow[data-arc-id="'+arcId+'"]');
+  if(el){el.classList.remove('inq');el.querySelector('.abtn').textContent='+ Add';}
+  renderQueue();}
+function renderQueue(){var qList=document.getElementById('arcQueueList');
+  if(!S.queue.length){qList.innerHTML='<div class="qempty">Add arcs from the left panel.</div>';}
+  else{qList.innerHTML='';
+    S.queue.forEach(function(q){
+      var div=document.createElement('div');div.className='qrow';
+      div.innerHTML='<span class="atag" style="flex-shrink:0;">'+q.arc_type+'</span>'+
+        '<span class="qtext">'+q.cell+' &nbsp;|&nbsp; '+
+        q.probe_pin+'/'+q.probe_dir+' &middot; '+q.rel_pin+'/'+q.rel_dir+'</span>'+
+        '<span class="qx" data-arc="'+encodeURIComponent(q.arc_id)+'">&#215;</span>';
+      div.querySelector('.qx').addEventListener('click',function(){
+        removeFromQueue(decodeURIComponent(this.dataset.arc));});
+      qList.appendChild(div);});}
+  renderTpInputs();renderQueueSummary();updateGenerateButton();}
+function renderTpInputs(){var container=document.getElementById('tpInputs');container.innerHTML='';
+  var types=arcTypesInQueue();if(!types.length)return;
+  types.forEach(function(t){
+    var row=document.createElement('div');row.className='tprow';
+    row.innerHTML='<span class="atag" style="min-width:90px;">'+t+'</span>'+
+      '<input class="tpin" id="tp_'+t+'" type="text" placeholder="(1,1) (2,3) (4,4)" oninput="renderQueueSummary()">'+
+      '<button class="btn btn-sm btn-ghost" data-type="'+t+'">Sweep</button>';
+    row.querySelector('button').addEventListener('click',function(){sweepAll(this.dataset.type);});
+    container.appendChild(row);});}
+function arcTypesInQueue(){var seen={};var types=[];
+  S.queue.forEach(function(q){if(!seen[q.arc_type]){seen[q.arc_type]=true;types.push(q.arc_type);}});return types;}
+function sweepAll(arcType){var q=S.queue.find(function(x){return x.arc_type===arcType&&x.index_1&&x.index_1.length;});
+  if(!q)return;var pts=[];
+  for(var i=1;i<=q.index_1.length;i++){for(var j=1;j<=q.index_2.length;j++){pts.push('('+i+','+j+')');}}
+  var inp=document.getElementById('tp_'+arcType);
+  if(inp){inp.value=pts.join(' ');renderQueueSummary();}}
+function getTpMap(){var map={};
+  arcTypesInQueue().forEach(function(t){var el=document.getElementById('tp_'+t);map[t]=el?el.value:'';});return map;}
+function parseTpText(text){var pts=[];var re=/\(\s*(\d+)\s*,\s*(\d+)\s*\)/g;var m;
+  while((m=re.exec(text))!==null)pts.push([parseInt(m[1]),parseInt(m[2])]);return pts;}
+function renderQueueSummary(){var el=document.getElementById('qSummary');
+  if(!S.queue.length){el.innerHTML='<div class="qsrow total"><span>0 arcs x 0 corners</span><span class="qnum">0 total</span></div>';return;}
+  var byType={};S.queue.forEach(function(q){byType[q.arc_type]=(byType[q.arc_type]||0)+1;});
+  var tpMap=getTpMap();var total=0;var rows='';
+  Object.keys(byType).forEach(function(t){
+    var pts=parseTpText(tpMap[t]||'').length;var decks=byType[t]*pts;total+=decks;
+    rows+='<div class="qsrow"><span><span class="atag" style="margin-right:4px;">'+t+'</span>'+
+      byType[t]+' arcs x '+pts+' pts</span><span class="qnum">'+decks+' decks</span></div>';});
+  var corners=S.selCorners.size;
+  rows+='<div class="qsrow total"><span>'+total+' decks x '+corners+' corners</span><span class="qnum">'+(total*corners)+' total</span></div>';
+  el.innerHTML=rows;document.getElementById('queueCount').textContent=S.queue.length+' arcs';updateGenerateButton();}
+function updateGenerateButton(){var tpMap=getTpMap();
+  var hasPoints=Object.values(tpMap).some(function(v){return parseTpText(v).length>0;});
+  var btn=document.getElementById('btnGenerate');var total=calcTotal();
+  btn.textContent=total>0?'Generate '+total+' decks':'Generate';
+  btn.disabled=!(S.queue.length&&S.selCorners.size&&hasPoints);}
+function calcTotal(){var byType={};
+  S.queue.forEach(function(q){byType[q.arc_type]=(byType[q.arc_type]||0)+1;});
+  var tpMap=getTpMap();var total=0;
+  Object.keys(byType).forEach(function(t){total+=byType[t]*parseTpText(tpMap[t]||'').length;});
+  return total*S.selCorners.size;}
+function doPreview(){var body=buildGenerateBody();
+  post('/api/preview_v2',body).then(function(d){
+    alert('Preview: '+(d.jobs?d.jobs.length:0)+' jobs planned. Errors: '+(d.errors?d.errors.length:0));});}
+function buildGenerateBody(){var tpMap=getTpMap();
+  var arcIds=S.queue.map(function(q){return q.arc_id;});
+  return{mode:'explore',node:S.node,lib_type:S.libtype,
+    corners:Array.from(S.selCorners),arc_ids:arcIds,table_points:tpMap,output_dir:'./output/'};}
+function doGenerate(){var body=buildGenerateBody();showResultsView();
+  document.getElementById('genStatus').textContent='Generating...';
+  document.getElementById('resultList').innerHTML='';S.results=[];
+  fetch('/api/generate_v2',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(body)}).then(function(resp){
+    var reader=resp.body.getReader();var decoder=new TextDecoder();var buf='';
+    function pump(){return reader.read().then(function(chunk){
+      if(chunk.done){finalizeResults();return;}
+      buf+=decoder.decode(chunk.value,{stream:true});
+      var lines=buf.split('\n');buf=lines.pop();
+      lines.forEach(function(line){if(!line.trim())return;
+        try{var r=JSON.parse(line);S.results.push(r);appendResultRow(r);}catch(e){}});
+      return pump();});}
+    return pump();}).catch(function(e){
+    document.getElementById('genStatus').textContent='Error: '+e.message;});}
+function appendResultRow(r){var list=document.getElementById('resultList');
+  var ok=r.success!==false&&!r.error;
+  var div=document.createElement('div');div.className='rrow';
+  div.innerHTML='<span class="rico" style="color:'+(ok?'var(--ok)':'var(--err)')+';">&#9679;</span>'+
+    '<div class="rtxt"><div class="rname" style="'+(ok?'':'color:var(--err);')+'">'+
+    (r.arc_id||r.id||'?')+'</div>'+
+    '<div class="rmeta">'+(r.corner||'')+(r.error?' -- '+r.error:'')+'</div></div>'+
+    '<span class="rarrow">&#8250;</span>';
+  if(ok&&r.output_path){div.addEventListener('click',function(){
+    openDeck(div,r.output_path,(r.arc_id||'')+(r.corner?' - '+r.corner:''));});}
+  list.appendChild(div);}
+function finalizeResults(){var ok=S.results.filter(function(r){return r.success!==false&&!r.error;}).length;
+  var fail=S.results.length-ok;
+  document.getElementById('genStatus').innerHTML=
+    '<span style="color:var(--ok);font-weight:600;">&#10003; '+ok+' succeeded</span>&nbsp;&nbsp;'+
+    '<span style="color:var(--err);font-weight:600;">&#10007; '+fail+' failed</span>&nbsp;&nbsp;'+
+    '<span style="color:var(--text-3);">Click a row to preview deck</span>';}
+function showResultsView(){
+  document.getElementById('queueBody').classList.add('view-hidden');
+  document.getElementById('queueFooter').classList.add('view-hidden');
+  document.getElementById('resultsBody').classList.remove('view-hidden');
+  document.getElementById('resultsFooter').classList.remove('view-hidden');}
+function showQueueView(){
+  document.getElementById('queueBody').classList.remove('view-hidden');
+  document.getElementById('queueFooter').classList.remove('view-hidden');
+  document.getElementById('resultsBody').classList.add('view-hidden');
+  document.getElementById('resultsFooter').classList.add('view-hidden');closeDeck();}
+function copyAllPaths(){var paths=S.results.filter(function(r){return r.output_path;})
+  .map(function(r){return r.output_path;}).join('\n');
+  navigator.clipboard.writeText(paths).catch(function(){});}
+function openDeck(row,path,title){
+  document.querySelectorAll('.rrow').forEach(function(r){r.classList.remove('sel');});
+  if(row)row.classList.add('sel');S.lastDeckPath=path;
+  document.getElementById('dvTitle').textContent=title||path;
+  document.getElementById('dvContent').textContent='Loading...';
+  document.getElementById('deckOv').classList.add('open');
+  fetch('/api/deck?path='+encodeURIComponent(path))
+    .then(function(r){return r.text();})
+    .then(function(txt){document.getElementById('dvContent').textContent=txt;})
+    .catch(function(e){document.getElementById('dvContent').textContent='Error: '+e.message;});}
+function closeDeck(){document.getElementById('deckOv').classList.remove('open');
+  document.querySelectorAll('.rrow').forEach(function(r){r.classList.remove('sel');});}
+function copyDeck(){navigator.clipboard.writeText(document.getElementById('dvContent').textContent).catch(function(){});}
+function directLoadFile(){document.getElementById('directFile').click();}
+function directFileChosen(e){var f=e.target.files[0];if(!f)return;
+  var reader=new FileReader();reader.onload=function(ev){
+    document.getElementById('directTA').value=ev.target.result;directParse();};reader.readAsText(f);}
+function directClear(){document.getElementById('directTA').value='';directParse();}
+function directParse(){var lines=document.getElementById('directTA').value.split('\n')
+  .map(function(l){return l.trim();}).filter(Boolean);
+  var byType={};var errors=[];
+  lines.forEach(function(l){var parts=l.split('_');var arcType=parts[0]||'';
+    if(!arcType){errors.push(l);return;}byType[arcType]=(byType[arcType]||0)+1;});
+  var corners=S.selCorners.size;var total=lines.length*corners;
+  var pill=document.getElementById('directPill');
+  pill.textContent=lines.length+' arcs x '+corners+' corners = '+total+' decks';
+  var sumEl=document.getElementById('directSummary');
+  if(!lines.length){sumEl.innerHTML='<div class="qempty">Paste identifiers or load a file to begin.</div>';return;}
+  var html='<div class="qsl">Arc-types detected</div>';
+  Object.keys(byType).forEach(function(t){html+='<div class="qrow"><span class="atag" style="flex-shrink:0;">'+t+
+    '</span><span class="qtext">'+byType[t]+' arcs -- i1/i2 from identifier suffix</span></div>';});
+  if(errors.length)html+='<div style="margin-top:8px;font-size:11px;color:var(--err);">'+errors.length+' unrecognized lines</div>';
+  html+='<div style="margin-top:14px;" class="qsum"><div class="qsrow total"><span>'+
+    lines.length+' arcs x '+corners+' corners</span><span class="qnum">'+total+' decks</span></div></div>';
+  sumEl.innerHTML=html;}
+function directPreview(){var lines=document.getElementById('directTA').value.split('\n')
+  .map(function(l){return l.trim();}).filter(Boolean);
+  post('/api/preview_v2',{mode:'batch',node:S.node,lib_type:S.libtype,
+    corners:Array.from(S.selCorners),arc_ids:lines}).then(function(d){
+    alert('Preview: '+(d.jobs?d.jobs.length:0)+' jobs planned. Errors: '+(d.errors?d.errors.length:0));});}
+function directGenerate(){var lines=document.getElementById('directTA').value.split('\n')
+  .map(function(l){return l.trim();}).filter(Boolean);
+  showTab('explore');showResultsView();
+  document.getElementById('genStatus').textContent='Generating (direct mode)...';
+  document.getElementById('resultList').innerHTML='';S.results=[];
+  fetch('/api/generate_v2',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({mode:'batch',node:S.node,lib_type:S.libtype,
+      corners:Array.from(S.selCorners),arc_ids:lines,output_dir:'./output/'})
+  }).then(function(resp){var reader=resp.body.getReader();var decoder=new TextDecoder();var buf='';
+    function pump(){return reader.read().then(function(chunk){
+      if(chunk.done){finalizeResults();return;}
+      buf+=decoder.decode(chunk.value,{stream:true});
+      var ls=buf.split('\n');buf=ls.pop();
+      ls.forEach(function(line){if(!line.trim())return;
+        try{var r=JSON.parse(line);S.results.push(r);appendResultRow(r);}catch(e){}});
+      return pump();});}return pump();});}
+var _vAllRows=[];
+function runValidation(){post('/api/validate',{
+  deckgen_root:document.getElementById('vDeckgenRoot').value,
+  mcqc_root:document.getElementById('vMcqcRoot').value,
+  file:document.getElementById('vFile').value,max_detail:200})
+  .then(function(d){_vAllRows=d.pairs||[];
+    document.getElementById('vTotal').textContent=d.total||0;
+    document.getElementById('vL1').textContent=d.l1||0;
+    document.getElementById('vL2').textContent=d.l2||0;
+    document.getElementById('vL3').textContent=d.l3||0;
+    renderVTable();}).catch(function(e){alert('Validation error: '+e.message);});}
+function setVFilter(f,el){S.vFilter=f;
+  document.querySelectorAll('#vFilters .fc').forEach(function(c){c.classList.remove('on');});
+  el.classList.add('on');renderVTable();}
+function renderVTable(){var rows=_vAllRows.filter(function(r){
+  if(S.vFilter==='all')return true;if(S.vFilter==='l3')return r.level===3;
+  return r.arc_type===S.vFilter;});
+  var tbody=document.getElementById('vTbody');tbody.innerHTML='';
+  rows.forEach(function(r){var tr=document.createElement('tr');
+    var lvlClass='l'+(r.level||1);
+    tr.innerHTML='<td><span class="atag">'+(r.arc_type||'')+'</span></td>'+
+      '<td>'+(r.arc_id||'')+'</td>'+
+      '<td><span class="'+lvlClass+'">L'+(r.level||1)+'</span></td>'+
+      '<td>'+(r.top_class||'--')+'</td>'+
+      '<td>'+(r.lines_diff||0)+'</td>'+
+      '<td><button class="btn btn-sm btn-ghost">View diff</button></td>';
+    tbody.appendChild(tr);});}
+function exportHtml(){post('/api/validate_html',{
+  deckgen_root:document.getElementById('vDeckgenRoot').value,
+  mcqc_root:document.getElementById('vMcqcRoot').value,
+  file:document.getElementById('vFile').value,max_detail:200})
+  .then(function(d){if(d.ok&&d.html_path){
+    window.open('/api/validate_html_serve?path='+encodeURIComponent(d.html_path));}
+  else{alert('Export failed: '+(d.error||'unknown error'));}});}
+loadNodes();
 </script>
 </body>
 </html>
