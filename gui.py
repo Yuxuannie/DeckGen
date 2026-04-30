@@ -13,6 +13,7 @@ import argparse
 import http.server
 import json
 import os
+import re
 import sys
 import threading
 import webbrowser
@@ -114,11 +115,11 @@ def _api_list_arcs(node, lib_type, cell):
 
     raw_arcs = [a for a in parsed.get('arcs', []) if a.get('cell') == cell]
     templates_map = parsed.get('templates', {})
+    cells_map = parsed.get('cells', {})
+    cell_info = cells_map.get(cell, {})
 
     result = []
     for a in raw_arcs:
-        cells_map = parsed.get('cells', {})
-        cell_info = cells_map.get(cell, {})
         arc_type = a.get('arc_type', '')
         if arc_type in ('hold', 'setup', 'recovery', 'removal'):
             tmpl_name = cell_info.get('constraint_template')
@@ -1449,13 +1450,14 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
 
         path = os.path.abspath(rel) if not os.path.isabs(rel) else rel
 
-        if not os.path.isfile(path):
-            self.send_response(404)
+        # Extension check FIRST to avoid leaking file existence of non-SPICE paths
+        if not path.lower().endswith(('.sp', '.spi')):
+            self.send_response(403)
             self.end_headers()
             return
 
-        if not path.lower().endswith(('.sp', '.spi')):
-            self.send_response(403)
+        if not os.path.isfile(path):
+            self.send_response(404)
             self.end_headers()
             return
 
