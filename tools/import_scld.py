@@ -61,6 +61,23 @@ WANTED_CHAR_SUFFIXES = (
     '.tcl',          # captures char_*.cons.tcl, .non_cons.tcl, template.tcl, plain char_*.tcl
 )
 
+# Always skip these (shell scripts, build/run helpers, logs, etc).
+# Checked before WANTED_CHAR_SUFFIXES so we never accidentally include them.
+DENY_SUFFIXES = (
+    '.sh',
+    '.csh',
+    '.bash',
+    '.zsh',
+    '.py',
+    '.pl',
+    '.log',
+    '.txt',
+    '.md',
+    '.json',
+    '.yaml',
+    '.yml',
+)
+
 # .tcl files containing this token go to Template/, otherwise Char/.
 TEMPLATE_TCL_TOKEN = 'template.tcl'
 
@@ -113,6 +130,12 @@ def import_one_lib(src_lib, deckgen_root, node, link=False, dry_run=False,
         if os.path.isdir(src):
             continue                                 # Netlist/ etc. handled below
         lower = fname.lower()
+        # Explicit denylist first -- shell scripts, logs, etc.
+        if lower.endswith(DENY_SUFFIXES):
+            counts['skipped'] += 1
+            if verbose:
+                print(f"  skip      {fname}  (denied extension)")
+            continue
         if not lower.endswith(WANTED_CHAR_SUFFIXES):
             counts['skipped'] += 1
             continue
