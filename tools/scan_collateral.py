@@ -23,11 +23,23 @@ _DECKGEN_ROOT = os.path.normpath(os.path.join(_SCRIPT_DIR, '..'))
 
 # Corner regex: captures {process}_{voltage}v_{temp}c_{rc_type} with rc ending in _T
 # Example match: ssgnp_0p450v_m40c_cworst_CCworst_T
-# Boundary before <process> can be: start, '_', or a digit (handles SCLD's
-# c221227ssgnp_... naming where process is glued to a date suffix without '_').
-# Voltage allows 1+ digits before/after 'p' (handles 0p7, 0p475, 1p1, etc.).
+#
+# The <process> token is constrained to a real TSMC PVT name:
+#   (ss|tt|ff)<lookahead-letters>np
+# e.g. ssgnp, ttgnp, ffgnp, ssrnp, etc.
+#
+# Boundary before <process> can be: start, '_', a digit (e.g. c221227ssgnp...)
+# OR another letter (e.g. svtssgnp...). The strict process pattern keeps the
+# permissive boundary safe.
+#
+# Voltage allows 1+ digits on each side of 'p' (handles 0p7, 0p475, 1p1).
 _CORNER_RE = re.compile(
-    r'(?:^|_|(?<=\d))(?P<process>[a-z]+\d*)_(?P<vdd>\d+p\d+)v_(?P<temp>m?\d+)c_(?P<rc>[A-Za-z0-9]+(?:_[A-Za-z0-9]+)*?_T)(?=[._]|$)'
+    r'(?:^|_|(?<=\d)|(?<=[a-z]))'
+    r'(?P<process>(?:ss|tt|ff)\w*?np)'
+    r'_(?P<vdd>\d+p\d+)v'
+    r'_(?P<temp>m?\d+)c'
+    r'_(?P<rc>[A-Za-z0-9]+(?:_[A-Za-z0-9]+)*?_T)'
+    r'(?=[._]|$)'
 )
 
 
