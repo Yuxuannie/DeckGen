@@ -179,7 +179,6 @@ def _parse_table_points(text):
 
     Invalid tokens are silently skipped.
     """
-    import re
     result = []
     for m in re.finditer(r'\(\s*(\d+)\s*,\s*(\d+)\s*\)', text or ''):
         result.append((int(m.group(1)), int(m.group(2))))
