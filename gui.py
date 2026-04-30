@@ -170,6 +170,21 @@ def _api_validate(deckgen_root, mcqc_root, filename, arc_types, max_detail):
         return {'ok': False, 'error': str(e)}
 
 
+def _parse_table_points(text):
+    """Parse a table-point text string into a list of (i1, i2) int tuples.
+
+    Input:  "(1,1) (2,3) (4, 4)"
+    Output: [(1, 1), (2, 3), (4, 4)]
+
+    Invalid tokens are silently skipped.
+    """
+    import re
+    result = []
+    for m in re.finditer(r'\(\s*(\d+)\s*,\s*(\d+)\s*\)', text or ''):
+        result.append((int(m.group(1)), int(m.group(2))))
+    return result
+
+
 # ---------------------------------------------------------------------------
 # HTML page (ASCII-only: no em-dashes, no smart quotes, no emojis)
 # ---------------------------------------------------------------------------
@@ -1697,6 +1712,23 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
         from core.batch import run_batch
         try:
             mode = data.get('mode', 'batch')
+            # Expand arc_ids using table_points if provided.
+            # table_points: {arc_type: "(i1,i2) ..." text}
+            # arc_ids may be bare (no _i1_i2 suffix) - we expand them.
+            raw_arc_ids = data.get('arc_ids', [])
+            table_points = data.get('table_points', {})
+            if table_points and raw_arc_ids:
+                expanded = []
+                for aid in raw_arc_ids:
+                    parts = aid.split('_')
+                    arc_type = parts[0] if parts else ''
+                    tp_text = table_points.get(arc_type, '')
+                    pts = _parse_table_points(tp_text)
+                    if pts:
+                        for i1, i2 in pts:
+                            expanded.append(f"{aid}_{i1}_{i2}")
+                data = dict(data)
+                data['arc_ids'] = expanded
             if mode == 'single':
                 arc_id = self._build_arc_id_single(data)
                 arc_ids = [arc_id] if arc_id else []
