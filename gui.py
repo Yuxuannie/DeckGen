@@ -575,6 +575,7 @@ table.vtbl tr:hover td{background:var(--tint);}
   </div>
 </div>
 <script>
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 var S={node:'',libtype:'',corners:[],selCorners:new Set(),cells:[],arcCache:{},
   queue:[],arcFilter:'all',cellFilter:'',results:[],lastDeckPath:'',
   vResults:[],vFilter:'all'};
@@ -613,7 +614,7 @@ function renderCornerChips(){var el=document.getElementById('cornerChips');
   var html='';
   sel.slice(0,2).forEach(function(c){
     var short=c.split('_').slice(0,3).join('_');
-    html+='<span class="chip">'+short+'</span>';});
+    html+='<span class="chip">'+esc(short)+'</span>';});
   if(sel.length>2)html+='<span class="chip-more">+'+(sel.length-2)+' more</span>';
   el.innerHTML=html;}
 function renderCornerMenu(){var list=document.getElementById('cornerList');
@@ -658,10 +659,10 @@ function renderCells(){var list=document.getElementById('cellList');
     var tagsHtml='';
     Object.keys(counts).forEach(function(t){
       if(S.arcFilter==='all'||S.arcFilter===t)
-        tagsHtml+='<span class="atag">'+t+':'+counts[t]+'</span>';});
+        tagsHtml+='<span class="atag">'+esc(t)+':'+counts[t]+'</span>';});
     row.innerHTML='<div class="chead" data-cell="'+encodeURIComponent(name)+'">'+
       '<span class="twisty">&#9654;</span>'+
-      '<span class="cname">'+name+'</span>'+
+      '<span class="cname">'+esc(name)+'</span>'+
       '<div class="ctags">'+tagsHtml+'</div></div>';
     row.querySelector('.chead').addEventListener('click',function(){
       toggleCell(this,name);});
@@ -686,9 +687,9 @@ function renderArcList(head,cellName,arcs){
     var div=document.createElement('div');
     div.className='arow'+(inQueue?' inq':'');
     div.dataset.arcId=arcId;
-    div.innerHTML='<span class="adesc">'+a.arc_type+' &nbsp;|&nbsp; '+
-      a.probe_pin+'/'+a.probe_dir+' &nbsp;&middot;&nbsp; '+
-      a.rel_pin+'/'+a.rel_dir+' &nbsp;|&nbsp; '+(a.when||'NO_CONDITION')+'</span>'+
+    div.innerHTML='<span class="adesc">'+esc(a.arc_type)+' &nbsp;|&nbsp; '+
+      esc(a.probe_pin)+'/'+esc(a.probe_dir)+' &nbsp;&middot;&nbsp; '+
+      esc(a.rel_pin)+'/'+esc(a.rel_dir)+' &nbsp;|&nbsp; '+esc(a.when||'NO_CONDITION')+'</span>'+
       '<span class="abtn">'+(inQueue?'&#10003; added':'+ Add')+'</span>';
     if(!inQueue){div.addEventListener('click',function(){addToQueue(cellName,a,div);});}
     alist.appendChild(div);});
@@ -717,9 +718,9 @@ function renderQueue(){var qList=document.getElementById('arcQueueList');
   else{qList.innerHTML='';
     S.queue.forEach(function(q){
       var div=document.createElement('div');div.className='qrow';
-      div.innerHTML='<span class="atag" style="flex-shrink:0;">'+q.arc_type+'</span>'+
-        '<span class="qtext">'+q.cell+' &nbsp;|&nbsp; '+
-        q.probe_pin+'/'+q.probe_dir+' &middot; '+q.rel_pin+'/'+q.rel_dir+'</span>'+
+      div.innerHTML='<span class="atag" style="flex-shrink:0;">'+esc(q.arc_type)+'</span>'+
+        '<span class="qtext">'+esc(q.cell)+' &nbsp;|&nbsp; '+
+        esc(q.probe_pin)+'/'+esc(q.probe_dir)+' &middot; '+esc(q.rel_pin)+'/'+esc(q.rel_dir)+'</span>'+
         '<span class="qx" data-arc="'+encodeURIComponent(q.arc_id)+'">&#215;</span>';
       div.querySelector('.qx').addEventListener('click',function(){
         removeFromQueue(decodeURIComponent(this.dataset.arc));});
@@ -729,9 +730,9 @@ function renderTpInputs(){var container=document.getElementById('tpInputs');cont
   var types=arcTypesInQueue();if(!types.length)return;
   types.forEach(function(t){
     var row=document.createElement('div');row.className='tprow';
-    row.innerHTML='<span class="atag" style="min-width:90px;">'+t+'</span>'+
-      '<input class="tpin" id="tp_'+t+'" type="text" placeholder="(1,1) (2,3) (4,4)" oninput="renderQueueSummary()">'+
-      '<button class="btn btn-sm btn-ghost" data-type="'+t+'">Sweep</button>';
+    row.innerHTML='<span class="atag" style="min-width:90px;">'+esc(t)+'</span>'+
+      '<input class="tpin" id="tp_'+esc(t)+'" type="text" placeholder="(1,1) (2,3) (4,4)" oninput="renderQueueSummary()">'+
+      '<button class="btn btn-sm btn-ghost" data-type="'+esc(t)+'">Sweep</button>';
     row.querySelector('button').addEventListener('click',function(){sweepAll(this.dataset.type);});
     container.appendChild(row);});}
 function arcTypesInQueue(){var seen={};var types=[];
@@ -751,7 +752,7 @@ function renderQueueSummary(){var el=document.getElementById('qSummary');
   var tpMap=getTpMap();var total=0;var rows='';
   Object.keys(byType).forEach(function(t){
     var pts=parseTpText(tpMap[t]||'').length;var decks=byType[t]*pts;total+=decks;
-    rows+='<div class="qsrow"><span><span class="atag" style="margin-right:4px;">'+t+'</span>'+
+    rows+='<div class="qsrow"><span><span class="atag" style="margin-right:4px;">'+esc(t)+'</span>'+
       byType[t]+' arcs x '+pts+' pts</span><span class="qnum">'+decks+' decks</span></div>';});
   var corners=S.selCorners.size;
   rows+='<div class="qsrow total"><span>'+total+' decks x '+corners+' corners</span><span class="qnum">'+(total*corners)+' total</span></div>';
@@ -793,8 +794,8 @@ function appendResultRow(r){var list=document.getElementById('resultList');
   var div=document.createElement('div');div.className='rrow';
   div.innerHTML='<span class="rico" style="color:'+(ok?'var(--ok)':'var(--err)')+';">&#9679;</span>'+
     '<div class="rtxt"><div class="rname" style="'+(ok?'':'color:var(--err);')+'">'+
-    (r.arc_id||r.id||'?')+'</div>'+
-    '<div class="rmeta">'+(r.corner||'')+(r.error?' -- '+r.error:'')+'</div></div>'+
+    esc(r.arc_id||r.id||'?')+'</div>'+
+    '<div class="rmeta">'+esc(r.corner||'')+(r.error?' -- '+esc(r.error):'')+'</div></div>'+
     '<span class="rarrow">&#8250;</span>';
   if(ok&&r.output_path){div.addEventListener('click',function(){
     openDeck(div,r.output_path,(r.arc_id||'')+(r.corner?' - '+r.corner:''));});}
@@ -851,7 +852,7 @@ function directParse(){var lines=document.getElementById('directTA').value.split
   var sumEl=document.getElementById('directSummary');
   if(!lines.length){sumEl.innerHTML='<div class="qempty">Paste identifiers or load a file to begin.</div>';return;}
   var html='<div class="qsl">Arc-types detected</div>';
-  Object.keys(byType).forEach(function(t){html+='<div class="qrow"><span class="atag" style="flex-shrink:0;">'+t+
+  Object.keys(byType).forEach(function(t){html+='<div class="qrow"><span class="atag" style="flex-shrink:0;">'+esc(t)+
     '</span><span class="qtext">'+byType[t]+' arcs -- i1/i2 from identifier suffix</span></div>';});
   if(errors.length)html+='<div style="margin-top:8px;font-size:11px;color:var(--err);">'+errors.length+' unrecognized lines</div>';
   html+='<div style="margin-top:14px;" class="qsum"><div class="qsrow total"><span>'+
@@ -898,10 +899,10 @@ function renderVTable(){var rows=_vAllRows.filter(function(r){
   var tbody=document.getElementById('vTbody');tbody.innerHTML='';
   rows.forEach(function(r){var tr=document.createElement('tr');
     var lvlClass='l'+(r.level||1);
-    tr.innerHTML='<td><span class="atag">'+(r.arc_type||'')+'</span></td>'+
-      '<td>'+(r.arc_id||'')+'</td>'+
-      '<td><span class="'+lvlClass+'">L'+(r.level||1)+'</span></td>'+
-      '<td>'+(r.top_class||'--')+'</td>'+
+    tr.innerHTML='<td><span class="atag">'+esc(r.arc_type||'')+'</span></td>'+
+      '<td>'+esc(r.arc_id||'')+'</td>'+
+      '<td><span class="'+esc(lvlClass)+'">L'+(r.level||1)+'</span></td>'+
+      '<td>'+esc(r.top_class||'--')+'</td>'+
       '<td>'+(r.lines_diff||0)+'</td>'+
       '<td><button class="btn btn-sm btn-ghost">View diff</button></td>';
     tbody.appendChild(tr);});}
@@ -951,7 +952,15 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
         qs = urllib.parse.urlparse(self.path).query
         params = urllib.parse.parse_qs(qs)
         path = (params.get('path') or [''])[0]
-        if not path or not os.path.isfile(path):
+        if not path:
+            self.send_response(400)
+            self.end_headers()
+            return
+        if not path.lower().endswith('.html'):
+            self.send_response(403)
+            self.end_headers()
+            return
+        if not os.path.isfile(path):
             self.send_response(404)
             self.end_headers()
             return
@@ -988,6 +997,23 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
             self.send_response(403)
             self.end_headers()
             return
+
+        # Directory restriction: path must be under output dir or collateral root
+        allowed_roots = []
+        out_dir = getattr(DeckgenHandler, 'OUTPUT_DIR', None)
+        if out_dir:
+            allowed_roots.append(os.path.realpath(out_dir))
+        coll_root = getattr(DeckgenHandler, 'COLLATERAL_ROOT', _DEFAULT_COLLATERAL_ROOT)
+        if coll_root:
+            allowed_roots.append(os.path.realpath(coll_root))
+
+        if allowed_roots:
+            real_path = os.path.realpath(path)
+            if not any(real_path.startswith(r + os.sep) or real_path == r
+                       for r in allowed_roots):
+                self.send_response(403)
+                self.end_headers()
+                return
 
         if not os.path.isfile(path):
             self.send_response(404)
