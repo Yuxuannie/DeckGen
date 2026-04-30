@@ -23,8 +23,11 @@ _DECKGEN_ROOT = os.path.normpath(os.path.join(_SCRIPT_DIR, '..'))
 
 # Corner regex: captures {process}_{voltage}v_{temp}c_{rc_type} with rc ending in _T
 # Example match: ssgnp_0p450v_m40c_cworst_CCworst_T
+# Boundary before <process> can be: start, '_', or a digit (handles SCLD's
+# c221227ssgnp_... naming where process is glued to a date suffix without '_').
+# Voltage allows 1+ digits before/after 'p' (handles 0p7, 0p475, 1p1, etc.).
 _CORNER_RE = re.compile(
-    r'(?:^|_)(?P<process>[a-z]+\d*)_(?P<vdd>\d+p\d+)v_(?P<temp>m?\d+)c_(?P<rc>[A-Za-z0-9]+(?:_[A-Za-z0-9]+)*?_T)(?=[._]|$)'
+    r'(?:^|_|(?<=\d))(?P<process>[a-z]+\d*)_(?P<vdd>\d+p\d+)v_(?P<temp>m?\d+)c_(?P<rc>[A-Za-z0-9]+(?:_[A-Za-z0-9]+)*?_T)(?=[._]|$)'
 )
 
 
@@ -72,9 +75,17 @@ def _find_char_files(char_dir):
         ('usage_l',       '.usage.l'),
     ]
 
+    # Quietly ignore non-data files that legitimately ship in Char/ (shell
+    # scripts, logs, etc.) so they don't clutter warnings.
+    IGNORE_SUFFIXES = ('.sh', '.csh', '.bash', '.zsh', '.py', '.pl', '.tk',
+                       '.log', '.txt', '.md', '.json', '.yaml', '.yml')
+
     for fname in sorted(os.listdir(char_dir)):
         full = os.path.join(char_dir, fname)
         if not os.path.isfile(full):
+            continue
+
+        if fname.lower().endswith(IGNORE_SUFFIXES):
             continue
 
         # Skip template tcl files that ended up in Char/ (we collect them
