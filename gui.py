@@ -26,6 +26,42 @@ sys.path.insert(0, SCRIPT_DIR)
 _TCL_PARSE_CACHE = {}
 _TCL_PARSE_LOCK = threading.Lock()
 
+# Cache for CollateralStore instances: (root, node, lib_type) -> (manifest_mtime, store)
+# Avoids re-reading and re-parsing manifest.json on every API call.
+_STORE_CACHE = {}
+_STORE_LOCK = threading.Lock()
+
+
+def _get_store(node, lib_type):
+    """Return a cached CollateralStore for (node, lib_type), reloading if manifest changed."""
+    from core.collateral import CollateralStore, CollateralError
+    root = getattr(DeckgenHandler, 'COLLATERAL_ROOT', _DEFAULT_COLLATERAL_ROOT)
+    manifest_path = os.path.join(
+        os.path.abspath(root), node, lib_type, 'manifest.json')
+    try:
+        mtime = os.path.getmtime(manifest_path)
+    except OSError:
+        mtime = None
+    key = (root, node, lib_type)
+    with _STORE_LOCK:
+        cached = _STORE_CACHE.get(key)
+        if cached and cached[0] == mtime:
+            return cached[1]
+    try:
+        store = CollateralStore(root, node, lib_type)
+    except CollateralError:
+        return None
+    except Exception:
+        return None
+    # Re-read mtime after potential rescan inside CollateralStore.__init__
+    try:
+        mtime = os.path.getmtime(manifest_path)
+    except OSError:
+        pass
+    with _STORE_LOCK:
+        _STORE_CACHE[key] = (mtime, store)
+    return store
+
 
 def _get_parsed_tcl(tcl_path):
     """Return parse_template_tcl_full result for tcl_path, using a cache."""
@@ -79,25 +115,17 @@ def _api_list_lib_types(node):
 
 
 def _api_list_corners(node, lib_type):
-    from core.collateral import CollateralStore, CollateralError
-    root = getattr(DeckgenHandler, 'COLLATERAL_ROOT', _DEFAULT_COLLATERAL_ROOT)
-    try:
-        return CollateralStore(root, node, lib_type).list_corners()
-    except CollateralError:
+    store = _get_store(node, lib_type)
+    if store is None:
         return []
-    except Exception:
-        return []
+    return store.list_corners()
 
 
 def _api_list_cells(node, lib_type):
-    from core.collateral import CollateralStore, CollateralError
-    root = getattr(DeckgenHandler, 'COLLATERAL_ROOT', _DEFAULT_COLLATERAL_ROOT)
-    try:
-        return CollateralStore(root, node, lib_type).list_cells()
-    except CollateralError:
+    store = _get_store(node, lib_type)
+    if store is None:
         return []
-    except Exception:
-        return []
+    return store.list_cells()
 
 
 def _api_list_arcs(node, lib_type, cell):
@@ -110,11 +138,9 @@ def _api_list_arcs(node, lib_type, cell):
         {arc_type, probe_pin, probe_dir, rel_pin, rel_dir, when,
          index_1: [float,...], index_2: [float,...]}
     """
-    from core.collateral import CollateralStore, CollateralError
-    root = getattr(DeckgenHandler, 'COLLATERAL_ROOT', _DEFAULT_COLLATERAL_ROOT)
-    try:
-        store = CollateralStore(root, node, lib_type)
-    except CollateralError:
+    from core.collateral import CollateralError
+    store = _get_store(node, lib_type)
+    if store is None:
         return []
 
     corners = store.list_corners()
