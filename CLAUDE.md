@@ -92,5 +92,5 @@ Never fail silently. Never drop arcs without telling the user.
 
 See `docs/task.md` for the full task list.
 
-Done: backend modules, parsers, CLI, 63 SPICE templates, GUI v0.2 (single-arc mode).
-Remaining: GUI v0.3 (batch mode + identifier auto-fill), template.tcl slew/load integration, tests.
+Done: backend modules, parsers, CLI, 63 SPICE templates, GUI v1.0 (3-tab redesign: Explore/Direct/Validate).
+Remaining: template.tcl slew/load integration, tests.

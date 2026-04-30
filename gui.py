@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-gui.py - Browser-based GUI for deckgen v0.3.
+gui.py - Browser-based GUI for deckgen v1.0.
 
 Two-column layout: left = inputs (targets, corners, files, overrides),
 right = job table, log, SPICE preview.
@@ -1522,14 +1522,14 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
 # ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description='deckgen GUI v0.3')
+    parser = argparse.ArgumentParser(description='deckgen GUI v1.0')
     parser.add_argument('--port', type=int, default=8585, help='Port (default: 8585)')
     parser.add_argument('--no-browser', action='store_true', help='Do not open browser')
     args = parser.parse_args()
 
     server = http.server.HTTPServer(('127.0.0.1', args.port), DeckgenHandler)
     url = f'http://127.0.0.1:{args.port}'
-    print(f"deckgen GUI v0.3 at {url}")
+    print(f"deckgen GUI v1.0 at {url}")
     print("Press Ctrl+C to stop.")
 
     if not args.no_browser:
