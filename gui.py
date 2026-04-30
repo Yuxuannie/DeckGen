@@ -74,6 +74,76 @@ def _api_list_cells(node, lib_type):
         return []
 
 
+def _api_list_arcs(node, lib_type, cell):
+    """Return arcs for a cell from template.tcl + index_1/index_2 sizes.
+
+    Uses the first available corner's template.tcl (all corners share the
+    same template.tcl structure for a given lib_type).
+
+    Returns list of dicts:
+        {arc_type, probe_pin, probe_dir, rel_pin, rel_dir, when,
+         index_1: [float,...], index_2: [float,...]}
+    """
+    from core.collateral import CollateralStore, CollateralError
+    from core.parsers.template_tcl import parse_template_tcl_full
+    root = getattr(DeckgenHandler, 'COLLATERAL_ROOT', _DEFAULT_COLLATERAL_ROOT)
+    try:
+        store = CollateralStore(root, node, lib_type)
+    except CollateralError:
+        return []
+
+    corners = store.list_corners()
+    if not corners:
+        return []
+
+    tcl_path = None
+    for corner in corners:
+        try:
+            tcl_path = store.get_template_tcl(corner)
+            break
+        except CollateralError:
+            continue
+
+    if not tcl_path or not os.path.isfile(tcl_path):
+        return []
+
+    try:
+        parsed = parse_template_tcl_full(tcl_path)
+    except Exception:
+        return []
+
+    raw_arcs = [a for a in parsed.get('arcs', []) if a.get('cell') == cell]
+    templates_map = parsed.get('templates', {})
+
+    result = []
+    for a in raw_arcs:
+        cells_map = parsed.get('cells', {})
+        cell_info = cells_map.get(cell, {})
+        arc_type = a.get('arc_type', '')
+        if arc_type in ('hold', 'setup', 'recovery', 'removal'):
+            tmpl_name = cell_info.get('constraint_template')
+        elif arc_type == 'mpw':
+            tmpl_name = cell_info.get('mpw_template')
+        else:
+            tmpl_name = cell_info.get('delay_template')
+
+        tmpl = templates_map.get(tmpl_name, {}) if tmpl_name else {}
+        idx1 = tmpl.get('index_1', [])
+        idx2 = tmpl.get('index_2', [])
+
+        result.append({
+            'arc_type':  arc_type,
+            'probe_pin': a.get('pin', ''),
+            'probe_dir': a.get('pin_dir', ''),
+            'rel_pin':   a.get('rel_pin', ''),
+            'rel_dir':   a.get('rel_pin_dir', ''),
+            'when':      a.get('when', '') or 'NO_CONDITION',
+            'index_1':   idx1,
+            'index_2':   idx2,
+        })
+    return result
+
+
 def _api_rescan(node, lib_type):
     from tools.scan_collateral import build_manifest
     root = getattr(DeckgenHandler, 'COLLATERAL_ROOT', _DEFAULT_COLLATERAL_ROOT)
@@ -1313,12 +1383,14 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path in ('/', '/index.html'):
-            body = HTML_PAGE.encode('ascii')
+            body = HTML_PAGE.encode('utf-8')
             self.send_response(200)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
             self.send_header('Content-Length', str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+        elif self.path.startswith('/api/deck'):
+            self._serve_deck()
         elif self.path.startswith('/api/validate_html_serve'):
             self._serve_validate_html()
         else:
@@ -1339,6 +1411,44 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
                 body = f.read()
             self.send_response(200)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except Exception:
+            self.send_response(500)
+            self.end_headers()
+
+    def _serve_deck(self):
+        """GET /api/deck?path=<path>
+        Returns raw SPICE file content as plain text.
+        Path must end in .sp or .spi (basic path-traversal guard).
+        """
+        import urllib.parse
+        qs = urllib.parse.urlparse(self.path).query
+        params = urllib.parse.parse_qs(qs)
+        rel = (params.get('path') or [''])[0]
+        if not rel:
+            self.send_response(400)
+            self.end_headers()
+            return
+
+        path = os.path.abspath(rel) if not os.path.isabs(rel) else rel
+
+        if not os.path.isfile(path):
+            self.send_response(404)
+            self.end_headers()
+            return
+
+        if not path.lower().endswith(('.sp', '.spi')):
+            self.send_response(403)
+            self.end_headers()
+            return
+
+        try:
+            with open(path, 'r', encoding='utf-8', errors='replace') as f:
+                body = f.read().encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/plain; charset=utf-8')
             self.send_header('Content-Length', str(len(body)))
             self.end_headers()
             self.wfile.write(body)
@@ -1380,6 +1490,10 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
         elif path == '/api/cells':
             self._send_json({'cells': _api_list_cells(
                 data.get('node', ''), data.get('lib_type', ''))}); return
+        elif path == '/api/arcs':
+            self._send_json({'arcs': _api_list_arcs(
+                data.get('node', ''), data.get('lib_type', ''),
+                data.get('cell', ''))}); return
         elif path == '/api/rescan':
             self._send_json(_api_rescan(data.get('node', ''), data.get('lib_type', ''))); return
         elif path == '/api/preview_v2':
