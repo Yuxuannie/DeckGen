@@ -1594,6 +1594,38 @@ def main():
     print(f"deckgen GUI v1.0 at {url}")
     print("Press Ctrl+C to stop.")
 
+    # Pre-warm manifest + TCL caches in background so first browser interaction is fast
+    def _prewarm():
+        root = getattr(DeckgenHandler, 'COLLATERAL_ROOT', _DEFAULT_COLLATERAL_ROOT)
+        if not os.path.isdir(root):
+            return
+        for node in os.listdir(root):
+            node_dir = os.path.join(root, node)
+            if not os.path.isdir(node_dir):
+                continue
+            for lib_type in os.listdir(node_dir):
+                if not os.path.isdir(os.path.join(node_dir, lib_type)):
+                    continue
+                try:
+                    store = _get_store(node, lib_type)
+                    if store is None:
+                        continue
+                    print(f"  [cache] {node}/{lib_type} ({len(store.list_cells())} cells)")
+                    # Also pre-warm TCL parse for this lib
+                    corners = store.list_corners()
+                    for corner in corners:
+                        try:
+                            from core.collateral import CollateralError
+                            tcl_path = store.get_template_tcl(corner)
+                            _get_parsed_tcl(tcl_path)
+                            break
+                        except Exception:
+                            continue
+                except Exception as e:
+                    print(f"  [cache] warn: {node}/{lib_type}: {e}", file=sys.stderr)
+
+    threading.Thread(target=_prewarm, daemon=True, name='prewarm').start()
+
     if not args.no_browser:
         threading.Timer(0.5, lambda: webbrowser.open(url)).start()
 
