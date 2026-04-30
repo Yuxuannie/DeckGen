@@ -61,21 +61,16 @@ WANTED_CHAR_SUFFIXES = (
     '.tcl',          # captures char_*.cons.tcl, .non_cons.tcl, template.tcl, plain char_*.tcl
 )
 
-# Always skip these (shell scripts, build/run helpers, logs, etc).
-# Checked before WANTED_CHAR_SUFFIXES so we never accidentally include them.
-DENY_SUFFIXES = (
+# Shell / helper scripts -- copied for reference but kept under Scripts/ so the
+# data-file scanner never sees them.
+SCRIPT_SUFFIXES = (
     '.sh',
     '.csh',
     '.bash',
     '.zsh',
     '.py',
     '.pl',
-    '.log',
-    '.txt',
-    '.md',
-    '.json',
-    '.yaml',
-    '.yml',
+    '.tk',
 )
 
 # .tcl files containing this token go to Template/, otherwise Char/.
@@ -115,14 +110,17 @@ def import_one_lib(src_lib, deckgen_root, node, link=False, dry_run=False,
     dst_char = os.path.join(dst_root, 'Char')
     dst_template = os.path.join(dst_root, 'Template')
     dst_netlist = os.path.join(dst_root, 'Netlist')
+    dst_scripts = os.path.join(dst_root, 'Scripts')
 
     if not dry_run:
         os.makedirs(dst_char, exist_ok=True)
         os.makedirs(dst_template, exist_ok=True)
         os.makedirs(dst_netlist, exist_ok=True)
+        os.makedirs(dst_scripts, exist_ok=True)
 
     counts = {'char_files': 0, 'template_files': 0,
-              'netlist_dirs': 0, 'skipped': 0, 'errors': 0}
+              'netlist_dirs': 0, 'script_files': 0,
+              'skipped': 0, 'errors': 0}
 
     # ----- Char/ + Template/ files (top-level of SCLD's Char/) -----
     for fname in sorted(os.listdir(src_char)):
@@ -130,23 +128,20 @@ def import_one_lib(src_lib, deckgen_root, node, link=False, dry_run=False,
         if os.path.isdir(src):
             continue                                 # Netlist/ etc. handled below
         lower = fname.lower()
-        # Explicit denylist first -- shell scripts, logs, etc.
-        if lower.endswith(DENY_SUFFIXES):
-            counts['skipped'] += 1
-            if verbose:
-                print(f"  skip      {fname}  (denied extension)")
-            continue
-        if not lower.endswith(WANTED_CHAR_SUFFIXES):
-            counts['skipped'] += 1
-            continue
-
-        # Decide destination based on filename
-        if TEMPLATE_TCL_TOKEN in lower:
-            dst = os.path.join(dst_template, fname)
-            kind = 'template'
+        # Decide destination based on extension and filename token.
+        if lower.endswith(SCRIPT_SUFFIXES):
+            dst = os.path.join(dst_scripts, fname)
+            kind = 'script'
+        elif lower.endswith(WANTED_CHAR_SUFFIXES):
+            if TEMPLATE_TCL_TOKEN in lower:
+                dst = os.path.join(dst_template, fname)
+                kind = 'template'
+            else:
+                dst = os.path.join(dst_char, fname)
+                kind = 'char'
         else:
-            dst = os.path.join(dst_char, fname)
-            kind = 'char'
+            counts['skipped'] += 1
+            continue
 
         if dry_run:
             if verbose:
@@ -168,6 +163,8 @@ def import_one_lib(src_lib, deckgen_root, node, link=False, dry_run=False,
 
         if kind == 'template':
             counts['template_files'] += 1
+        elif kind == 'script':
+            counts['script_files'] += 1
         else:
             counts['char_files'] += 1
 
@@ -298,7 +295,8 @@ def main():
         sys.exit(1)
 
     total = {'char_files': 0, 'template_files': 0,
-             'netlist_dirs': 0, 'skipped': 0, 'errors': 0}
+             'netlist_dirs': 0, 'script_files': 0,
+             'skipped': 0, 'errors': 0}
     print(f"Importing {len(libs)} library/libraries -> "
           f"{root}/collateral/{args.node}/")
     if args.dry_run:
@@ -314,14 +312,14 @@ def main():
         for k in total:
             total[k] += c[k]
         print(f"  char={c['char_files']} template={c['template_files']} "
-              f"netlist_dirs={c['netlist_dirs']} skipped={c['skipped']} "
-              f"errors={c['errors']}")
+              f"netlist_dirs={c['netlist_dirs']} scripts={c['script_files']} "
+              f"skipped={c['skipped']} errors={c['errors']}")
         print()
 
     print("---")
     print(f"TOTAL  char={total['char_files']} template={total['template_files']} "
-          f"netlist_dirs={total['netlist_dirs']} skipped={total['skipped']} "
-          f"errors={total['errors']}")
+          f"netlist_dirs={total['netlist_dirs']} scripts={total['script_files']} "
+          f"skipped={total['skipped']} errors={total['errors']}")
     if total['errors']:
         sys.exit(1)
 
