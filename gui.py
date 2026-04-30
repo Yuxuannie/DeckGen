@@ -744,7 +744,7 @@ function sweepAll(arcType){var q=S.queue.find(function(x){return x.arc_type===ar
   if(inp){inp.value=pts.join(' ');renderQueueSummary();}}
 function getTpMap(){var map={};
   arcTypesInQueue().forEach(function(t){var el=document.getElementById('tp_'+t);map[t]=el?el.value:'';});return map;}
-function parseTpText(text){var pts=[];var re=/\(\s*(\d+)\s*,\s*(\d+)\s*\)/g;var m;
+function parseTpText(text){var pts=[];var re=/\\(\\s*(\\d+)\\s*,\\s*(\\d+)\\s*\\)/g;var m;
   while((m=re.exec(text))!==null)pts.push([parseInt(m[1]),parseInt(m[2])]);return pts;}
 function renderQueueSummary(){var el=document.getElementById('qSummary');
   if(!S.queue.length){el.innerHTML='<div class="qsrow total"><span>0 arcs x 0 corners</span><span class="qnum">0 total</span></div>';return;}
@@ -957,6 +957,13 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             return
         if not path.lower().endswith('.html'):
+            self.send_response(403)
+            self.end_headers()
+            return
+        import tempfile as _tempfile
+        tmp_root = os.path.realpath(_tempfile.gettempdir())
+        real_path = os.path.realpath(path)
+        if not (real_path.startswith(tmp_root + os.sep) or real_path == tmp_root):
             self.send_response(403)
             self.end_headers()
             return
