@@ -16,6 +16,7 @@ import os
 import re
 import sys
 import threading
+import time
 import webbrowser
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1623,8 +1624,11 @@ def main():
                             continue
                 except Exception as e:
                     print(f"  [cache] warn: {node}/{lib_type}: {e}", file=sys.stderr)
+                time.sleep(0.05)  # yield to HTTP server between libs
 
-    threading.Thread(target=_prewarm, daemon=True, name='prewarm').start()
+    # Delay prewarm so the server is fully responsive before heavy parsing begins
+    threading.Timer(3.0, lambda: threading.Thread(
+        target=_prewarm, daemon=True, name='prewarm').start()).start()
 
     if not args.no_browser:
         threading.Timer(0.5, lambda: webbrowser.open(url)).start()
