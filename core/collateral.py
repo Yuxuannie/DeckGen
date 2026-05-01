@@ -58,16 +58,21 @@ def _closest_matches(needle, haystack, n=10):
 class CollateralStore:
     """Load manifest.json for one (node, lib_type) leaf and serve lookups."""
 
-    def __init__(self, collateral_root, node, lib_type):
+    def __init__(self, collateral_root, node, lib_type, skip_autoscan=False):
         self.collateral_root = os.path.abspath(collateral_root)
         self.node = node
         self.lib_type = lib_type
         self.leaf = os.path.join(self.collateral_root, node, lib_type)
         self.manifest_path = os.path.join(self.leaf, 'manifest.json')
-        self.manifest = self._load()
+        self.manifest = self._load(skip_autoscan=skip_autoscan)
 
-    def _load(self):
+    def _load(self, skip_autoscan=False):
         if not os.path.isfile(self.manifest_path):
+            if skip_autoscan:
+                raise CollateralError(
+                    f"manifest.json not found at {self.manifest_path}\n"
+                    f"  x Run: python3 tools/scan_collateral.py "
+                    f"--node {self.node} --lib_type {self.lib_type}")
             # Try to generate it on the fly
             self._rescan()
             if not os.path.isfile(self.manifest_path):
@@ -77,7 +82,7 @@ class CollateralStore:
                     f"--node {self.node} --lib_type {self.lib_type}")
 
         # Staleness check: if any subdir is newer, regenerate
-        if self._is_stale():
+        if not skip_autoscan and self._is_stale():
             self._rescan()
 
         with open(self.manifest_path) as f:
