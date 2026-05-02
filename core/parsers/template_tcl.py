@@ -13,8 +13,224 @@ can look up the actual slew and load values.
 import re
 
 
+# ---------------------------------------------------------------------------
+# ALAPI format helpers (Altos template.tcl with define_template/define_arc)
+# ---------------------------------------------------------------------------
+
+def _is_alapi_format(content):
+    """Return True if template.tcl uses Altos ALAPI format."""
+    return 'ALAPI_active_cell' in content or (
+        'define_template' in content and 'define_arc' in content)
+
+
+def _join_continuation_lines(content):
+    """Join Tcl backslash-continuation lines into single logical lines."""
+    lines = content.split('\n')
+    result = []
+    buf = ''
+    for line in lines:
+        rstripped = line.rstrip()
+        if rstripped.endswith('\\'):
+            buf += rstripped[:-1] + ' '
+        else:
+            buf += line
+            result.append(buf)
+            buf = ''
+    if buf:
+        result.append(buf)
+    return result
+
+
+def _tokenize_tcl(s):
+    """Tokenize one Tcl logical line into (type, value) pairs.
+
+    type is 'bare', 'brace', or 'quoted'.
+    Outer braces/quotes are stripped from the value.
+    """
+    tokens = []
+    i = 0
+    s = s.strip()
+    while i < len(s):
+        c = s[i]
+        if c in ' \t':
+            i += 1
+        elif c == '{':
+            depth = 0
+            j = i
+            while j < len(s):
+                if s[j] == '{':
+                    depth += 1
+                elif s[j] == '}':
+                    depth -= 1
+                    if depth == 0:
+                        break
+                j += 1
+            tokens.append(('brace', s[i + 1:j]))
+            i = j + 1
+        elif c == '"':
+            try:
+                j = s.index('"', i + 1)
+            except ValueError:
+                j = len(s)
+            tokens.append(('quoted', s[i + 1:j]))
+            i = j + 1
+        else:
+            j = i
+            while j < len(s) and s[j] not in ' \t{}"':
+                j += 1
+            tokens.append(('bare', s[i:j]))
+            i = j
+    return tokens
+
+
+def _parse_alapi_cmd(logical_line):
+    """Parse an ALAPI command line into (cmd, flags, positional).
+
+    flags:      {'-type': 'hold', '-pin': 'E', ...}
+    positional: ['CELLNAME']   (args not preceded by a -flag)
+    Boolean flags (no value token) map to True.
+    """
+    tokens = _tokenize_tcl(logical_line)
+    if not tokens:
+        return '', {}, []
+    cmd = tokens[0][1]
+    flags = {}
+    positional = []
+    i = 1
+    while i < len(tokens):
+        typ, val = tokens[i]
+        if typ == 'bare' and val.startswith('-'):
+            # Look ahead: next token is value if it exists and is not itself a flag
+            if (i + 1 < len(tokens) and
+                    not (tokens[i + 1][0] == 'bare' and
+                         tokens[i + 1][1].startswith('-'))):
+                flags[val] = tokens[i + 1][1]
+                i += 2
+            else:
+                flags[val] = True    # boolean flag, e.g. -user_arcs_only
+                i += 1
+        else:
+            positional.append(val)
+            i += 1
+    return cmd, flags, positional
+
+
+def _vector_to_dirs(vector):
+    """Map an ALAPI vector string to (pin_dir, rel_pin_dir).
+
+    3-char  (Xxx): first char = probe direction, no rel direction.
+    4-char (XXxx): first char = rel direction, second = probe direction.
+    x / X means 'any' -> mapped to empty string.
+
+    Examples: Rxx->'rise','',  FRxx->'rise','fall',  xFxx->'fall',''
+    """
+    v = (vector or '').strip().upper()
+    _m = {'R': 'rise', 'F': 'fall'}
+    if len(v) >= 4 and v[2:4] == 'XX':
+        pin_dir = _m.get(v[1], '')
+        rel_dir = _m.get(v[0], '')
+        return pin_dir, rel_dir
+    if len(v) >= 3 and v[1:3] == 'XX':
+        pin_dir = _m.get(v[0], '')
+        return pin_dir, ''
+    return '', ''
+
+
+def _parse_alapi_full(content):
+    """Parse ALAPI-format template.tcl.
+
+    Returns (templates_dict, cells_dict, arcs_list) matching the schema
+    used by parse_template_tcl_full.
+    """
+    logical_lines = _join_continuation_lines(content)
+
+    templates = {}
+    cells = {}
+    arcs = []
+    current_cell = None
+
+    def _floats(s):
+        try:
+            return [float(x) for x in (s or '').split() if x]
+        except ValueError:
+            return []
+
+    for line in logical_lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith('#'):
+            continue
+
+        # Track current cell from ALAPI_active_cell "NAME"
+        m = re.search(r'ALAPI_active_cell\s+"([^"]+)"', stripped)
+        if m:
+            current_cell = m.group(1)
+            continue
+
+        first_word = stripped.split()[0] if stripped.split() else ''
+
+        if first_word == 'define_template':
+            _, flags, positional = _parse_alapi_cmd(stripped)
+            name = positional[-1] if positional else None
+            if not name:
+                continue
+            templates[name] = {
+                'index_1': _floats(flags.get('-index_1', '')),
+                'index_2': _floats(flags.get('-index_2', '')),
+                'index_3': _floats(flags.get('-index_3', '')),
+            }
+
+        elif first_word == 'define_cell':
+            _, flags, positional = _parse_alapi_cmd(stripped)
+            name = positional[-1] if positional else current_cell
+            if not name:
+                continue
+            cells[name] = {
+                'pinlist':              flags.get('-pinlist', ''),
+                'output_pins':          flags.get('-output', '').split(),
+                'delay_template':       flags.get('-delay') or None,
+                'constraint_template':  flags.get('-constraint') or None,
+                'mpw_template':         flags.get('-mpw') or None,
+                'si_immunity_template': flags.get('-si') or None,
+            }
+
+        elif first_word == 'define_arc':
+            _, flags, positional = _parse_alapi_cmd(stripped)
+            cell_name = positional[-1] if positional else current_cell
+            if not cell_name:
+                continue
+            arc_type = flags.get('-type', '')
+            if arc_type == 'hidden':
+                continue   # internal arcs, not timing arcs
+            pin = flags.get('-pin', '')
+            rel_pin = flags.get('-related_pin', '')
+            vector = flags.get('-vector', '')
+            when_raw = flags.get('-when', '')
+            probe_str = flags.get('-probe', '')
+            pin_dir, rel_pin_dir = _vector_to_dirs(vector)
+            probe_list = probe_str.split() if probe_str else ([pin] if pin else [])
+            arcs.append({
+                'cell':          cell_name,
+                'arc_type':      arc_type,
+                'pin':           pin,
+                'pin_dir':       pin_dir,
+                'rel_pin':       rel_pin,
+                'rel_pin_dir':   rel_pin_dir,
+                'when':          when_raw,
+                'lit_when':      when_raw,
+                'probe_list':    probe_list,
+                'vector':        vector,
+                'metric':        '',
+                'metric_thresh': '',
+            })
+
+    return templates, cells, arcs
+
+
 def parse_template_tcl(path):
     """Parse a template.tcl file and return index data per template.
+
+    Supports both Liberty lu_table_template format and Altos ALAPI
+    define_template format (auto-detected).
 
     Returns:
         dict: {
@@ -38,17 +254,27 @@ def parse_template_tcl(path):
 
     result = {'templates': {}, 'global': {}}
 
-    # Pattern for template blocks: lu_table_template "name" { ... } or similar
-    # We'll just scan for all index_N occurrences with their nearest template name.
-    lines = content.split('\n')
+    if _is_alapi_format(content):
+        # ALAPI format: define_template -index_1 {...} ... NAME
+        templates, _, _ = _parse_alapi_full(content)
+        result['templates'] = {
+            name: {k: v for k, v in t.items() if v}
+            for name, t in templates.items()
+        }
+        # Global fallback: first template with index_1
+        for t in result['templates'].values():
+            if t.get('index_1'):
+                result['global'] = t
+                break
+        return result
 
+    # Liberty format: lu_table_template / index_N ("...") lines
+    lines = content.split('\n')
     current_template = None
-    brace_depth = 0
 
     for line in lines:
         stripped = line.strip()
 
-        # Match template declarations
         m = re.match(
             r'lu_table_template\s+"([^"]+)"|lu_table_template\s+(\S+)|'
             r'(?:define_cell|template)\s+"([^"]+)"|'
@@ -62,18 +288,15 @@ def parse_template_tcl(path):
                 if current_template not in result['templates']:
                     result['templates'][current_template] = {}
 
-        # Match index_N lines
         idx_match = re.search(r'index_(\d+)\s*\(\s*"([^"]*)"\s*\)', stripped)
         if idx_match:
             idx_num = int(idx_match.group(1))
-            values_str = idx_match.group(2)
-            values = _parse_number_list(values_str)
+            values = _parse_number_list(idx_match.group(2))
             if values:
                 key = f'index_{idx_num}'
                 if current_template and current_template in result['templates']:
                     if key not in result['templates'][current_template]:
                         result['templates'][current_template][key] = values
-                # Always store in global as fallback
                 if key not in result['global']:
                     result['global'][key] = values
 
@@ -323,10 +546,25 @@ def parse_template_tcl_full(path):
           'global':    {...}  # from parse_template_tcl
         }
     """
-    base = parse_template_tcl(path)
-
     with open(path, 'r') as f:
         content = f.read()
+
+    sis = _parse_sis_sidecar(path)
+
+    if _is_alapi_format(content):
+        templates, cells, arcs = _parse_alapi_full(content)
+        base = parse_template_tcl(path)
+        return {
+            'templates':       base['templates'],
+            'cells':           cells,
+            'arcs':            arcs,
+            'global':          base['global'],
+            'index_overrides': [],
+            'sis':             sis,
+        }
+
+    # Liberty format path
+    base = parse_template_tcl(path)
 
     cells = {}
     for m in _DEFINE_CELL_RE.finditer(content):
@@ -371,11 +609,9 @@ def parse_template_tcl_full(path):
     index_overrides = []
     for m in _DEFINE_INDEX_RE.finditer(content):
         body = m.group(1)
-        # Extract index_N ("...") entries via dedicated regex (paren+quote syntax)
         idx_fields = {}
         for im in _INDEX_N_RE.finditer(body):
             idx_fields['index_' + im.group(1)] = im.group(2)
-        # Extract key : value; fields for cell/pin/rel_pin/when
         f = _parse_block_fields(body)
         index_overrides.append({
             'cell':    f.get('cell', ''),
@@ -386,8 +622,6 @@ def parse_template_tcl_full(path):
             'index_2': _floats(idx_fields.get('index_2', '')),
             'index_3': _floats(idx_fields.get('index_3', '')),
         })
-
-    sis = _parse_sis_sidecar(path)
 
     return {
         'templates':      base['templates'],
