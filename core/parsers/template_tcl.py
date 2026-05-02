@@ -198,16 +198,17 @@ def _parse_alapi_full(content):
             cell_name = positional[-1] if positional else current_cell
             if not cell_name:
                 continue
-            arc_type = flags.get('-type', '')
+            # MCQC parity: define_arc without -type defaults to 'combinational'
+            # (charTemplateParser/funcs.py:481). These are the delay arcs.
+            arc_type = flags.get('-type', '') or 'combinational'
             pin = flags.get('-pin', '')
             rel_pin = flags.get('-related_pin', '')
             vector = flags.get('-vector', '')
-            when_raw = flags.get('-when', '')
+            when_raw = flags.get('-when', '') or 'NO_CONDITION'
             probe_str = flags.get('-probe', '')
 
             if arc_type == 'hidden':
                 # hidden = internal characterization arc, not exported to .lib.
-                # Do not expose in the GUI arc list.
                 continue
 
             pin_dir, rel_pin_dir = _vector_to_dirs(vector)

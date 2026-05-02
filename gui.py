@@ -482,6 +482,7 @@ table.vtbl tr:hover td{background:var(--tint);}
       </div>
       <div class="fbar" id="arcFilters">
         <div class="fc on" onclick="setArcFilter('all',this)">All</div>
+        <div class="fc" onclick="setArcFilter('combinational',this)">comb</div>
         <div class="fc" onclick="setArcFilter('hold',this)">hold</div>
         <div class="fc" onclick="setArcFilter('setup',this)">setup</div>
         <div class="fc" onclick="setArcFilter('edge',this)">edge</div>
@@ -489,8 +490,6 @@ table.vtbl tr:hover td{background:var(--tint);}
         <div class="fc" onclick="setArcFilter('min_pulse_width',this)">mpw</div>
         <div class="fc" onclick="setArcFilter('recovery',this)">recovery</div>
         <div class="fc" onclick="setArcFilter('removal',this)">removal</div>
-        <div class="fc" onclick="setArcFilter('non_seq_hold',this)">ns_hold</div>
-        <div class="fc" onclick="setArcFilter('non_seq_setup',this)">ns_setup</div>
       </div>
       <div class="clist" id="cellList">
         <div class="cell-loading">Select a node and library type to load cells.</div>
