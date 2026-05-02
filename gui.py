@@ -27,6 +27,10 @@ sys.path.insert(0, SCRIPT_DIR)
 _TCL_PARSE_CACHE = {}
 _TCL_PARSE_LOCK = threading.Lock()
 
+# Source file registry: file_id -> {path, total_lines}
+_SOURCE_FILES = {}
+_SOURCE_LOCK = threading.Lock()
+
 # Cache for CollateralStore instances: (root, node, lib_type) -> (manifest_mtime, store)
 # Avoids re-reading and re-parsing manifest.json on every API call.
 _STORE_CACHE = {}
@@ -278,6 +282,68 @@ def _api_validate(deckgen_root, mcqc_root, filename, arc_types, max_detail):
         return {'ok': False, 'error': str(e)}
 
 
+def _api_source_register(path):
+    """Register a file for the source viewer. Returns {file_id, total_lines} or {error}."""
+    import hashlib
+    root = getattr(DeckgenHandler, 'COLLATERAL_ROOT', _DEFAULT_COLLATERAL_ROOT)
+    abs_path = os.path.realpath(path)
+    abs_root = os.path.realpath(root)
+    allowed = (
+        abs_path.startswith(abs_root + os.sep) or abs_path == abs_root or
+        abs_path.startswith(os.path.realpath(_SCRIPT_DIR) + os.sep)
+    )
+    if not allowed:
+        return {'error': 'Path not under allowed root'}
+    if not os.path.isfile(abs_path):
+        return {'error': 'File not found'}
+    try:
+        with open(abs_path, 'r', encoding='utf-8', errors='replace') as f:
+            lines = f.readlines()
+        total = len(lines)
+    except Exception as e:
+        return {'error': str(e)}
+    file_id = hashlib.md5(abs_path.encode('utf-8')).hexdigest()[:16]
+    with _SOURCE_LOCK:
+        _SOURCE_FILES[file_id] = {'path': abs_path, 'total_lines': total}
+    return {'file_id': file_id, 'total_lines': total}
+
+
+def _api_source_lines(file_id, start, end):
+    """Return lines [start, end] (1-based, inclusive). Max 2000 lines."""
+    with _SOURCE_LOCK:
+        info = _SOURCE_FILES.get(file_id)
+    if not info:
+        return None
+    try:
+        with open(info['path'], 'r', encoding='utf-8', errors='replace') as f:
+            all_lines = f.readlines()
+    except Exception:
+        return None
+    total = len(all_lines)
+    s = max(1, start)
+    e = min(total, end)
+    e = min(e, s + 1999)
+    chunk = all_lines[s - 1:e]
+    chunk = [ln.rstrip('\n') for ln in chunk]
+    return {'lines': chunk, 'start': s, 'end': e, 'total': total}
+
+
+def _api_source_find_definition(file_id, token):
+    """Find define_template ... <token> in the file. Returns {line, context} or {error}."""
+    with _SOURCE_LOCK:
+        info = _SOURCE_FILES.get(file_id)
+    if not info:
+        return {'error': 'Unknown file_id'}
+    try:
+        with open(info['path'], 'r', encoding='utf-8', errors='replace') as f:
+            for lineno, text in enumerate(f, 1):
+                if 'define_template' in text and token in text:
+                    return {'line': lineno, 'context': text.rstrip('\n')}
+    except Exception as e:
+        return {'error': str(e)}
+    return {'error': 'Definition not found for: ' + token}
+
+
 def _parse_table_points(text):
     """Parse a table-point text string into a list of (i1, i2) int tuples.
 
@@ -301,6 +367,8 @@ HTML_PAGE = """<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <title>DeckGen</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/editor/editor.main.css">
+<script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
 <style>
 :root {
   --bg:#f5f5f5; --panel:#fff; --text:#0a0a0a; --text-2:#525252;
@@ -435,6 +503,14 @@ html,body{background:var(--bg);color:var(--text);
 .tp-adv-toggle:hover{text-decoration:underline;}
 .tpin-wrap{display:none;}
 .tpin-wrap.open{display:block;}
+.src-modal{display:none;position:fixed;top:0;left:0;right:0;bottom:0;
+  background:var(--panel);z-index:500;flex-direction:column;}
+.src-modal.open{display:flex;}
+.src-modal-hdr{height:48px;display:flex;align-items:center;gap:8px;
+  padding:0 16px;border-bottom:1px solid var(--border);flex-shrink:0;
+  font-size:12px;font-family:"SF Mono",Menlo,monospace;}
+.src-modal-path{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-2);}
+.src-modal-body{flex:1;min-height:0;}
 .rgroup{margin:2px 0;border-left:2px solid var(--border);}
 .rghead{padding:5px 10px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px;}
 .rghead:hover{background:var(--tint);}
@@ -866,8 +942,12 @@ function srcLink(src,type){if(!src)return '';
   var path=src.template_tcl||'';var line=type==='arc'?src.arc_line:src.cell_line;
   var nd=src.netlist_dir||'';
   var html='<span class="src-links">';
-  if(path){var href='vscode://file/'+encodeURIComponent(path)+(line?':'+line:'');
-    html+='<a class="src-btn" href="'+href+'" title="template.tcl'+(line?' :'+line:'')+'" onclick="event.stopPropagation();">tcl</a>';}
+  if(path){
+    var vsHref='vscode://file/'+encodeURIComponent(path)+(line?':'+line:'');
+    var ln=line||1;
+    html+='<a class="src-btn" href="#" title="template.tcl'+(line?' :'+line:'')+'" '+
+      'onclick="event.preventDefault();event.stopPropagation();openSourceViewer('+JSON.stringify(path)+','+ln+');" '+
+      'oncontextmenu="event.preventDefault();navigator.clipboard.writeText('+JSON.stringify(vsHref)+');">tcl</a>';}
   if(nd){var nhref='vscode://file/'+encodeURIComponent(nd);
     html+='<a class="src-btn" href="'+nhref+'" title="netlist dir" onclick="event.stopPropagation();">net</a>';}
   return html+'</span>';}
@@ -1196,7 +1276,107 @@ function exportHtml(){post('/api/validate_html',{
     window.open('/api/validate_html_serve?path='+encodeURIComponent(d.html_path));}
   else{alert('Export failed: '+(d.error||'unknown error'));}});}
 loadNodes();
+// ---- Monaco source viewer ----
+var _monacoReady=false;var _monacoEditor=null;
+var _srcState={fileId:null,total:0,loadedStart:1,loadedEnd:0,history:[],histIdx:-1};
+require.config({paths:{vs:'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs'}});
+require(['vs/editor/editor.main'],function(){_monacoReady=true;});
+function openSourceViewer(filePath,targetLine){
+  post('/api/source/register',{path:filePath}).then(function(d){
+    if(d.error){alert('Source viewer: '+d.error);return;}
+    _srcState.fileId=d.file_id;_srcState.total=d.total_lines;
+    _srcState.history=[];_srcState.histIdx=-1;
+    document.getElementById('srcModalPath').textContent=filePath;
+    document.getElementById('srcModal').classList.add('open');
+    var start=Math.max(1,targetLine-500);
+    var end=Math.min(d.total_lines,targetLine+500);
+    fetch('/api/source/'+d.file_id+'?start='+start+'&end='+end)
+      .then(function(r){return r.json();})
+      .then(function(chunk){
+        _srcState.loadedStart=chunk.start;_srcState.loadedEnd=chunk.end;
+        var text=chunk.lines.join('\\n');
+        if(!_monacoReady||!document.getElementById('srcEditorMount')){return;}
+        if(_monacoEditor){_monacoEditor.dispose();_monacoEditor=null;}
+        _monacoEditor=monaco.editor.create(document.getElementById('srcEditorMount'),{
+          value:text,language:'plaintext',readOnly:true,
+          theme:'vs',fontSize:12,lineNumbers:'on',
+          minimap:{enabled:false},scrollBeyondLastLine:false,wordWrap:'off'});
+        var relLine=targetLine-chunk.start+1;
+        if(relLine>=1&&relLine<=chunk.lines.length){
+          _monacoEditor.revealLineInCenter(relLine);}
+        monaco.languages.registerDefinitionProvider('plaintext',{
+          provideDefinition:function(model,position){
+            var line=model.getLineContent(position.lineNumber);
+            var m=line.match(/(?:-delay|-constraint|-power|-mpw)\\s+(\\S+)/);
+            if(!m)return null;var token=m[1];
+            return fetch('/api/source/'+_srcState.fileId+'/find_definition?token='+encodeURIComponent(token))
+              .then(function(r){return r.json();})
+              .then(function(res){if(res.line){srcNavTo(res.line,true);}return null;});}});
+        _srcPushHistory(targetLine);
+        _monacoEditor.onDidScrollChange(function(){srcCheckLazyLoad();});});})}
+function _srcPushHistory(line){
+  _srcState.history=_srcState.history.slice(0,_srcState.histIdx+1);
+  _srcState.history.push(line);_srcState.histIdx=_srcState.history.length-1;
+  document.getElementById('btnSrcBack').disabled=_srcState.histIdx<=0;
+  document.getElementById('btnSrcFwd').disabled=_srcState.histIdx>=_srcState.history.length-1;}
+function srcNavTo(line,pushHist){
+  if(!_monacoEditor)return;
+  var loaded=_srcState.loadedEnd-_srcState.loadedStart+1;
+  var rel=line-_srcState.loadedStart+1;
+  if(rel>=1&&rel<=loaded){
+    _monacoEditor.revealLineInCenter(rel);
+    if(pushHist)_srcPushHistory(line);
+  }else{
+    var start=Math.max(1,line-500);var end=Math.min(_srcState.total,line+500);
+    fetch('/api/source/'+_srcState.fileId+'?start='+start+'&end='+end)
+      .then(function(r){return r.json();})
+      .then(function(chunk){
+        _srcState.loadedStart=chunk.start;_srcState.loadedEnd=chunk.end;
+        _monacoEditor.setValue(chunk.lines.join('\\n'));
+        var rel2=line-chunk.start+1;_monacoEditor.revealLineInCenter(Math.max(1,rel2));
+        if(pushHist)_srcPushHistory(line);});}}
+function srcBack(){
+  if(_srcState.histIdx<=0)return;
+  _srcState.histIdx--;srcNavTo(_srcState.history[_srcState.histIdx],false);
+  document.getElementById('btnSrcBack').disabled=_srcState.histIdx<=0;
+  document.getElementById('btnSrcFwd').disabled=false;}
+function srcFwd(){
+  if(_srcState.histIdx>=_srcState.history.length-1)return;
+  _srcState.histIdx++;srcNavTo(_srcState.history[_srcState.histIdx],false);
+  document.getElementById('btnSrcFwd').disabled=_srcState.histIdx>=_srcState.history.length-1;
+  document.getElementById('btnSrcBack').disabled=false;}
+function srcGoto(){
+  var v=prompt('Go to line (1-'+_srcState.total+'):');
+  if(!v)return;var n=parseInt(v);if(isNaN(n))return;srcNavTo(n,true);}
+function closeSrcModal(){
+  document.getElementById('srcModal').classList.remove('open');
+  if(_monacoEditor){_monacoEditor.dispose();_monacoEditor=null;}}
+function srcCheckLazyLoad(){
+  if(!_monacoEditor||!_srcState.fileId||_srcState.total<=5000)return;
+  var visRange=_monacoEditor.getVisibleRanges();if(!visRange.length)return;
+  var lastVis=visRange[0].endLineNumber;
+  var loaded=_srcState.loadedEnd-_srcState.loadedStart+1;
+  if(lastVis>loaded-50&&_srcState.loadedEnd<_srcState.total){
+    var newEnd=Math.min(_srcState.total,_srcState.loadedEnd+1000);
+    var fetchStart=_srcState.loadedEnd+1;
+    fetch('/api/source/'+_srcState.fileId+'?start='+fetchStart+'&end='+newEnd)
+      .then(function(r){return r.json();})
+      .then(function(chunk){
+        if(!_monacoEditor)return;
+        var cur=_monacoEditor.getValue();
+        _monacoEditor.setValue(cur+'\\n'+chunk.lines.join('\\n'));
+        _srcState.loadedEnd=chunk.end;});}}
 </script>
+<div class="src-modal" id="srcModal">
+  <div class="src-modal-hdr">
+    <button class="btn btn-sm btn-ghost" id="btnSrcBack" onclick="srcBack()" disabled>&#8592; Back</button>
+    <button class="btn btn-sm btn-ghost" id="btnSrcFwd" onclick="srcFwd()" disabled>Forward &#8594;</button>
+    <button class="btn btn-sm btn-ghost" onclick="srcGoto()">Goto&#x2026;</button>
+    <span class="src-modal-path" id="srcModalPath"></span>
+    <button class="btn btn-sm btn-ghost" onclick="closeSrcModal()">&#215; Close</button>
+  </div>
+  <div class="src-modal-body" id="srcEditorMount"></div>
+</div>
 </body>
 </html>
 """
@@ -1225,6 +1405,8 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
             self._serve_deck()
         elif self.path.startswith('/api/validate_html_serve'):
             self._serve_validate_html()
+        elif self.path.startswith('/api/source/'):
+            self._serve_source()
         else:
             self.send_response(404)
             self.end_headers()
@@ -1321,6 +1503,36 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
             self.send_response(500)
             self.end_headers()
 
+    def _serve_source(self):
+        """GET /api/source/<file_id>?start=N&end=M  or
+              /api/source/<file_id>/find_definition?token=<name>
+        """
+        import urllib.parse
+        parsed = urllib.parse.urlparse(self.path)
+        qs = urllib.parse.parse_qs(parsed.query)
+        tail = parsed.path[len('/api/source/'):]
+        parts = tail.split('/', 1)
+        file_id = parts[0]
+        sub = parts[1] if len(parts) > 1 else ''
+        if sub == 'find_definition':
+            token = (qs.get('token') or [''])[0]
+            result = _api_source_find_definition(file_id, token)
+            self._send_json(result)
+        else:
+            try:
+                start = int((qs.get('start') or ['1'])[0])
+                end = int((qs.get('end') or ['2000'])[0])
+            except ValueError:
+                self.send_response(400)
+                self.end_headers()
+                return
+            result = _api_source_lines(file_id, start, end)
+            if result is None:
+                self.send_response(404)
+                self.end_headers()
+                return
+            self._send_json(result)
+
     def do_POST(self):
         data = self._read_json()
         path = self.path
@@ -1375,6 +1587,8 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
             )); return
         elif path == '/api/validate_html':
             self._send_json(self._handle_validate_html(data)); return
+        elif path == '/api/source/register':
+            self._send_json(_api_source_register(data.get('path', ''))); return
         else:
             self.send_response(404)
             self.end_headers()
