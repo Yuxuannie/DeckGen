@@ -168,12 +168,21 @@ def _api_list_arcs(node, lib_type, cell):
     cells_map = parsed.get('cells', {})
     cell_info = cells_map.get(cell, {})
 
+    output_pins = cell_info.get('output_pins', [])
+
+    # Template type mapping (MCQC parity)
+    _CONSTRAINT_TYPES = frozenset({
+        'hold', 'setup', 'recovery', 'removal',
+        'non_seq_hold', 'non_seq_setup',
+    })
+    _MPW_TYPES = frozenset({'min_pulse_width', 'mpw'})
+
     result = []
     for a in raw_arcs:
         arc_type = a.get('arc_type', '')
-        if arc_type in ('hold', 'setup', 'recovery', 'removal'):
+        if arc_type in _CONSTRAINT_TYPES:
             tmpl_name = cell_info.get('constraint_template')
-        elif arc_type == 'mpw':
+        elif arc_type in _MPW_TYPES:
             tmpl_name = cell_info.get('mpw_template')
         else:
             tmpl_name = cell_info.get('delay_template')
@@ -182,13 +191,19 @@ def _api_list_arcs(node, lib_type, cell):
         idx1 = tmpl.get('index_1', [])
         idx2 = tmpl.get('index_2', [])
 
+        # For combinational arcs, pin (probe) may be empty; use cell output
+        probe_pin = a.get('pin', '')
+        if not probe_pin and output_pins:
+            probe_pin = output_pins[0]
+
         result.append({
             'arc_type':  arc_type,
-            'probe_pin': a.get('pin', ''),
+            'probe_pin': probe_pin,
             'probe_dir': a.get('pin_dir', ''),
             'rel_pin':   a.get('rel_pin', ''),
             'rel_dir':   a.get('rel_pin_dir', ''),
             'when':      a.get('when', '') or 'NO_CONDITION',
+            'vector':    a.get('vector', ''),
             'index_1':   idx1,
             'index_2':   idx2,
         })
@@ -357,6 +372,9 @@ html,body{background:var(--bg);color:var(--text);
 .arow:hover .abtn{background:var(--accent);color:#fff;border-color:var(--accent);}
 .arow.inq{color:var(--text-3);}
 .arow.inq .abtn{background:#dcfce7;color:var(--ok);border-color:#bbf7d0;}
+.agroup{margin:2px 0;}
+.aghead{padding:4px 10px;font-size:12px;font-weight:600;color:var(--text-2);cursor:default;}
+.asub{padding-left:20px;}
 .cell-loading{padding:24px;text-align:center;color:var(--text-3);font-size:12px;font-style:italic;}
 .qsl{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;
   color:var(--text-3);margin:14px 0 6px;display:flex;align-items:center;gap:6px;}
@@ -733,18 +751,43 @@ function renderArcList(head,cellName,arcs){
   var alist=document.createElement('div');alist.className='alist';
   var filtered=S.arcFilter==='all'?arcs:arcs.filter(function(a){return a.arc_type===S.arcFilter;});
   if(!filtered.length){alist.innerHTML='<div style="padding:6px 12px;font-size:11px;color:var(--text-3);">No arcs for this filter.</div>';}
+  else{
+  var groups={};var order=[];
   filtered.forEach(function(a){
-    var arcId=buildArcId(cellName,a);
-    var inQueue=S.queue.some(function(q){return q.arc_id===arcId;});
-    var div=document.createElement('div');
-    div.className='arow'+(inQueue?' inq':'');
-    div.dataset.arcId=arcId;
-    div.innerHTML='<span class="adesc">'+esc(a.arc_type)+' &nbsp;|&nbsp; '+
-      esc(a.probe_pin)+'/'+esc(a.probe_dir)+' &nbsp;&middot;&nbsp; '+
-      esc(a.rel_pin)+'/'+esc(a.rel_dir)+' &nbsp;|&nbsp; '+esc(a.when||'NO_CONDITION')+'</span>'+
-      '<span class="abtn">'+(inQueue?'&#10003; added':'+ Add')+'</span>';
-    if(!inQueue){div.addEventListener('click',function(){addToQueue(cellName,a,div);});}
-    alist.appendChild(div);});
+    var key=(a.rel_pin||a.probe_pin)+'|'+(a.when||'NO_CONDITION')+'|'+a.arc_type;
+    if(!groups[key]){groups[key]=[];order.push(key);}
+    groups[key].push(a);});
+  order.forEach(function(key){
+    var garcs=groups[key];var first=garcs[0];
+    var gkey=(first.rel_pin||first.probe_pin)+' -> '+(first.probe_pin||'?');
+    var whenLabel=(first.when&&first.when!=='NO_CONDITION')?' @ '+first.when:'';
+    if(garcs.length>1){
+      var gDiv=document.createElement('div');gDiv.className='agroup';
+      gDiv.innerHTML='<div class="aghead"><span class="atag" style="font-size:10px;">'+esc(first.arc_type)+'</span> '+
+        esc(gkey)+esc(whenLabel)+' <span style="color:var(--text-3);font-size:10px;">('+garcs.length+' arcs)</span></div>';
+      garcs.forEach(function(a){
+        var arcId=buildArcId(cellName,a);
+        var inQueue=S.queue.some(function(q){return q.arc_id===arcId;});
+        var div=document.createElement('div');div.className='arow asub'+(inQueue?' inq':'');div.dataset.arcId=arcId;
+        div.innerHTML='<span class="adesc" style="padding-left:16px;">'+
+          esc(a.probe_pin)+'/'+esc(a.probe_dir)+' &middot; '+esc(a.rel_pin)+'/'+esc(a.rel_dir)+
+          (a.vector?' <span style="color:var(--text-3);font-size:10px;">'+esc(a.vector)+'</span>':'')+
+          '</span><span class="abtn">'+(inQueue?'&#10003; added':'+ Add')+'</span>';
+        if(!inQueue){div.addEventListener('click',function(){addToQueue(cellName,a,div);});}
+        gDiv.appendChild(div);});
+      alist.appendChild(gDiv);
+    }else{
+      var a=garcs[0];var arcId=buildArcId(cellName,a);
+      var inQueue=S.queue.some(function(q){return q.arc_id===arcId;});
+      var div=document.createElement('div');div.className='arow'+(inQueue?' inq':'');div.dataset.arcId=arcId;
+      div.innerHTML='<span class="adesc">'+
+        '<span class="atag" style="font-size:10px;">'+esc(a.arc_type)+'</span> '+
+        esc(a.probe_pin)+'/'+esc(a.probe_dir)+' &middot; '+esc(a.rel_pin)+'/'+esc(a.rel_dir)+
+        (a.when&&a.when!=='NO_CONDITION'?' @ '+esc(a.when):'')+
+        (a.vector?' <span style="color:var(--text-3);font-size:10px;">'+esc(a.vector)+'</span>':'')+
+        '</span><span class="abtn">'+(inQueue?'&#10003; added':'+ Add')+'</span>';
+      if(!inQueue){div.addEventListener('click',function(){addToQueue(cellName,a,div);});}
+      alist.appendChild(div);}});}
   head.parentNode.insertBefore(alist,head.nextSibling);}
 function buildArcId(cellName,a){
   return [a.arc_type,cellName,a.probe_pin,a.probe_dir,a.rel_pin,a.rel_dir,a.when||'NO_CONDITION'].join('_');}
