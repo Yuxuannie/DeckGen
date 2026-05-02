@@ -894,7 +894,7 @@ function directFileChosen(e){var f=e.target.files[0];if(!f)return;
   var reader=new FileReader();reader.onload=function(ev){
     document.getElementById('directTA').value=ev.target.result;directParse();};reader.readAsText(f);}
 function directClear(){document.getElementById('directTA').value='';directParse();}
-function directParse(){var lines=document.getElementById('directTA').value.split('\n')
+function directParse(){var lines=document.getElementById('directTA').value.split('\\n')
   .map(function(l){return l.trim();}).filter(Boolean);
   var byType={};var errors=[];
   lines.forEach(function(l){var parts=l.split('_');var arcType=parts[0]||'';
@@ -911,12 +911,12 @@ function directParse(){var lines=document.getElementById('directTA').value.split
   html+='<div style="margin-top:14px;" class="qsum"><div class="qsrow total"><span>'+
     lines.length+' arcs x '+corners+' corners</span><span class="qnum">'+total+' decks</span></div></div>';
   sumEl.innerHTML=html;}
-function directPreview(){var lines=document.getElementById('directTA').value.split('\n')
+function directPreview(){var lines=document.getElementById('directTA').value.split('\\n')
   .map(function(l){return l.trim();}).filter(Boolean);
   post('/api/preview_v2',{mode:'batch',node:S.node,lib_type:S.libtype,
     corners:Array.from(S.selCorners),arc_ids:lines}).then(function(d){
     alert('Preview: '+(d.jobs?d.jobs.length:0)+' jobs planned. Errors: '+(d.errors?d.errors.length:0));});}
-function directGenerate(){var lines=document.getElementById('directTA').value.split('\n')
+function directGenerate(){var lines=document.getElementById('directTA').value.split('\\n')
   .map(function(l){return l.trim();}).filter(Boolean);
   showTab('explore');showResultsView();
   document.getElementById('genStatus').textContent='Generating (direct mode)...';
