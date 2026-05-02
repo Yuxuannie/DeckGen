@@ -123,10 +123,37 @@ def _api_list_corners(node, lib_type):
 
 
 def _api_list_cells(node, lib_type):
+    """Return cells with per-type arc counts from template.tcl."""
+    from core.collateral import CollateralError
     store = _get_store(node, lib_type)
     if store is None:
         return []
-    return store.list_cells()
+
+    cell_names = store.list_cells()
+
+    # Try to get arc counts from template.tcl
+    corners = store.list_corners()
+    tcl_path = None
+    for corner in corners:
+        try:
+            tcl_path = store.get_template_tcl(corner)
+            break
+        except CollateralError:
+            continue
+
+    arc_counts = {}  # {cell_name: {arc_type: count}}
+    if tcl_path and os.path.isfile(tcl_path):
+        parsed = _get_parsed_tcl(tcl_path)
+        if parsed:
+            for a in parsed.get('arcs', []):
+                cell = a.get('cell', '')
+                atype = a.get('arc_type', '')
+                if cell and atype:
+                    if cell not in arc_counts:
+                        arc_counts[cell] = {}
+                    arc_counts[cell][atype] = arc_counts[cell].get(atype, 0) + 1
+
+    return [{'name': c, 'arc_counts': arc_counts.get(c, {})} for c in cell_names]
 
 
 def _api_list_arcs(node, lib_type, cell):
@@ -375,6 +402,7 @@ html,body{background:var(--bg);color:var(--text);
 .agroup{margin:2px 0;}
 .aghead{padding:4px 10px;font-size:12px;font-weight:600;color:var(--text-2);cursor:default;}
 .asub{padding-left:20px;}
+.tp-btns{display:flex;gap:2px;flex-shrink:0;}
 .cell-loading{padding:24px;text-align:center;color:var(--text-3);font-size:12px;font-style:italic;}
 .qsl{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;
   color:var(--text-3);margin:14px 0 6px;display:flex;align-items:center;gap:6px;}
@@ -508,6 +536,10 @@ table.vtbl tr:hover td{background:var(--tint);}
         <div class="fc" onclick="setArcFilter('min_pulse_width',this)">mpw</div>
         <div class="fc" onclick="setArcFilter('recovery',this)">recovery</div>
         <div class="fc" onclick="setArcFilter('removal',this)">removal</div>
+        <div class="fc" onclick="setArcFilter('non_seq_hold',this)">ns_hold</div>
+        <div class="fc" onclick="setArcFilter('non_seq_setup',this)">ns_setup</div>
+        <div class="fc" onclick="setArcFilter('enable',this)">enable</div>
+        <div class="fc" onclick="setArcFilter('disable',this)">disable</div>
       </div>
       <div class="clist" id="cellList">
         <div class="cell-loading">Select a node and library type to load cells.</div>
@@ -719,17 +751,22 @@ function setArcFilter(type,el){S.arcFilter=type;
 function renderCells(){var list=document.getElementById('cellList');
   var filtered=S.cells.filter(function(c){
     var name=(typeof c==='string')?c:c.name;
-    return !S.cellFilter||name.toLowerCase().includes(S.cellFilter);});
-  if(!filtered.length){list.innerHTML='<div class="cell-loading">No cells match.</div>';return;}
+    if(S.cellFilter&&!name.toLowerCase().includes(S.cellFilter))return false;
+    if(S.arcFilter!=='all'){
+      var cts=(typeof c==='object'&&c.arc_counts)?c.arc_counts:{};
+      if(!cts[S.arcFilter])return false;}
+    return true;});
+  if(!filtered.length){list.innerHTML='<div class="cell-loading">No cells match'+(S.arcFilter!=='all'?' for filter: '+esc(S.arcFilter):'')+'. </div>';return;}
   list.innerHTML='';
   filtered.forEach(function(c){
     var name=(typeof c==='string')?c:c.name;
     var counts=(typeof c==='object'&&c.arc_counts)?c.arc_counts:{};
     var row=document.createElement('div');row.className='crow';
-    var tagsHtml='';
-    Object.keys(counts).forEach(function(t){
+    var total=0;var tagsHtml='';
+    Object.keys(counts).sort().forEach(function(t){total+=counts[t];
       if(S.arcFilter==='all'||S.arcFilter===t)
         tagsHtml+='<span class="atag">'+esc(t)+':'+counts[t]+'</span>';});
+    if(total>0)tagsHtml='<span style="color:var(--text-3);font-size:10px;margin-right:4px;">'+total+'</span>'+tagsHtml;
     row.innerHTML='<div class="chead" data-cell="'+encodeURIComponent(name)+'">'+
       '<span class="twisty">&#9654;</span>'+
       '<span class="cname">'+esc(name)+'</span>'+
@@ -824,19 +861,67 @@ function renderQueue(){var qList=document.getElementById('arcQueueList');
 function renderTpInputs(){var container=document.getElementById('tpInputs');container.innerHTML='';
   var types=arcTypesInQueue();if(!types.length)return;
   types.forEach(function(t){
+    var q=S.queue.find(function(x){return x.arc_type===t&&x.index_1&&x.index_1.length;});
+    var ni=q?q.index_1.length:0;var nj=q?q.index_2.length:0;
     var row=document.createElement('div');row.className='tprow';
-    row.innerHTML='<span class="atag" style="min-width:90px;">'+esc(t)+'</span>'+
-      '<input class="tpin" id="tp_'+esc(t)+'" type="text" placeholder="(1,1) (2,3) (4,4)" oninput="renderQueueSummary()">'+
-      '<button class="btn btn-sm btn-ghost" data-type="'+esc(t)+'">Sweep</button>';
-    row.querySelector('button').addEventListener('click',function(){sweepAll(this.dataset.type);});
+    var gridSize=ni&&nj?ni+'x'+nj+' grid':'';
+    row.innerHTML='<span class="atag" style="min-width:70px;">'+esc(t)+'</span>'+
+      '<input class="tpin" id="tp_'+esc(t)+'" type="text" placeholder="(1,1) (2,3) ... or use presets" oninput="renderQueueSummary()">'+
+      '<div class="tp-btns">'+
+      '<button class="btn btn-sm btn-ghost" data-type="'+esc(t)+'" data-act="full" title="Select all '+gridSize+' points">Full</button>'+
+      '<button class="btn btn-sm btn-ghost" data-type="'+esc(t)+'" data-act="diag" title="Diagonal points only">Diag</button>'+
+      '<button class="btn btn-sm btn-ghost" data-type="'+esc(t)+'" data-act="corners" title="Corner points only">Corners</button>'+
+      (ni*nj>0?'<button class="btn btn-sm btn-ghost" data-type="'+esc(t)+'" data-act="grid" title="Open clickable grid">Grid</button>':'')+
+      '</div>';
+    row.querySelectorAll('button').forEach(function(btn){
+      btn.addEventListener('click',function(){tpPreset(this.dataset.type,this.dataset.act);});});
     container.appendChild(row);});}
 function arcTypesInQueue(){var seen={};var types=[];
   S.queue.forEach(function(q){if(!seen[q.arc_type]){seen[q.arc_type]=true;types.push(q.arc_type);}});return types;}
-function sweepAll(arcType){var q=S.queue.find(function(x){return x.arc_type===arcType&&x.index_1&&x.index_1.length;});
-  if(!q)return;var pts=[];
-  for(var i=1;i<=q.index_1.length;i++){for(var j=1;j<=q.index_2.length;j++){pts.push('('+i+','+j+')');}}
+function tpPreset(arcType,act){var q=S.queue.find(function(x){return x.arc_type===arcType&&x.index_1&&x.index_1.length;});
+  if(!q)return;var ni=q.index_1.length;var nj=q.index_2.length;var pts=[];
+  if(act==='full'){for(var i=1;i<=ni;i++)for(var j=1;j<=nj;j++)pts.push('('+i+','+j+')');}
+  else if(act==='diag'){var n=Math.min(ni,nj);for(var k=1;k<=n;k++)pts.push('('+k+','+k+')');}
+  else if(act==='corners'){pts=['(1,1)','(1,'+nj+')','('+ni+',1)','('+ni+','+nj+')'];
+    if(ni>2&&nj>2){var mi=Math.ceil(ni/2);var mj=Math.ceil(nj/2);pts.push('('+mi+','+mj+')');}}
+  else if(act==='grid'){showTpGrid(arcType,ni,nj);return;}
   var inp=document.getElementById('tp_'+arcType);
   if(inp){inp.value=pts.join(' ');renderQueueSummary();}}
+function showTpGrid(arcType,ni,nj){
+  var q=S.queue.find(function(x){return x.arc_type===arcType&&x.index_1&&x.index_1.length;});
+  if(!q)return;var existing=parseTpText(document.getElementById('tp_'+arcType).value||'');
+  var sel=new Set(existing.map(function(p){return p[0]+','+p[1];}));
+  var overlay=document.createElement('div');
+  overlay.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:999;display:flex;align-items:center;justify-content:center;';
+  var box=document.createElement('div');
+  box.style.cssText='background:var(--bg);border-radius:8px;padding:16px;max-width:600px;max-height:80vh;overflow:auto;';
+  var hdr='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">'+
+    '<span style="font-weight:600;">'+esc(arcType)+' table points ('+ni+'x'+nj+')</span>'+
+    '<span style="font-size:11px;color:var(--text-3);">Click cells to toggle. idx1=row, idx2=col</span></div>';
+  var tbl='<table style="border-collapse:collapse;font-size:11px;font-family:monospace;">';
+  tbl+='<tr><th style="padding:2px 4px;"></th>';
+  for(var j=1;j<=nj;j++)tbl+='<th style="padding:2px 6px;color:var(--text-3);">j='+j+'</th>';
+  tbl+='</tr>';
+  for(var i=1;i<=ni;i++){tbl+='<tr><th style="padding:2px 6px;color:var(--text-3);">i='+i+'</th>';
+    for(var j=1;j<=nj;j++){var on=sel.has(i+','+j);
+      tbl+='<td class="gc'+(on?' gon':'')+'" data-i="'+i+'" data-j="'+j+'" style="width:28px;height:28px;text-align:center;cursor:pointer;border:1px solid var(--border);background:'+(on?'var(--accent)':'var(--bg)')+';color:'+(on?'#fff':'var(--text-3)')+';border-radius:3px;">'+(on?'\\u2713':'')+'</td>';}
+    tbl+='</tr>';}
+  tbl+='</table>';
+  var footer='<div style="margin-top:10px;display:flex;gap:8px;justify-content:flex-end;">'+
+    '<button class="btn btn-sm btn-ghost" id="tpGridCancel">Cancel</button>'+
+    '<button class="btn btn-sm" id="tpGridApply" style="background:var(--accent);color:#fff;">Apply</button></div>';
+  box.innerHTML=hdr+tbl+footer;overlay.appendChild(box);document.body.appendChild(overlay);
+  box.querySelectorAll('.gc').forEach(function(td){td.addEventListener('click',function(){
+    var on=this.classList.toggle('gon');
+    this.style.background=on?'var(--accent)':'var(--bg)';
+    this.style.color=on?'#fff':'var(--text-3)';this.textContent=on?'\\u2713':'';});});
+  document.getElementById('tpGridCancel').addEventListener('click',function(){overlay.remove();});
+  document.getElementById('tpGridApply').addEventListener('click',function(){
+    var pts=[];box.querySelectorAll('.gon').forEach(function(td){
+      pts.push('('+td.dataset.i+','+td.dataset.j+')');});
+    var inp=document.getElementById('tp_'+arcType);
+    if(inp){inp.value=pts.join(' ');renderQueueSummary();}overlay.remove();});
+  overlay.addEventListener('click',function(e){if(e.target===overlay)overlay.remove();});}
 function getTpMap(){var map={};
   arcTypesInQueue().forEach(function(t){var el=document.getElementById('tp_'+t);map[t]=el?el.value:'';});return map;}
 function parseTpText(text){var pts=[];var re=/\\(\\s*(\\d+)\\s*,\\s*(\\d+)\\s*\\)/g;var m;
