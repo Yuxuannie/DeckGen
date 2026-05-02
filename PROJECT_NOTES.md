@@ -152,6 +152,36 @@ MCQC `--char_type non_cons` 路径生成 combinational delay deck。globals.cfg 
 - [x] Deck 列表按 (related_pin, when) 分组折叠展示 (2026-05-02)
 - [x] AIOI21 ground truth 自动化测试 (2026-05-02, 12 assertions)
 
+### 2026-05-02: Generate NetworkError
+
+**现象**: 点 "Generate 25 decks" 后前端报 NetworkError，无响应
+
+**诊断步骤结果**:
+- Step 1 (DevTools): 未实测（先做代码层诊断）
+- Step 2 (curl backend): N/A
+- Step 3 (backend logs): N/A
+- Step 4 (单点测试): N/A
+- Step 5 (CORS): 不适用（同源）
+- Step 6 (协议): 同源 http
+
+**根因**: arc_id 格式破损导致 parse 全部失败
+
+根因链：
+1. ALAPI combinational arc 的 `_vector_to_dirs()` 对 4 字符 vector (如 `FxxR`)
+   返回空 `pin_dir` 和/或空 `rel_pin_dir`
+2. GUI JS `buildArcId()` 用 `join('_')` 拼接，空段 → 双下划线 `__`
+   实际产出: `combinational_AIOI21..._ZN__A1__NO_CONDITION`
+3. 后端 `parse_arc_identifier()` 按 `_` 分割，空段偏移所有字段 → 返回 None
+4. `plan_jobs` 收集 "Cannot parse" error，0 个 job 产出
+5. `_handle_generate_v2` 发空 done 行或异常 → 前端 fetch stream 中断 → NetworkError
+
+**修复方案**:
+1. `_vector_to_dirs()` 改为用 pinlist 位置映射正确解析 4 字符 vector
+2. `buildArcId()` 对空 dir 使用 fallback 值 (如 'any')
+3. `_api_list_arcs()` 确保返回的 probe_dir/rel_dir 非空
+
+验证: AIOI21 arc_id 应为 `combinational_AIOI21..._ZN_fall_A1_rise_NO_CONDITION_1_1`
+
 ## 7. GUI Features
 
 ### 2026-05-02: Inline LUT Grid Picker

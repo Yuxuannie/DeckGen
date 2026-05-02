@@ -122,24 +122,43 @@ def _parse_alapi_cmd(logical_line):
     return cmd, flags, positional
 
 
-def _vector_to_dirs(vector):
+def _vector_to_dirs(vector, pinlist=None, rel_pin=None, output_pins=None):
     """Map an ALAPI vector string to (pin_dir, rel_pin_dir).
 
-    3-char  (Xxx): first char = probe direction, no rel direction.
-    4-char (XXxx): first char = rel direction, second = probe direction.
-    x / X means 'any' -> mapped to empty string.
+    Vector chars correspond to pinlist positions:
+      R = rise, F = fall, x = static
 
-    Examples: Rxx->'rise','',  FRxx->'rise','fall',  xFxx->'fall',''
+    If pinlist is provided, looks up rel_pin and output pin positions
+    to determine exact directions. Otherwise falls back to heuristic:
+      3-char (Xxx): first char = stimulus direction
+      4-char (XXxx): first char = rel direction, second = pin direction
+
+    Returns (probe_pin_dir, rel_pin_dir).
     """
-    v = (vector or '').strip().upper()
+    v = (vector or '').strip('{}').upper()
     _m = {'R': 'rise', 'F': 'fall'}
+
+    # Pinlist-based resolution (preferred for ALAPI combinational arcs)
+    if pinlist and v:
+        pl = pinlist.split() if isinstance(pinlist, str) else list(pinlist)
+        probe_dir = ''
+        rel_dir = ''
+        if len(v) == len(pl):
+            # Find output pin direction
+            out = set(output_pins or [])
+            for i, pin in enumerate(pl):
+                if pin in out and v[i] in ('R', 'F'):
+                    probe_dir = _m[v[i]]
+                if rel_pin and pin == rel_pin and v[i] in ('R', 'F'):
+                    rel_dir = _m[v[i]]
+            if probe_dir or rel_dir:
+                return probe_dir, rel_dir
+
+    # Heuristic fallback
     if len(v) >= 4 and v[2:4] == 'XX':
-        pin_dir = _m.get(v[1], '')
-        rel_dir = _m.get(v[0], '')
-        return pin_dir, rel_dir
+        return _m.get(v[1], ''), _m.get(v[0], '')
     if len(v) >= 3 and v[1:3] == 'XX':
-        pin_dir = _m.get(v[0], '')
-        return pin_dir, ''
+        return _m.get(v[0], ''), ''
     return '', ''
 
 
@@ -259,7 +278,12 @@ def _parse_alapi_full(content):
                         f"declared={arc_type} vector_implies={implied} "
                         f"vector={vector}")
 
-            pin_dir, rel_pin_dir = _vector_to_dirs(vector)
+            # Resolve directions using pinlist-based vector mapping
+            ci = cells.get(cell_name, {})
+            pin_dir, rel_pin_dir = _vector_to_dirs(
+                vector, pinlist=ci.get('pinlist', ''),
+                rel_pin=rel_pin or pin, output_pins=ci.get('output_pins', []))
+            # For combinational arcs without -pin, probe_pin is the output pin
             probe_list = probe_str.split() if probe_str else ([pin] if pin else [])
             arcs.append({
                 'cell':          cell_name,
