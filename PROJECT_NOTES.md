@@ -152,6 +152,30 @@ MCQC `--char_type non_cons` 路径生成 combinational delay deck。globals.cfg 
 - [x] Deck 列表按 (related_pin, when) 分组折叠展示 (2026-05-02)
 - [x] AIOI21 ground truth 自动化测试 (2026-05-02, 12 assertions)
 
+## 7. GUI Features
+
+### 2026-05-02: Inline LUT Grid Picker
+- Replaces modal overlay with inline clickable grid per arc-type
+- Rows = index_1 (i1), Cols = index_2 (i2), values from template.tcl
+- Single-click toggle, Shift+click rectangle selection
+- Preset buttons: Full / Diag / Corners update grid visually
+- Hidden "Advanced" text input syncs bidirectionally with grid
+- Grid dimensions from arc's actual index_1/index_2 arrays
+
+### 2026-05-02: Monaco Editor Source Viewer
+- Monaco Editor 0.45.0 from jsDelivr CDN (read-only mode)
+- Backend: `/api/source/register`, `/api/source/<id>`, `/api/source/<id>/find_definition`
+- File access restricted to COLLATERAL_ROOT (no arbitrary file read)
+- Lazy loading: files >5000 lines load in chunks (target ±500 lines initially)
+- Cross-reference: ctrl+click on template names (after `-delay`, `-constraint`, etc.)
+  calls `find_definition` endpoint, jumps to `define_template` line
+- History stack (10 deep) for Back/Forward navigation
+- Goto line via Ctrl+G or footer button
+- Left-click [tcl]/[net] opens viewer; right-click copies vscode:// URL
+- Tcl syntax highlighting for template.tcl, SPICE for netlists
+- Known limitation: cross-reference is text-level token match, not semantic Tcl parse;
+  duplicate template names jump to first occurrence
+
 ## 6. 参考资料
 
 - AOI21 PMOS pull-up 物理推导: 见 conversation log（2026-05）
