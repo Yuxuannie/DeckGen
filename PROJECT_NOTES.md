@@ -147,7 +147,7 @@ MCQC `--char_type non_cons` 路径生成 combinational delay deck。globals.cfg 
 
 ## 5. 待办 feature
 
-- [ ] Source quick-link (template.tcl + netlist + kit 三按钮)
+- [x] Source quick-link: [tcl] [net] buttons on arc rows (2026-05-02)
 - [x] Vector-based arc 分类 sanity check (2026-05-02)
 - [x] Deck 列表按 (related_pin, when) 分组折叠展示 (2026-05-02)
 - [x] AIOI21 ground truth 自动化测试 (2026-05-02, 12 assertions)
