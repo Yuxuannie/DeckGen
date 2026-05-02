@@ -196,6 +196,14 @@ def _api_list_arcs(node, lib_type, cell):
     cell_info = cells_map.get(cell, {})
 
     output_pins = cell_info.get('output_pins', [])
+    cell_source_line = cell_info.get('_source_line')
+
+    # Resolve netlist dir for this corner
+    netlist_dir = None
+    try:
+        netlist_dir = store.get_netlist_dir(corners[0])
+    except Exception:
+        pass
 
     # Template type mapping (MCQC parity)
     _CONSTRAINT_TYPES = frozenset({
@@ -223,6 +231,12 @@ def _api_list_arcs(node, lib_type, cell):
         if not probe_pin and output_pins:
             probe_pin = output_pins[0]
 
+        # Source provenance
+        arc_src = {'template_tcl': tcl_path,
+                   'arc_line': a.get('_source_line'),
+                   'cell_line': cell_source_line,
+                   'netlist_dir': netlist_dir}
+
         result.append({
             'arc_type':  arc_type,
             'probe_pin': probe_pin,
@@ -233,6 +247,7 @@ def _api_list_arcs(node, lib_type, cell):
             'vector':    a.get('vector', ''),
             'index_1':   idx1,
             'index_2':   idx2,
+            'source':    arc_src,
         })
     return result
 
@@ -403,6 +418,14 @@ html,body{background:var(--bg);color:var(--text);
 .aghead{padding:4px 10px;font-size:12px;font-weight:600;color:var(--text-2);cursor:default;}
 .asub{padding-left:20px;}
 .tp-btns{display:flex;gap:2px;flex-shrink:0;}
+.src-links{display:inline-flex;gap:2px;margin:0 4px;flex-shrink:0;}
+.src-btn{font-size:9px;padding:1px 4px;border-radius:3px;background:var(--tint);color:var(--accent);
+  text-decoration:none;border:1px solid var(--border);cursor:pointer;}
+.src-btn:hover{background:var(--accent);color:#fff;}
+.rgroup{margin:2px 0;border-left:2px solid var(--border);}
+.rghead{padding:5px 10px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px;}
+.rghead:hover{background:var(--tint);}
+.rgbody .rrow{padding-left:20px;}
 .cell-loading{padding:24px;text-align:center;color:var(--text-3);font-size:12px;font-style:italic;}
 .qsl{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;
   color:var(--text-3);margin:14px 0 6px;display:flex;align-items:center;gap:6px;}
@@ -809,7 +832,7 @@ function renderArcList(head,cellName,arcs){
         div.innerHTML='<span class="adesc" style="padding-left:16px;">'+
           esc(a.probe_pin)+'/'+esc(a.probe_dir)+' &middot; '+esc(a.rel_pin)+'/'+esc(a.rel_dir)+
           (a.vector?' <span style="color:var(--text-3);font-size:10px;">'+esc(a.vector)+'</span>':'')+
-          '</span><span class="abtn">'+(inQueue?'&#10003; added':'+ Add')+'</span>';
+          '</span>'+srcLink(a.source,'arc')+'<span class="abtn">'+(inQueue?'&#10003; added':'+ Add')+'</span>';
         if(!inQueue){div.addEventListener('click',function(){addToQueue(cellName,a,div);});}
         gDiv.appendChild(div);});
       alist.appendChild(gDiv);
@@ -822,10 +845,19 @@ function renderArcList(head,cellName,arcs){
         esc(a.probe_pin)+'/'+esc(a.probe_dir)+' &middot; '+esc(a.rel_pin)+'/'+esc(a.rel_dir)+
         (a.when&&a.when!=='NO_CONDITION'?' @ '+esc(a.when):'')+
         (a.vector?' <span style="color:var(--text-3);font-size:10px;">'+esc(a.vector)+'</span>':'')+
-        '</span><span class="abtn">'+(inQueue?'&#10003; added':'+ Add')+'</span>';
+        '</span>'+srcLink(a.source,'arc')+'<span class="abtn">'+(inQueue?'&#10003; added':'+ Add')+'</span>';
       if(!inQueue){div.addEventListener('click',function(){addToQueue(cellName,a,div);});}
       alist.appendChild(div);}});}
   head.parentNode.insertBefore(alist,head.nextSibling);}
+function srcLink(src,type){if(!src)return '';
+  var path=src.template_tcl||'';var line=type==='arc'?src.arc_line:src.cell_line;
+  var nd=src.netlist_dir||'';
+  var html='<span class="src-links">';
+  if(path){var href='vscode://file/'+encodeURIComponent(path)+(line?':'+line:'');
+    html+='<a class="src-btn" href="'+href+'" title="template.tcl'+(line?' :'+line:'')+'" onclick="event.stopPropagation();">tcl</a>';}
+  if(nd){var nhref='vscode://file/'+encodeURIComponent(nd);
+    html+='<a class="src-btn" href="'+nhref+'" title="netlist dir" onclick="event.stopPropagation();">net</a>';}
+  return html+'</span>';}
 function buildArcId(cellName,a){
   return [a.arc_type,cellName,a.probe_pin,a.probe_dir,a.rel_pin,a.rel_dir,a.when||'NO_CONDITION'].join('_');}
 function addToQueue(cellName,a,rowEl){
@@ -972,23 +1004,40 @@ function doGenerate(){var body=buildGenerateBody();showResultsView();
       return pump();});}
     return pump();}).catch(function(e){
     document.getElementById('genStatus').textContent='Error: '+e.message;});}
-function appendResultRow(r){var list=document.getElementById('resultList');
-  var ok=r.success!==false&&!r.error;
+function appendResultRow(r){
+  var list=document.getElementById('resultList');
+  var arcKey=r.arc_id||r.id||'?';var ok=r.success!==false&&!r.error;
+  var group=list.querySelector('[data-arc-key="'+CSS.escape(arcKey)+'"]');
+  if(!group){
+    group=document.createElement('div');group.className='rgroup';group.dataset.arcKey=arcKey;
+    var hdr=document.createElement('div');hdr.className='rghead';
+    hdr.innerHTML='<span class="twisty">&#9660;</span> <span class="rname">'+esc(arcKey)+'</span>'+
+      ' <span class="rcnt" style="color:var(--text-3);font-size:10px;"></span>';
+    hdr.addEventListener('click',function(){
+      var body=group.querySelector('.rgbody');
+      var tw=hdr.querySelector('.twisty');
+      body.style.display=body.style.display==='none'?'':'none';
+      tw.innerHTML=body.style.display==='none'?'&#9654;':'&#9660;';});
+    group.appendChild(hdr);
+    var body=document.createElement('div');body.className='rgbody';
+    group.appendChild(body);list.appendChild(group);}
+  var body=group.querySelector('.rgbody');
   var div=document.createElement('div');div.className='rrow';
   div.innerHTML='<span class="rico" style="color:'+(ok?'var(--ok)':'var(--err)')+';">&#9679;</span>'+
-    '<div class="rtxt"><div class="rname" style="'+(ok?'':'color:var(--err);')+'">'+
-    esc(r.arc_id||r.id||'?')+'</div>'+
-    '<div class="rmeta">'+esc(r.corner||'')+(r.error?' -- '+esc(r.error):'')+'</div></div>'+
+    '<div class="rtxt"><div class="rmeta">'+esc(r.corner||'')+(r.error?' -- '+esc(r.error):'')+'</div></div>'+
     '<span class="rarrow">&#8250;</span>';
   if(ok&&r.output_path){div.addEventListener('click',function(){
     openDeck(div,r.output_path,(r.arc_id||'')+(r.corner?' - '+r.corner:''));});}
-  list.appendChild(div);}
+  body.appendChild(div);
+  var cnt=body.children.length;
+  group.querySelector('.rcnt').textContent='('+cnt+' corner'+(cnt>1?'s':'')+')';
+}
 function finalizeResults(){var ok=S.results.filter(function(r){return r.success!==false&&!r.error;}).length;
-  var fail=S.results.length-ok;
+  var fail=S.results.length-ok;var arcs=document.querySelectorAll('#resultList .rgroup').length;
   document.getElementById('genStatus').innerHTML=
     '<span style="color:var(--ok);font-weight:600;">&#10003; '+ok+' succeeded</span>&nbsp;&nbsp;'+
     '<span style="color:var(--err);font-weight:600;">&#10007; '+fail+' failed</span>&nbsp;&nbsp;'+
-    '<span style="color:var(--text-3);">Click a row to preview deck</span>';}
+    '<span style="color:var(--text-3);">'+arcs+' arcs across '+S.selCorners.size+' corners. Click to preview.</span>';}
 function showResultsView(){
   document.getElementById('queueBody').classList.add('view-hidden');
   document.getElementById('queueFooter').classList.add('view-hidden');

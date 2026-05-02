@@ -24,20 +24,27 @@ def _is_alapi_format(content):
 
 
 def _join_continuation_lines(content):
-    """Join Tcl backslash-continuation lines into single logical lines."""
+    """Join Tcl backslash-continuation lines into single logical lines.
+
+    Returns list of (logical_line, start_line_number) tuples.
+    Line numbers are 1-based.
+    """
     lines = content.split('\n')
     result = []
     buf = ''
-    for line in lines:
+    start_lineno = 1
+    for i, line in enumerate(lines, 1):
         rstripped = line.rstrip()
+        if not buf:
+            start_lineno = i
         if rstripped.endswith('\\'):
             buf += rstripped[:-1] + ' '
         else:
             buf += line
-            result.append(buf)
+            result.append((buf, start_lineno))
             buf = ''
     if buf:
-        result.append(buf)
+        result.append((buf, start_lineno))
     return result
 
 
@@ -179,7 +186,7 @@ def _parse_alapi_full(content):
         except ValueError:
             return []
 
-    for line in logical_lines:
+    for line, lineno in logical_lines:
         stripped = line.strip()
         if not stripped or stripped.startswith('#'):
             continue
@@ -215,6 +222,7 @@ def _parse_alapi_full(content):
                 'constraint_template':  flags.get('-constraint') or None,
                 'mpw_template':         flags.get('-mpw') or None,
                 'si_immunity_template': flags.get('-si') or None,
+                '_source_line':         lineno,
             }
 
         elif first_word == 'define_arc':
@@ -266,6 +274,7 @@ def _parse_alapi_full(content):
                 'vector':        vector,
                 'metric':        '',
                 'metric_thresh': '',
+                '_source_line':  lineno,
             })
 
     return templates, cells, arcs, warnings
