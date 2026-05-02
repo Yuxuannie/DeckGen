@@ -367,8 +367,7 @@ HTML_PAGE = """<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <title>DeckGen</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/editor/editor.main.css">
-<script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
+<!-- Monaco removed: CDN blocked by corporate firewall. Using built-in viewer. -->
 <style>
 :root {
   --bg:#f5f5f5; --panel:#fff; --text:#0a0a0a; --text-2:#525252;
@@ -495,6 +494,12 @@ html,body{background:var(--bg);color:var(--text);
 .src-btn{font-size:9px;padding:1px 4px;border-radius:3px;background:var(--tint);color:var(--accent);
   text-decoration:none;border:1px solid var(--border);cursor:pointer;}
 .src-btn:hover{background:var(--accent);color:#fff;}
+.src-line{display:flex;font-family:monospace;font-size:12px;line-height:1.6;white-space:pre;}
+.src-ln{width:60px;text-align:right;padding-right:8px;color:var(--text-3);user-select:none;flex-shrink:0;}
+.src-code{flex:1;padding-right:12px;}
+.src-hl{background:#fff3cd;}
+.src-ref{color:var(--accent);cursor:pointer;text-decoration:underline;text-decoration-style:dotted;}
+.src-ref:hover{background:var(--accent);color:#fff;border-radius:2px;}
 .lut-grid-wrap{margin-top:6px;overflow-x:auto;}
 .lut-grid{border-collapse:collapse;font-size:10px;font-family:"SF Mono",Menlo,monospace;}
 .lut-grid th{padding:2px 5px;color:var(--text-3);font-weight:400;text-align:center;}
@@ -1294,16 +1299,13 @@ function exportHtml(){post('/api/validate_html',{
     window.open('/api/validate_html_serve?path='+encodeURIComponent(d.html_path));}
   else{alert('Export failed: '+(d.error||'unknown error'));}});}
 loadNodes();
-// ---- Monaco source viewer ----
-var _monacoReady=false;var _monacoEditor=null;
-var _srcState={fileId:null,total:0,loadedStart:1,loadedEnd:0,history:[],histIdx:-1};
-require.config({paths:{vs:'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs'}});
-require(['vs/editor/editor.main'],function(){_monacoReady=true;});
+// ---- Built-in source viewer (no CDN dependency) ----
+var _srcState={fileId:null,total:0,loadedStart:1,loadedEnd:0,history:[],histIdx:-1,lines:[]};
 function openSourceViewer(filePath,targetLine){
   post('/api/source/register',{path:filePath}).then(function(d){
     if(d.error){alert('Source viewer: '+d.error);return;}
     _srcState.fileId=d.file_id;_srcState.total=d.total_lines;
-    _srcState.history=[];_srcState.histIdx=-1;
+    _srcState.history=[];_srcState.histIdx=-1;_srcState.lines=[];
     document.getElementById('srcModalPath').textContent=filePath;
     document.getElementById('srcModal').classList.add('open');
     var start=Math.max(1,targetLine-500);
@@ -1312,88 +1314,89 @@ function openSourceViewer(filePath,targetLine){
       .then(function(r){return r.json();})
       .then(function(chunk){
         _srcState.loadedStart=chunk.start;_srcState.loadedEnd=chunk.end;
-        var text=chunk.lines.join('\\n');
-        if(!_monacoReady||!document.getElementById('srcEditorMount')){return;}
-        if(_monacoEditor){_monacoEditor.dispose();_monacoEditor=null;}
-        _monacoEditor=monaco.editor.create(document.getElementById('srcEditorMount'),{
-          value:text,language:'plaintext',readOnly:true,
-          theme:'vs',fontSize:12,lineNumbers:'on',
-          minimap:{enabled:false},scrollBeyondLastLine:false,wordWrap:'off'});
-        var relLine=targetLine-chunk.start+1;
-        if(relLine>=1&&relLine<=chunk.lines.length){
-          _monacoEditor.revealLineInCenter(relLine);}
-        monaco.languages.registerDefinitionProvider('plaintext',{
-          provideDefinition:function(model,position){
-            var line=model.getLineContent(position.lineNumber);
-            var m=line.match(/(?:-delay|-constraint|-power|-mpw)\\s+(\\S+)/);
-            if(!m)return null;var token=m[1];
-            return fetch('/api/source/'+_srcState.fileId+'/find_definition?token='+encodeURIComponent(token))
-              .then(function(r){return r.json();})
-              .then(function(res){if(res.line){srcNavTo(res.line,true);}return null;});}});
+        _srcState.lines=chunk.lines;_srcRender(targetLine);
         _srcPushHistory(targetLine);
-        _monacoEditor.onDidScrollChange(function(){srcCheckLazyLoad();});});})}
+        var mount=document.getElementById('srcEditorMount');
+        mount.addEventListener('scroll',function(){_srcLazyLoad();});});})}
+function _srcRender(highlightLine){
+  var mount=document.getElementById('srcEditorMount');
+  var html='';var s=_srcState.loadedStart;
+  for(var i=0;i<_srcState.lines.length;i++){
+    var ln=s+i;var cls=ln===highlightLine?'src-hl':'';
+    var raw=_srcState.lines[i];
+    var escaped=raw.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    var linked=escaped.replace(/(-delay|-constraint|-power|-mpw)\s+(\S+)/g,
+      function(_,flag,tok){return flag+' <span class="src-ref" data-token="'+esc(tok)+'" title="Ctrl+click to find definition">'+tok+'</span>';});
+    html+='<div class="src-line'+((cls)?' '+cls:'')+'" data-ln="'+ln+'"><span class="src-ln">'+ln+'</span><span class="src-code">'+linked+'</span></div>';}
+  mount.innerHTML=html;
+  var hlEl=mount.querySelector('.src-hl');
+  if(hlEl)hlEl.scrollIntoView({block:'center'});
+  mount.querySelectorAll('.src-ref').forEach(function(el){
+    el.addEventListener('click',function(e){
+      if(!e.ctrlKey&&!e.metaKey)return;e.preventDefault();e.stopPropagation();
+      var token=this.dataset.token;
+      fetch('/api/source/'+_srcState.fileId+'/find_definition?token='+encodeURIComponent(token))
+        .then(function(r){return r.json();})
+        .then(function(res){if(res.line)srcNavTo(res.line,true);});});});}
 function _srcPushHistory(line){
   _srcState.history=_srcState.history.slice(0,_srcState.histIdx+1);
   _srcState.history.push(line);_srcState.histIdx=_srcState.history.length-1;
   document.getElementById('btnSrcBack').disabled=_srcState.histIdx<=0;
   document.getElementById('btnSrcFwd').disabled=_srcState.histIdx>=_srcState.history.length-1;}
 function srcNavTo(line,pushHist){
-  if(!_monacoEditor)return;
-  var loaded=_srcState.loadedEnd-_srcState.loadedStart+1;
-  var rel=line-_srcState.loadedStart+1;
-  if(rel>=1&&rel<=loaded){
-    _monacoEditor.revealLineInCenter(rel);
-    if(pushHist)_srcPushHistory(line);
+  if(line>=_srcState.loadedStart&&line<=_srcState.loadedEnd){
+    _srcRender(line);if(pushHist)_srcPushHistory(line);
   }else{
     var start=Math.max(1,line-500);var end=Math.min(_srcState.total,line+500);
     fetch('/api/source/'+_srcState.fileId+'?start='+start+'&end='+end)
       .then(function(r){return r.json();})
       .then(function(chunk){
         _srcState.loadedStart=chunk.start;_srcState.loadedEnd=chunk.end;
-        _monacoEditor.setValue(chunk.lines.join('\\n'));
-        var rel2=line-chunk.start+1;_monacoEditor.revealLineInCenter(Math.max(1,rel2));
+        _srcState.lines=chunk.lines;_srcRender(line);
         if(pushHist)_srcPushHistory(line);});}}
-function srcBack(){
-  if(_srcState.histIdx<=0)return;
-  _srcState.histIdx--;srcNavTo(_srcState.history[_srcState.histIdx],false);
+function srcBack(){if(_srcState.histIdx<=0)return;_srcState.histIdx--;
+  srcNavTo(_srcState.history[_srcState.histIdx],false);
   document.getElementById('btnSrcBack').disabled=_srcState.histIdx<=0;
   document.getElementById('btnSrcFwd').disabled=false;}
-function srcFwd(){
-  if(_srcState.histIdx>=_srcState.history.length-1)return;
+function srcFwd(){if(_srcState.histIdx>=_srcState.history.length-1)return;
   _srcState.histIdx++;srcNavTo(_srcState.history[_srcState.histIdx],false);
   document.getElementById('btnSrcFwd').disabled=_srcState.histIdx>=_srcState.history.length-1;
   document.getElementById('btnSrcBack').disabled=false;}
-function srcGoto(){
-  var v=prompt('Go to line (1-'+_srcState.total+'):');
+function srcGoto(){var v=prompt('Go to line (1-'+_srcState.total+'):');
   if(!v)return;var n=parseInt(v);if(isNaN(n))return;srcNavTo(n,true);}
-function closeSrcModal(){
-  document.getElementById('srcModal').classList.remove('open');
-  if(_monacoEditor){_monacoEditor.dispose();_monacoEditor=null;}}
-function srcCheckLazyLoad(){
-  if(!_monacoEditor||!_srcState.fileId||_srcState.total<=5000)return;
-  var visRange=_monacoEditor.getVisibleRanges();if(!visRange.length)return;
-  var lastVis=visRange[0].endLineNumber;
-  var loaded=_srcState.loadedEnd-_srcState.loadedStart+1;
-  if(lastVis>loaded-50&&_srcState.loadedEnd<_srcState.total){
-    var newEnd=Math.min(_srcState.total,_srcState.loadedEnd+1000);
-    var fetchStart=_srcState.loadedEnd+1;
-    fetch('/api/source/'+_srcState.fileId+'?start='+fetchStart+'&end='+newEnd)
+function srcSearch(){var q=prompt('Search:');if(!q)return;
+  fetch('/api/source/'+_srcState.fileId+'/find_definition?token='+encodeURIComponent(q))
+    .then(function(r){return r.json();}).then(function(res){
+      if(res.line){srcNavTo(res.line,true);}else{alert('Not found: '+q);}});}
+function closeSrcModal(){document.getElementById('srcModal').classList.remove('open');}
+function _srcLazyLoad(){
+  if(!_srcState.fileId||_srcState.loadedEnd>=_srcState.total)return;
+  var mount=document.getElementById('srcEditorMount');
+  if(mount.scrollTop+mount.clientHeight>mount.scrollHeight-200){
+    var fetchStart=_srcState.loadedEnd+1;var fetchEnd=Math.min(_srcState.total,fetchStart+1000);
+    _srcState.loadedEnd=fetchEnd;
+    fetch('/api/source/'+_srcState.fileId+'?start='+fetchStart+'&end='+fetchEnd)
       .then(function(r){return r.json();})
       .then(function(chunk){
-        if(!_monacoEditor)return;
-        var cur=_monacoEditor.getValue();
-        _monacoEditor.setValue(cur+'\\n'+chunk.lines.join('\\n'));
-        _srcState.loadedEnd=chunk.end;});}}
+        _srcState.lines=_srcState.lines.concat(chunk.lines);_srcState.loadedEnd=chunk.end;
+        var mount=document.getElementById('srcEditorMount');var s=chunk.start;
+        for(var i=0;i<chunk.lines.length;i++){var ln=s+i;
+          var raw=chunk.lines[i];var escaped=raw.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+          var linked=escaped.replace(/(-delay|-constraint|-power|-mpw)\s+(\S+)/g,
+            function(_,flag,tok){return flag+' <span class="src-ref" data-token="'+esc(tok)+'">'+tok+'</span>';});
+          mount.insertAdjacentHTML('beforeend','<div class="src-line" data-ln="'+ln+'"><span class="src-ln">'+ln+'</span><span class="src-code">'+linked+'</span></div>');}});}}
 </script>
 <div class="src-modal" id="srcModal">
   <div class="src-modal-hdr">
     <button class="btn btn-sm btn-ghost" id="btnSrcBack" onclick="srcBack()" disabled>&#8592; Back</button>
     <button class="btn btn-sm btn-ghost" id="btnSrcFwd" onclick="srcFwd()" disabled>Forward &#8594;</button>
     <button class="btn btn-sm btn-ghost" onclick="srcGoto()">Goto&#x2026;</button>
+    <button class="btn btn-sm btn-ghost" onclick="srcSearch()">Search&#x2026;</button>
     <span class="src-modal-path" id="srcModalPath"></span>
+    <span style="color:var(--text-3);font-size:10px;">Ctrl+click underlined tokens to jump</span>
     <button class="btn btn-sm btn-ghost" onclick="closeSrcModal()">&#215; Close</button>
   </div>
-  <div class="src-modal-body" id="srcEditorMount"></div>
+  <div class="src-modal-body" id="srcEditorMount" style="overflow:auto;flex:1;"></div>
 </div>
 </body>
 </html>
