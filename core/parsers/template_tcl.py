@@ -206,38 +206,8 @@ def _parse_alapi_full(content):
             probe_str = flags.get('-probe', '')
 
             if arc_type == 'hidden':
-                # ALAPI "hidden" = a delay/combinational arc that Liberate does not
-                # export as a named arc in the .lib (it characterises it internally).
-                # -pin       = the INPUT being stimulated  (→ rel_pin in DeckGen)
-                # -probe     = output node(s) to measure   (→ probe/pin in DeckGen)
-                # -vector    = stimulus pattern, first char gives rel_pin direction
-                # Skip hidden arcs that have no vector (truly-internal power arcs).
-                if not vector:
-                    continue
-                if probe_str:
-                    actual_probe_pin = probe_str.split()[0]
-                elif cell_name in cells and cells[cell_name]['output_pins']:
-                    actual_probe_pin = cells[cell_name]['output_pins'][0]
-                else:
-                    actual_probe_pin = ''
-                v = vector.strip('{}').upper()
-                _dir = {'R': 'rise', 'F': 'fall'}
-                actual_rel_pin_dir = _dir.get(v[0], '') if v else ''
-                probe_list = [actual_probe_pin] if actual_probe_pin else []
-                arcs.append({
-                    'cell':          cell_name,
-                    'arc_type':      'delay',
-                    'pin':           actual_probe_pin,
-                    'pin_dir':       '',
-                    'rel_pin':       pin,
-                    'rel_pin_dir':   actual_rel_pin_dir,
-                    'when':          when_raw,
-                    'lit_when':      when_raw,
-                    'probe_list':    probe_list,
-                    'vector':        vector,
-                    'metric':        '',
-                    'metric_thresh': '',
-                })
+                # hidden = internal characterization arc, not exported to .lib.
+                # Do not expose in the GUI arc list.
                 continue
 
             pin_dir, rel_pin_dir = _vector_to_dirs(vector)
