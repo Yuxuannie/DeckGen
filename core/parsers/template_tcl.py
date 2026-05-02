@@ -136,6 +136,29 @@ def _vector_to_dirs(vector):
     return '', ''
 
 
+def _vector_implies_type(vector, pinlist, output_pins):
+    """Infer arc type from vector encoding.
+
+    Each char in vector corresponds to a pin in pinlist:
+      R = rise, F = fall, x = static
+    If any output pin transitions (R/F), it's a delay/combinational arc.
+    If all output pins are static (x), it's hidden (power/leakage).
+
+    Returns 'combinational', 'hidden', or None if can't determine.
+    """
+    if not vector or not pinlist or not output_pins:
+        return None
+    v = vector.strip('{}').upper()
+    pl = pinlist.split() if isinstance(pinlist, str) else pinlist
+    if len(v) != len(pl):
+        return None
+    for i, pin in enumerate(pl):
+        if pin in output_pins and i < len(v) and v[i] in ('R', 'F'):
+            return 'combinational'
+    # All output pins static
+    return 'hidden'
+
+
 def _parse_alapi_full(content):
     """Parse ALAPI-format template.tcl.
 
@@ -147,6 +170,7 @@ def _parse_alapi_full(content):
     templates = {}
     cells = {}
     arcs = []
+    warnings = []
     current_cell = None
 
     def _floats(s):
@@ -211,6 +235,22 @@ def _parse_alapi_full(content):
                 # hidden = internal characterization arc, not exported to .lib.
                 continue
 
+            # Vector-based sanity check (cross-validate arc_type vs vector)
+            _skip_check = frozenset({
+                'hold', 'setup', 'recovery', 'removal', 'edge', 'async',
+                'min_pulse_width', 'mpw', 'non_seq_hold', 'non_seq_setup',
+                'enable', 'disable',
+            })
+            if arc_type not in _skip_check and vector and cell_name in cells:
+                ci = cells[cell_name]
+                implied = _vector_implies_type(
+                    vector, ci.get('pinlist', ''), ci.get('output_pins', []))
+                if implied and implied != arc_type and implied != 'combinational':
+                    warnings.append(
+                        f"arc type mismatch: cell={cell_name} "
+                        f"declared={arc_type} vector_implies={implied} "
+                        f"vector={vector}")
+
             pin_dir, rel_pin_dir = _vector_to_dirs(vector)
             probe_list = probe_str.split() if probe_str else ([pin] if pin else [])
             arcs.append({
@@ -228,7 +268,7 @@ def _parse_alapi_full(content):
                 'metric_thresh': '',
             })
 
-    return templates, cells, arcs
+    return templates, cells, arcs, warnings
 
 
 def parse_template_tcl(path):
@@ -261,7 +301,7 @@ def parse_template_tcl(path):
 
     if _is_alapi_format(content):
         # ALAPI format: define_template -index_1 {...} ... NAME
-        templates, _, _ = _parse_alapi_full(content)
+        templates, _, _, _ = _parse_alapi_full(content)
         result['templates'] = {
             name: {k: v for k, v in t.items() if v}
             for name, t in templates.items()
@@ -557,7 +597,12 @@ def parse_template_tcl_full(path):
     sis = _parse_sis_sidecar(path)
 
     if _is_alapi_format(content):
-        templates, cells, arcs = _parse_alapi_full(content)
+        templates, cells, arcs, parse_warnings = _parse_alapi_full(content)
+        if parse_warnings:
+            import logging
+            logger = logging.getLogger('deckgen.parser')
+            for w in parse_warnings:
+                logger.warning(w)
         base = parse_template_tcl(path)
         return {
             'templates':       base['templates'],
