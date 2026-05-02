@@ -427,7 +427,12 @@ html,body{background:var(--bg);color:var(--text);
 .mitem:hover{background:var(--tint);}
 .mitem input[type=checkbox]{margin:0;cursor:pointer;}
 .main{position:fixed;top:104px;left:0;right:0;bottom:0;
-  display:grid;grid-template-columns:1fr 380px;overflow:hidden;}
+  display:flex;overflow:hidden;}
+.main>.panel{flex:1 1 0;min-width:200px;}
+.main>.panel:last-child{flex:0 0 380px;min-width:280px;}
+.resizer{width:5px;cursor:col-resize;background:var(--border);flex-shrink:0;
+  transition:background .15s;}
+.resizer:hover,.resizer.active{background:var(--accent);}
 .main-full{grid-template-columns:1fr;}
 .panel{background:var(--panel);border-right:1px solid var(--border);
   display:flex;flex-direction:column;min-height:0;overflow:hidden;}
@@ -564,9 +569,9 @@ html,body{background:var(--bg);color:var(--text);
 .dvbody{flex:1;overflow:auto;padding:16px;background:#1a1a2e;}
 .dvbody pre{margin:0;font-family:"SF Mono",Menlo,monospace;font-size:11px;
   color:#c9d1d9;line-height:1.6;white-space:pre;}
-.dgrid{display:grid;grid-template-columns:1fr 1fr;height:100%;}
-.dgrid .panel{border-right:1px solid var(--border);}
-.dgrid .panel:last-child{border-right:none;}
+.dgrid{display:flex;height:100%;}
+.dgrid>.panel{flex:1 1 0;min-width:200px;border-right:1px solid var(--border);}
+.dgrid>.panel:last-child{border-right:none;flex:1 1 0;}
 .dta{width:100%;height:100%;border:none;resize:none;outline:none;
   font-family:"SF Mono",Menlo,monospace;font-size:12px;padding:14px 16px;
   line-height:1.6;background:var(--panel);color:var(--text);}
@@ -658,6 +663,7 @@ table.vtbl tr:hover td{background:var(--tint);}
       </div>
     </div>
   </div>
+  <div class="resizer" id="exploreResizer"></div>
   <div class="panel">
     <div class="ph">
       <span class="pt">Queue</span>
@@ -721,6 +727,7 @@ table.vtbl tr:hover td{background:var(--tint);}
         <textarea class="dta" id="directTA" spellcheck="false" oninput="directParse()"></textarea>
       </div>
     </div>
+    <div class="resizer" id="directResizer"></div>
     <div class="panel">
       <div class="ph">
         <span class="pt">Parsed summary</span>
@@ -846,6 +853,17 @@ function filterCorners(){var q=document.getElementById('cornerSearch').value.toL
 function toggleCornerMenu(){document.getElementById('cdrop').classList.toggle('open');}
 document.addEventListener('click',function(e){
   if(!e.target.closest('.fl'))document.getElementById('cdrop').classList.remove('open');});
+(function(){document.querySelectorAll('.resizer').forEach(function(rz){
+  rz.addEventListener('mousedown',function(e){e.preventDefault();
+    var parent=rz.parentElement;var prev=rz.previousElementSibling;var next=rz.nextElementSibling;
+    if(!prev||!next)return;rz.classList.add('active');
+    var startX=e.clientX;var prevW=prev.getBoundingClientRect().width;var nextW=next.getBoundingClientRect().width;
+    function onMove(e){var dx=e.clientX-startX;
+      var nw1=Math.max(200,prevW+dx);var nw2=Math.max(200,nextW-dx);
+      prev.style.flex='0 0 '+nw1+'px';next.style.flex='0 0 '+nw2+'px';}
+    function onUp(){rz.classList.remove('active');
+      document.removeEventListener('mousemove',onMove);document.removeEventListener('mouseup',onUp);}
+    document.addEventListener('mousemove',onMove);document.addEventListener('mouseup',onUp);});});})();
 function doRescan(){post('/api/rescan',{node:S.node,lib_type:S.libtype}).then(function(){loadCells();});}
 function updateStatusPill(){var pill=document.getElementById('statusPill');
   var nc=document.getElementById('cellsCount');
