@@ -422,6 +422,19 @@ html,body{background:var(--bg);color:var(--text);
 .src-btn{font-size:9px;padding:1px 4px;border-radius:3px;background:var(--tint);color:var(--accent);
   text-decoration:none;border:1px solid var(--border);cursor:pointer;}
 .src-btn:hover{background:var(--accent);color:#fff;}
+.lut-grid-wrap{margin-top:6px;overflow-x:auto;}
+.lut-grid{border-collapse:collapse;font-size:10px;font-family:"SF Mono",Menlo,monospace;}
+.lut-grid th{padding:2px 5px;color:var(--text-3);font-weight:400;text-align:center;}
+.lut-grid td.gc{width:24px;height:24px;text-align:center;cursor:pointer;
+  border:1px solid var(--border);border-radius:3px;
+  background:var(--bg);color:var(--text-3);user-select:none;}
+.lut-grid td.gc.gon{background:var(--accent);color:#fff;}
+.lut-grid td.gc:hover{opacity:0.75;}
+.lut-sel-count{font-size:10px;color:var(--text-3);margin-top:4px;}
+.tp-adv-toggle{font-size:10px;color:var(--info);cursor:pointer;margin-top:4px;display:inline-block;}
+.tp-adv-toggle:hover{text-decoration:underline;}
+.tpin-wrap{display:none;}
+.tpin-wrap.open{display:block;}
 .rgroup{margin:2px 0;border-left:2px solid var(--border);}
 .rghead{padding:5px 10px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px;}
 .rghead:hover{background:var(--tint);}
@@ -895,65 +908,99 @@ function renderTpInputs(){var container=document.getElementById('tpInputs');cont
   types.forEach(function(t){
     var q=S.queue.find(function(x){return x.arc_type===t&&x.index_1&&x.index_1.length;});
     var ni=q?q.index_1.length:0;var nj=q?q.index_2.length:0;
+    var hasGrid=ni>0&&nj>0;
+    var wrap=document.createElement('div');wrap.style.marginBottom='14px';
+    // Header row: arc type tag + preset buttons
     var row=document.createElement('div');row.className='tprow';
-    var gridSize=ni&&nj?ni+'x'+nj+' grid':'';
     row.innerHTML='<span class="atag" style="min-width:70px;">'+esc(t)+'</span>'+
-      '<input class="tpin" id="tp_'+esc(t)+'" type="text" placeholder="(1,1) (2,3) ... or use presets" oninput="renderQueueSummary()">'+
       '<div class="tp-btns">'+
-      '<button class="btn btn-sm btn-ghost" data-type="'+esc(t)+'" data-act="full" title="Select all '+gridSize+' points">Full</button>'+
-      '<button class="btn btn-sm btn-ghost" data-type="'+esc(t)+'" data-act="diag" title="Diagonal points only">Diag</button>'+
-      '<button class="btn btn-sm btn-ghost" data-type="'+esc(t)+'" data-act="corners" title="Corner points only">Corners</button>'+
-      (ni*nj>0?'<button class="btn btn-sm btn-ghost" data-type="'+esc(t)+'" data-act="grid" title="Open clickable grid">Grid</button>':'')+
-      '</div>';
+      '<button class="btn btn-sm btn-ghost" data-type="'+esc(t)+'" data-act="full">Full</button>'+
+      '<button class="btn btn-sm btn-ghost" data-type="'+esc(t)+'" data-act="diag">Diag</button>'+
+      '<button class="btn btn-sm btn-ghost" data-type="'+esc(t)+'" data-act="corners">Corners</button>'+
+      '</div>'+
+      (hasGrid?'<span class="lut-sel-count" id="tpCount_'+esc(t)+'">0 / '+(ni*nj)+' selected</span>':'');
     row.querySelectorAll('button').forEach(function(btn){
       btn.addEventListener('click',function(){tpPreset(this.dataset.type,this.dataset.act);});});
-    container.appendChild(row);});}
+    wrap.appendChild(row);
+    // Hidden text input (advanced / bidirectional sync)
+    var advToggle=document.createElement('span');advToggle.className='tp-adv-toggle';
+    advToggle.textContent='Advanced: edit raw text';
+    var advWrap=document.createElement('div');advWrap.className='tpin-wrap';
+    var inp=document.createElement('input');inp.className='tpin';inp.id='tp_'+t;inp.type='text';
+    inp.placeholder='(1,1) (2,3) ...';
+    inp.addEventListener('input',function(){syncGridFromInput(t);renderQueueSummary();});
+    advWrap.appendChild(inp);
+    advToggle.addEventListener('click',function(){advWrap.classList.toggle('open');});
+    wrap.appendChild(advToggle);wrap.appendChild(advWrap);
+    // Inline grid
+    if(hasGrid){
+      var gridWrap=document.createElement('div');gridWrap.className='lut-grid-wrap';
+      var tbl=document.createElement('table');tbl.className='lut-grid';tbl.id='tpGrid_'+t;
+      // Header row: col indices
+      var thead=document.createElement('thead');
+      var hr=document.createElement('tr');
+      var th0=document.createElement('th');th0.textContent='';hr.appendChild(th0);
+      for(var jj=1;jj<=nj;jj++){var th=document.createElement('th');th.textContent='j='+jj;hr.appendChild(th);}
+      thead.appendChild(hr);tbl.appendChild(thead);
+      var tbody=document.createElement('tbody');
+      for(var ii=1;ii<=ni;ii++){
+        var tr=document.createElement('tr');
+        var rh=document.createElement('th');rh.textContent='i='+ii;tr.appendChild(rh);
+        for(var jj2=1;jj2<=nj;jj2++){
+          var td=document.createElement('td');td.className='gc';
+          td.dataset.i=String(ii);td.dataset.j=String(jj2);td.dataset.type=t;
+          td.textContent='';
+          td.addEventListener('click',function(e){gridCellClick(e,t);});
+          tr.appendChild(td);}
+        tbody.appendChild(tr);}
+      tbl.appendChild(tbody);gridWrap.appendChild(tbl);wrap.appendChild(gridWrap);}
+    container.appendChild(wrap);});}
 function arcTypesInQueue(){var seen={};var types=[];
   S.queue.forEach(function(q){if(!seen[q.arc_type]){seen[q.arc_type]=true;types.push(q.arc_type);}});return types;}
+var _tpLastClick={};
+function gridCellClick(e,arcType){
+  var td=e.currentTarget;var i=parseInt(td.dataset.i);var j=parseInt(td.dataset.j);
+  if(e.shiftKey&&_tpLastClick[arcType]){
+    var last=_tpLastClick[arcType];
+    var minI=Math.min(i,last.i);var maxI=Math.max(i,last.i);
+    var minJ=Math.min(j,last.j);var maxJ=Math.max(j,last.j);
+    var tbl=document.getElementById('tpGrid_'+arcType);
+    if(tbl){tbl.querySelectorAll('td.gc').forEach(function(c){
+      var ci=parseInt(c.dataset.i);var cj=parseInt(c.dataset.j);
+      if(ci>=minI&&ci<=maxI&&cj>=minJ&&cj<=maxJ){c.classList.add('gon');c.textContent='\u2713';}});}
+  }else{
+    var on=td.classList.toggle('gon');td.textContent=on?'\u2713':'';}
+  _tpLastClick[arcType]={i:i,j:j};
+  syncInputFromGrid(arcType);renderQueueSummary();}
+function syncInputFromGrid(arcType){
+  var tbl=document.getElementById('tpGrid_'+arcType);
+  var inp=document.getElementById('tp_'+arcType);
+  var countEl=document.getElementById('tpCount_'+arcType);
+  if(!tbl||!inp)return;
+  var pts=[];tbl.querySelectorAll('td.gc.gon').forEach(function(c){pts.push('('+c.dataset.i+','+c.dataset.j+')');});
+  inp.value=pts.join(' ');
+  if(countEl){var tbl2=document.getElementById('tpGrid_'+arcType);
+    var total=tbl2?tbl2.querySelectorAll('td.gc').length:0;
+    countEl.textContent=pts.length+' / '+total+' selected';}}
+function syncGridFromInput(arcType){
+  var inp=document.getElementById('tp_'+arcType);
+  var tbl=document.getElementById('tpGrid_'+arcType);
+  var countEl=document.getElementById('tpCount_'+arcType);
+  if(!tbl||!inp)return;
+  var pts=parseTpText(inp.value);
+  var sel=new Set(pts.map(function(p){return p[0]+','+p[1];}));
+  var total=0;tbl.querySelectorAll('td.gc').forEach(function(c){total++;
+    var key=c.dataset.i+','+c.dataset.j;var on=sel.has(key);
+    c.classList.toggle('gon',on);c.textContent=on?'\u2713':'';});
+  if(countEl)countEl.textContent=sel.size+' / '+total+' selected';}
 function tpPreset(arcType,act){var q=S.queue.find(function(x){return x.arc_type===arcType&&x.index_1&&x.index_1.length;});
   if(!q)return;var ni=q.index_1.length;var nj=q.index_2.length;var pts=[];
   if(act==='full'){for(var i=1;i<=ni;i++)for(var j=1;j<=nj;j++)pts.push('('+i+','+j+')');}
   else if(act==='diag'){var n=Math.min(ni,nj);for(var k=1;k<=n;k++)pts.push('('+k+','+k+')');}
   else if(act==='corners'){pts=['(1,1)','(1,'+nj+')','('+ni+',1)','('+ni+','+nj+')'];
     if(ni>2&&nj>2){var mi=Math.ceil(ni/2);var mj=Math.ceil(nj/2);pts.push('('+mi+','+mj+')');}}
-  else if(act==='grid'){showTpGrid(arcType,ni,nj);return;}
   var inp=document.getElementById('tp_'+arcType);
-  if(inp){inp.value=pts.join(' ');renderQueueSummary();}}
-function showTpGrid(arcType,ni,nj){
-  var q=S.queue.find(function(x){return x.arc_type===arcType&&x.index_1&&x.index_1.length;});
-  if(!q)return;var existing=parseTpText(document.getElementById('tp_'+arcType).value||'');
-  var sel=new Set(existing.map(function(p){return p[0]+','+p[1];}));
-  var overlay=document.createElement('div');
-  overlay.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:999;display:flex;align-items:center;justify-content:center;';
-  var box=document.createElement('div');
-  box.style.cssText='background:var(--bg);border-radius:8px;padding:16px;max-width:600px;max-height:80vh;overflow:auto;';
-  var hdr='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">'+
-    '<span style="font-weight:600;">'+esc(arcType)+' table points ('+ni+'x'+nj+')</span>'+
-    '<span style="font-size:11px;color:var(--text-3);">Click cells to toggle. idx1=row, idx2=col</span></div>';
-  var tbl='<table style="border-collapse:collapse;font-size:11px;font-family:monospace;">';
-  tbl+='<tr><th style="padding:2px 4px;"></th>';
-  for(var j=1;j<=nj;j++)tbl+='<th style="padding:2px 6px;color:var(--text-3);">j='+j+'</th>';
-  tbl+='</tr>';
-  for(var i=1;i<=ni;i++){tbl+='<tr><th style="padding:2px 6px;color:var(--text-3);">i='+i+'</th>';
-    for(var j=1;j<=nj;j++){var on=sel.has(i+','+j);
-      tbl+='<td class="gc'+(on?' gon':'')+'" data-i="'+i+'" data-j="'+j+'" style="width:28px;height:28px;text-align:center;cursor:pointer;border:1px solid var(--border);background:'+(on?'var(--accent)':'var(--bg)')+';color:'+(on?'#fff':'var(--text-3)')+';border-radius:3px;">'+(on?'\\u2713':'')+'</td>';}
-    tbl+='</tr>';}
-  tbl+='</table>';
-  var footer='<div style="margin-top:10px;display:flex;gap:8px;justify-content:flex-end;">'+
-    '<button class="btn btn-sm btn-ghost" id="tpGridCancel">Cancel</button>'+
-    '<button class="btn btn-sm" id="tpGridApply" style="background:var(--accent);color:#fff;">Apply</button></div>';
-  box.innerHTML=hdr+tbl+footer;overlay.appendChild(box);document.body.appendChild(overlay);
-  box.querySelectorAll('.gc').forEach(function(td){td.addEventListener('click',function(){
-    var on=this.classList.toggle('gon');
-    this.style.background=on?'var(--accent)':'var(--bg)';
-    this.style.color=on?'#fff':'var(--text-3)';this.textContent=on?'\\u2713':'';});});
-  document.getElementById('tpGridCancel').addEventListener('click',function(){overlay.remove();});
-  document.getElementById('tpGridApply').addEventListener('click',function(){
-    var pts=[];box.querySelectorAll('.gon').forEach(function(td){
-      pts.push('('+td.dataset.i+','+td.dataset.j+')');});
-    var inp=document.getElementById('tp_'+arcType);
-    if(inp){inp.value=pts.join(' ');renderQueueSummary();}overlay.remove();});
-  overlay.addEventListener('click',function(e){if(e.target===overlay)overlay.remove();});}
+  if(inp){inp.value=pts.join(' ');syncGridFromInput(arcType);renderQueueSummary();}}
 function getTpMap(){var map={};
   arcTypesInQueue().forEach(function(t){var el=document.getElementById('tp_'+t);map[t]=el?el.value:'';});return map;}
 function parseTpText(text){var pts=[];var re=/\\(\\s*(\\d+)\\s*,\\s*(\\d+)\\s*\\)/g;var m;
