@@ -833,7 +833,7 @@ function doGenerate(){var body=buildGenerateBody();showResultsView();
     function pump(){return reader.read().then(function(chunk){
       if(chunk.done){finalizeResults();return;}
       buf+=decoder.decode(chunk.value,{stream:true});
-      var lines=buf.split('\n');buf=lines.pop();
+      var lines=buf.split('\\n');buf=lines.pop();
       lines.forEach(function(line){if(!line.trim())return;
         try{var r=JSON.parse(line);
           if(r.status==='progress')return;
@@ -870,7 +870,7 @@ function showQueueView(){
   document.getElementById('resultsBody').classList.add('view-hidden');
   document.getElementById('resultsFooter').classList.add('view-hidden');closeDeck();}
 function copyAllPaths(){var paths=S.results.filter(function(r){return r.output_path;})
-  .map(function(r){return r.output_path;}).join('\n');
+  .map(function(r){return r.output_path;}).join('\\n');
   navigator.clipboard.writeText(paths).catch(function(){});}
 function openOutputDir(){var row=document.querySelector('#resultList .result-row');
   if(!row)return;var path=row.dataset.path||'';
@@ -928,7 +928,7 @@ function directGenerate(){var lines=document.getElementById('directTA').value.sp
     function pump(){return reader.read().then(function(chunk){
       if(chunk.done){finalizeResults();return;}
       buf+=decoder.decode(chunk.value,{stream:true});
-      var ls=buf.split('\n');buf=ls.pop();
+      var ls=buf.split('\\n');buf=ls.pop();
       ls.forEach(function(line){if(!line.trim())return;
         try{var r=JSON.parse(line);
           if(r.status==='progress')return;
