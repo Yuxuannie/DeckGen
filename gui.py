@@ -235,11 +235,32 @@ def _api_list_arcs(node, lib_type, cell):
         if not probe_pin and output_pins:
             probe_pin = output_pins[0]
 
-        # Source provenance
+        # Source provenance — find cell-specific netlist file
+        netlist_file = None
+        if netlist_dir:
+            cell_name = a.get('cell', cell)
+            for ext in ('_c.spi', '.spi', '.spice', '.sp', '.cdl'):
+                candidate = os.path.join(netlist_dir, cell_name + ext)
+                if os.path.isfile(candidate):
+                    netlist_file = candidate
+                    break
+            if not netlist_file:
+                # Try subdirs (LPE_* structure)
+                for sub in sorted(os.listdir(netlist_dir))[:1] if os.path.isdir(netlist_dir) else []:
+                    subdir = os.path.join(netlist_dir, sub)
+                    if not os.path.isdir(subdir):
+                        continue
+                    for ext in ('_c.spi', '.spi', '.spice', '.sp'):
+                        candidate = os.path.join(subdir, cell_name + ext)
+                        if os.path.isfile(candidate):
+                            netlist_file = candidate
+                            break
+                    if netlist_file:
+                        break
         arc_src = {'template_tcl': tcl_path,
                    'arc_line': a.get('_source_line'),
                    'cell_line': cell_source_line,
-                   'netlist_dir': netlist_dir}
+                   'netlist_file': netlist_file}
 
         result.append({
             'arc_type':  arc_type,
@@ -329,19 +350,27 @@ def _api_source_lines(file_id, start, end):
 
 
 def _api_source_find_definition(file_id, token):
-    """Find define_template ... <token> in the file. Returns {line, context} or {error}."""
+    """Find token in the file. Searches define_template first, then general text match.
+
+    Returns {line, context} or {error}.
+    """
     with _SOURCE_LOCK:
         info = _SOURCE_FILES.get(file_id)
     if not info:
         return {'error': 'Unknown file_id'}
     try:
+        first_general = None
         with open(info['path'], 'r', encoding='utf-8', errors='replace') as f:
             for lineno, text in enumerate(f, 1):
                 if 'define_template' in text and token in text:
                     return {'line': lineno, 'context': text.rstrip('\n')}
+                if first_general is None and token in text:
+                    first_general = {'line': lineno, 'context': text.rstrip('\n')}
+        if first_general:
+            return first_general
     except Exception as e:
         return {'error': str(e)}
-    return {'error': 'Definition not found for: ' + token}
+    return {'error': 'Not found: ' + token}
 
 
 def _parse_table_points(text):
@@ -963,13 +992,13 @@ function renderArcList(head,cellName,arcs){
   head.parentNode.insertBefore(alist,head.nextSibling);bindSrcLinks(alist);}
 function srcLink(src,type){if(!src)return '';
   var path=src.template_tcl||'';var line=type==='arc'?src.arc_line:src.cell_line;
-  var nd=src.netlist_dir||'';
+  var nf=src.netlist_file||'';
   var html='<span class="src-links">';
   if(path){var ln=line||1;
     var ep=encodeURIComponent(path);
     html+='<a class="src-btn src-open" href="#" data-src-path="'+ep+'" data-src-line="'+ln+'" title="template.tcl'+(line?' :'+line:'')+'">tcl</a>';}
-  if(nd){var en=encodeURIComponent(nd);
-    html+='<a class="src-btn src-open" href="#" data-src-path="'+en+'" data-src-line="1" title="netlist dir">net</a>';}
+  if(nf){var en=encodeURIComponent(nf);
+    html+='<a class="src-btn src-open" href="#" data-src-path="'+en+'" data-src-line="1" title="'+esc(nf)+'">net</a>';}
   return html+'</span>';}
 function bindSrcLinks(container){container.querySelectorAll('.src-open').forEach(function(el){
   el.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();
@@ -1849,18 +1878,33 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
         self.send_header('Transfer-Encoding', 'chunked')
         self.end_headers()
 
-        output_dir = data.get('output', './output')
+        # Log planning results for debugging
+        import sys
+        print(f"[generate_v2] {len(jobs)} jobs planned, {len(errors)} errors",
+              file=sys.stderr)
+        if errors:
+            print(f"[generate_v2] plan errors: {errors[:5]}", file=sys.stderr)
+        for j in jobs[:3]:
+            print(f"[generate_v2]   job: {j.get('arc_id','?')} corner={j.get('corner','?')} err={j.get('error','')}", file=sys.stderr)
+
+        output_dir = data.get('output_dir') or data.get('output', './output')
         total = len(jobs)
         all_results = []
         done_count = 0
 
         for job in jobs:
             arc_id = job.get('arc_id', '')
-            results = execute_jobs(
-                [job], output_dir,
-                nominal_only=data.get('nominal_only', False),
-                num_samples=data.get('num_samples', 5000),
-                files={})
+            try:
+                results = execute_jobs(
+                    [job], output_dir,
+                    nominal_only=data.get('nominal_only', False),
+                    num_samples=data.get('num_samples', 5000),
+                    files={})
+            except Exception as ex:
+                print(f"[generate_v2] execute_jobs EXCEPTION: {ex}",
+                      file=sys.stderr)
+                results = [{'arc_id': arc_id, 'corner': job.get('corner',''),
+                            'success': False, 'error': str(ex)}]
             for r in results:
                 all_results.append(r)
             done_count += 1
