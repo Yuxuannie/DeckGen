@@ -245,6 +245,8 @@ def execute_jobs(jobs, output_dir, nominal_only=False, num_samples=5000, files=N
             corner   = job.get('corner', '')
             arc_type = arc_info.get('ARC_TYPE', 'unknown')
             arc_id   = job.get('arc_id') or get_deck_dirname(arc_info, when)
+            # Sanitize: replace ! with not in directory names (MCQC convention)
+            arc_id = arc_id.replace('!', 'not')
             if lib_type and corner:
                 deck_dir = os.path.join(output_dir, lib_type, corner,
                                         arc_type, arc_id + deck_suffix)

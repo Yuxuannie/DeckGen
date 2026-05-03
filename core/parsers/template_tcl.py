@@ -144,13 +144,20 @@ def _vector_to_dirs(vector, pinlist=None, rel_pin=None, output_pins=None):
         probe_dir = ''
         rel_dir = ''
         if len(v) == len(pl):
-            # Find output pin direction
             out = set(output_pins or [])
+            pin_dir = ''  # direction of the -pin (constrained pin)
             for i, pin in enumerate(pl):
                 if pin in out and v[i] in ('R', 'F'):
                     probe_dir = _m[v[i]]
                 if rel_pin and pin == rel_pin and v[i] in ('R', 'F'):
                     rel_dir = _m[v[i]]
+            # For constraint arcs: if probe_dir still empty, use the
+            # non-rel, non-output pin that transitions (= constrained pin)
+            if not probe_dir:
+                for i, pin in enumerate(pl):
+                    if pin not in out and pin != rel_pin and v[i] in ('R', 'F'):
+                        probe_dir = _m[v[i]]
+                        break
             if probe_dir or rel_dir:
                 return probe_dir, rel_dir
 

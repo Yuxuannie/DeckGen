@@ -1169,10 +1169,10 @@ function doPreview(){var body=buildGenerateBody();
   post('/api/preview_v2',body).then(function(d){
     alert('Preview: '+(d.jobs?d.jobs.length:0)+' jobs planned. Errors: '+(d.errors?d.errors.length:0));});}
 function buildGenerateBody(){var tpMap=getTpMap();
-  var arcIds=S.queue.map(function(q){return q.arc_id;});
+  var arcQueue=S.queue.map(function(q){return{arc_id:q.arc_id,vector:q.vector||''};});
   var outDir=document.getElementById('outputDir').value.trim()||'./output/';
   return{mode:'explore',node:S.node,lib_type:S.libtype,
-    corners:Array.from(S.selCorners),arc_ids:arcIds,table_points:tpMap,output_dir:outDir};}
+    corners:Array.from(S.selCorners),arc_queue:arcQueue,table_points:tpMap,output_dir:outDir};}
 function doGenerate(){var body=buildGenerateBody();showResultsView();
   document.getElementById('genStatus').textContent='Generating...';
   document.getElementById('resultList').innerHTML='';S.results=[];
@@ -1816,10 +1816,14 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
         try:
             mode = data.get('mode', 'batch')
             # Expand arc_ids using table_points if provided.
-            # table_points: {arc_type: "(i1,i2) ..." text}
-            # arc_ids may be bare (no _i1_i2 suffix) - we expand them.
+            # arc_queue: [{arc_id, vector}, ...] or arc_ids: [str, ...]
+            arc_queue = data.get('arc_queue', [])
             raw_arc_ids = data.get('arc_ids', [])
             table_points = data.get('table_points', {})
+
+            if not raw_arc_ids and arc_queue:
+                raw_arc_ids = [q.get('arc_id', '') for q in arc_queue]
+
             if table_points and raw_arc_ids:
                 expanded = []
                 for aid in raw_arc_ids:
@@ -1830,13 +1834,24 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
                     if pts:
                         for i1, i2 in pts:
                             expanded.append(f"{aid}_{i1}_{i2}")
+                    else:
+                        expanded.append(aid)
                 data = dict(data)
                 data['arc_ids'] = expanded
+                raw_arc_ids = expanded
+
+            # Build vector lookup from arc_queue for directory disambiguation
+            _vec_lookup = {}
+            if arc_queue:
+                for q in arc_queue:
+                    _vec_lookup[q.get('arc_id', '')] = q.get('vector', '')
+            data['_vec_lookup'] = _vec_lookup
+
             if mode == 'single':
                 arc_id = self._build_arc_id_single(data)
                 arc_ids = [arc_id] if arc_id else []
             else:
-                arc_ids = data.get('arc_ids', [])
+                arc_ids = raw_arc_ids
 
             jobs, errors = plan_jobs(
                 arc_ids,
