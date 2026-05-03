@@ -1510,6 +1510,11 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
 
         # Directory restriction: path must be under output dir or collateral root
         allowed_roots = []
+        # Allow output directory (default ./output/ and any path used by generate)
+        for out_candidate in ['./output', './output/', os.getcwd()]:
+            rp = os.path.realpath(out_candidate)
+            if rp not in allowed_roots:
+                allowed_roots.append(rp)
         out_dir = getattr(DeckgenHandler, 'OUTPUT_DIR', None)
         if out_dir:
             allowed_roots.append(os.path.realpath(out_dir))
@@ -1788,7 +1793,10 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
                 arc_id = self._build_arc_id_single(data)
                 arc_ids = [arc_id] if arc_id else []
             else:
+                arc_queue = data.get('arc_queue', [])
                 arc_ids = data.get('arc_ids', [])
+                if not arc_ids and arc_queue:
+                    arc_ids = [q.get('arc_id','') for q in arc_queue]
 
             jobs, errors = plan_jobs(
                 arc_ids=arc_ids,
