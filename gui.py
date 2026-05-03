@@ -1906,7 +1906,12 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
                 results = [{'arc_id': arc_id, 'corner': job.get('corner',''),
                             'success': False, 'error': str(ex)}]
             for r in results:
+                r['arc_id'] = arc_id
+                r['corner'] = job.get('corner', '')
+                r['output_path'] = r.get('nominal') or ''
                 all_results.append(r)
+                print(f"[generate_v2]   result: {arc_id} ok={r.get('success')} err={r.get('error','')[:100] if r.get('error') else ''}",
+                      file=sys.stderr)
             done_count += 1
             prog = json.dumps({
                 'status': 'progress',
@@ -1922,11 +1927,23 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
 
         succeeded = sum(1 for r in all_results if r.get('success'))
         failed = sum(1 for r in all_results if not r.get('success'))
+        # Strip non-serializable fields from results
+        safe_results = []
+        for r in all_results:
+            safe_results.append({
+                'arc_id': r.get('arc_id', ''),
+                'corner': r.get('corner', ''),
+                'success': r.get('success', False),
+                'output_path': r.get('output_path', ''),
+                'error': r.get('error', ''),
+            })
+        print(f"[generate_v2] done: {succeeded} ok, {failed} fail",
+              file=sys.stderr)
         final = json.dumps({
             'status': 'done',
             'succeeded': succeeded,
             'failed': failed,
-            'results': all_results,
+            'results': safe_results,
             'errors': errors,
         }) + '\n'
         try:
