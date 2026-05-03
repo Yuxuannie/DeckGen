@@ -1176,20 +1176,10 @@ function buildGenerateBody(){var tpMap=getTpMap();
 function doGenerate(){var body=buildGenerateBody();showResultsView();
   document.getElementById('genStatus').textContent='Generating...';
   document.getElementById('resultList').innerHTML='';S.results=[];
-  fetch('/api/generate_v2',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify(body)}).then(function(resp){
-    var reader=resp.body.getReader();var decoder=new TextDecoder();var buf='';
-    function pump(){return reader.read().then(function(chunk){
-      if(chunk.done){finalizeResults();return;}
-      buf+=decoder.decode(chunk.value,{stream:true});
-      var lines=buf.split('\\n');buf=lines.pop();
-      lines.forEach(function(line){if(!line.trim())return;
-        try{var r=JSON.parse(line);
-          if(r.status==='progress')return;
-          if(r.status==='done'){(r.results||[]).forEach(function(res){S.results.push(res);appendResultRow(res);});return;}
-          S.results.push(r);appendResultRow(r);}catch(e){}});
-      return pump();});}
-    return pump();}).catch(function(e){
+  post('/api/generate_v2',body).then(function(d){
+    if(d.results){d.results.forEach(function(res){S.results.push(res);appendResultRow(res);});}
+    finalizeResults();
+  }).catch(function(e){
     document.getElementById('genStatus').textContent='Error: '+e.message;});}
 function appendResultRow(r){
   var list=document.getElementById('resultList');
@@ -1287,20 +1277,11 @@ function directGenerate(){var lines=document.getElementById('directTA').value.sp
   showTab('explore');showResultsView();
   document.getElementById('genStatus').textContent='Generating (direct mode)...';
   document.getElementById('resultList').innerHTML='';S.results=[];
-  fetch('/api/generate_v2',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({mode:'batch',node:S.node,lib_type:S.libtype,
+  post('/api/generate_v2',{mode:'batch',node:S.node,lib_type:S.libtype,
       corners:Array.from(S.selCorners),arc_ids:lines,output_dir:document.getElementById('outputDir').value.trim()||'./output/'})
-  }).then(function(resp){var reader=resp.body.getReader();var decoder=new TextDecoder();var buf='';
-    function pump(){return reader.read().then(function(chunk){
-      if(chunk.done){finalizeResults();return;}
-      buf+=decoder.decode(chunk.value,{stream:true});
-      var ls=buf.split('\\n');buf=ls.pop();
-      ls.forEach(function(line){if(!line.trim())return;
-        try{var r=JSON.parse(line);
-          if(r.status==='progress')return;
-          if(r.status==='done'){(r.results||[]).forEach(function(res){S.results.push(res);appendResultRow(res);});return;}
-          S.results.push(r);appendResultRow(r);}catch(e){}});
-      return pump();});}return pump();});}
+  .then(function(d){
+    if(d.results){d.results.forEach(function(res){S.results.push(res);appendResultRow(res);});}
+    finalizeResults();});}
 var _vAllRows=[];
 function runValidation(){post('/api/validate',{
   deckgen_root:document.getElementById('vDeckgenRoot').value,
@@ -1876,25 +1857,16 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.flush()
             return
 
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/x-ndjson')
-        self.send_header('Transfer-Encoding', 'chunked')
-        self.end_headers()
-
-        # Log planning results for debugging
+        # Run all jobs, collect results, send as single JSON response.
+        # (Streaming via Transfer-Encoding:chunked doesn't work correctly
+        #  with Python's BaseHTTPRequestHandler — browser never sees EOF.)
         import sys
         print(f"[generate_v2] {len(jobs)} jobs planned, {len(errors)} errors",
               file=sys.stderr)
-        if errors:
-            print(f"[generate_v2] plan errors: {errors[:5]}", file=sys.stderr)
-        for j in jobs[:3]:
-            print(f"[generate_v2]   job: {j.get('arc_id','?')} corner={j.get('corner','?')} err={j.get('error','')}", file=sys.stderr)
 
         output_dir = data.get('output_dir') or data.get('output') or './output'
         print(f"[generate_v2] output_dir={output_dir!r}", file=sys.stderr)
-        total = len(jobs)
         all_results = []
-        done_count = 0
 
         for job in jobs:
             arc_id = job.get('arc_id', '')
@@ -1916,49 +1888,28 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
                 all_results.append(r)
                 print(f"[generate_v2]   result: {arc_id} ok={r.get('success')} err={r.get('error','')[:100] if r.get('error') else ''}",
                       file=sys.stderr)
-            done_count += 1
-            try:
-                prog = json.dumps({
-                    'status': 'progress',
-                    'done': done_count,
-                    'total': total,
-                    'current': arc_id,
-                }) + '\n'
-                self.wfile.write(prog.encode('utf-8'))
-                self.wfile.flush()
-            except BrokenPipeError:
-                return
-            except Exception as ex:
-                print(f"[generate_v2] progress write error: {ex}", file=sys.stderr)
 
-        try:
-            succeeded = sum(1 for r in all_results if r.get('success'))
-            failed = sum(1 for r in all_results if not r.get('success'))
-            safe_results = []
-            for r in all_results:
-                safe_results.append({
-                    'arc_id': str(r.get('arc_id', '')),
-                    'corner': str(r.get('corner', '')),
-                    'success': bool(r.get('success', False)),
-                    'output_path': str(r.get('output_path', '') or ''),
-                    'error': str(r.get('error', '') or ''),
-                })
-            print(f"[generate_v2] done: {succeeded} ok, {failed} fail",
-                  file=sys.stderr)
-            final = json.dumps({
-                'status': 'done',
-                'succeeded': succeeded,
-                'failed': failed,
-                'results': safe_results,
-                'errors': [str(e) for e in errors],
-            }) + '\n'
-            self.wfile.write(final.encode('utf-8'))
-            self.wfile.flush()
-        except BrokenPipeError:
-            pass
-        except Exception as ex:
-            print(f"[generate_v2] FINAL WRITE ERROR: {ex}", file=sys.stderr)
-            import traceback; traceback.print_exc(file=sys.stderr)
+        succeeded = sum(1 for r in all_results if r.get('success'))
+        failed = sum(1 for r in all_results if not r.get('success'))
+        safe_results = []
+        for r in all_results:
+            safe_results.append({
+                'arc_id': str(r.get('arc_id', '')),
+                'corner': str(r.get('corner', '')),
+                'success': bool(r.get('success', False)),
+                'output_path': str(r.get('output_path', '') or ''),
+                'error': str(r.get('error', '') or ''),
+            })
+        print(f"[generate_v2] done: {succeeded} ok, {failed} fail",
+              file=sys.stderr)
+        response = json.dumps({
+            'status': 'done',
+            'succeeded': succeeded,
+            'failed': failed,
+            'results': safe_results,
+            'errors': [str(e) for e in errors],
+        })
+        self._send_json(json.loads(response))
 
     @staticmethod
     def _build_arc_id_single(data):
