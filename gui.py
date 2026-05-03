@@ -1917,44 +1917,48 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
                 print(f"[generate_v2]   result: {arc_id} ok={r.get('success')} err={r.get('error','')[:100] if r.get('error') else ''}",
                       file=sys.stderr)
             done_count += 1
-            prog = json.dumps({
-                'status': 'progress',
-                'done': done_count,
-                'total': total,
-                'current': arc_id,
-            }) + '\n'
             try:
+                prog = json.dumps({
+                    'status': 'progress',
+                    'done': done_count,
+                    'total': total,
+                    'current': arc_id,
+                }) + '\n'
                 self.wfile.write(prog.encode('utf-8'))
                 self.wfile.flush()
             except BrokenPipeError:
                 return
+            except Exception as ex:
+                print(f"[generate_v2] progress write error: {ex}", file=sys.stderr)
 
-        succeeded = sum(1 for r in all_results if r.get('success'))
-        failed = sum(1 for r in all_results if not r.get('success'))
-        # Strip non-serializable fields from results
-        safe_results = []
-        for r in all_results:
-            safe_results.append({
-                'arc_id': r.get('arc_id', ''),
-                'corner': r.get('corner', ''),
-                'success': r.get('success', False),
-                'output_path': r.get('output_path', ''),
-                'error': r.get('error', ''),
-            })
-        print(f"[generate_v2] done: {succeeded} ok, {failed} fail",
-              file=sys.stderr)
-        final = json.dumps({
-            'status': 'done',
-            'succeeded': succeeded,
-            'failed': failed,
-            'results': safe_results,
-            'errors': errors,
-        }) + '\n'
         try:
+            succeeded = sum(1 for r in all_results if r.get('success'))
+            failed = sum(1 for r in all_results if not r.get('success'))
+            safe_results = []
+            for r in all_results:
+                safe_results.append({
+                    'arc_id': str(r.get('arc_id', '')),
+                    'corner': str(r.get('corner', '')),
+                    'success': bool(r.get('success', False)),
+                    'output_path': str(r.get('output_path', '') or ''),
+                    'error': str(r.get('error', '') or ''),
+                })
+            print(f"[generate_v2] done: {succeeded} ok, {failed} fail",
+                  file=sys.stderr)
+            final = json.dumps({
+                'status': 'done',
+                'succeeded': succeeded,
+                'failed': failed,
+                'results': safe_results,
+                'errors': [str(e) for e in errors],
+            }) + '\n'
             self.wfile.write(final.encode('utf-8'))
             self.wfile.flush()
         except BrokenPipeError:
             pass
+        except Exception as ex:
+            print(f"[generate_v2] FINAL WRITE ERROR: {ex}", file=sys.stderr)
+            import traceback; traceback.print_exc(file=sys.stderr)
 
     @staticmethod
     def _build_arc_id_single(data):
