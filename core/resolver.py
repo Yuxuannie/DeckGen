@@ -438,8 +438,31 @@ def resolve_all_from_collateral(
     waveform_file = waveform_override or overrides.get(
         'waveform_file', '/server/default/stdvs_wv.spi')
 
-    # 7b. SPICE template (deck) -- resolve via TemplateResolver (registry + map)
+    # 7b. SPICE template (deck) -- try MCQC JSON rules first, then registry
     template_deck_path = template_override or ''
+    if not template_deck_path:
+        from core.template_rules import match_template
+        probe_list_val = arc.get('probe_list', [])
+        tmpl_rel = match_template(
+            cell_name=cell_name, arc_type=arc_type,
+            rel_pin=rel_pin, rel_pin_dir=rel_dir,
+            constr_pin=constr_pin, constr_pin_dir=constr_dir,
+            probe_list=probe_list_val, when=arc.get('when', ''))
+        if tmpl_rel:
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            templates_dir = os.path.normpath(
+                os.path.join(script_dir, '..', 'templates'))
+            for base in [
+                os.path.join(templates_dir, node) if node else None,
+                templates_dir,
+            ]:
+                if base is None:
+                    continue
+                candidate = os.path.join(base, tmpl_rel)
+                if os.path.isfile(candidate):
+                    template_deck_path = candidate
+                    break
+    # Fallback to old TemplateResolver (registry + map) if rules didn't match
     if not template_deck_path:
         script_dir = os.path.dirname(os.path.abspath(__file__))
         registry_path = os.path.normpath(
