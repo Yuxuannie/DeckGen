@@ -938,9 +938,9 @@ function renderArcList(head,cellName,arcs){
       gDiv.innerHTML='<div class="aghead"><span class="atag" style="font-size:10px;">'+esc(first.arc_type)+'</span> '+
         esc(gkey)+esc(whenLabel)+' <span style="color:var(--text-3);font-size:10px;">('+garcs.length+' arcs)</span></div>';
       garcs.forEach(function(a){
-        var arcId=buildArcId(cellName,a);
-        var inQueue=S.queue.some(function(q){return q.arc_id===arcId;});
-        var div=document.createElement('div');div.className='arow asub'+(inQueue?' inq':'');div.dataset.arcId=arcId;
+        var qkey=buildQueueKey(cellName,a);
+        var inQueue=S.queue.some(function(q){return q._qkey===qkey;});
+        var div=document.createElement('div');div.className='arow asub'+(inQueue?' inq':'');div.dataset.arcId=qkey;
         div.innerHTML='<span class="adesc" style="padding-left:16px;">'+
           esc(a.probe_pin)+'/'+esc(a.probe_dir)+' &middot; '+esc(a.rel_pin)+'/'+esc(a.rel_dir)+
           (a.vector?' <span style="color:var(--text-3);font-size:10px;">'+esc(a.vector)+'</span>':'')+
@@ -949,9 +949,9 @@ function renderArcList(head,cellName,arcs){
         gDiv.appendChild(div);});
       alist.appendChild(gDiv);
     }else{
-      var a=garcs[0];var arcId=buildArcId(cellName,a);
-      var inQueue=S.queue.some(function(q){return q.arc_id===arcId;});
-      var div=document.createElement('div');div.className='arow'+(inQueue?' inq':'');div.dataset.arcId=arcId;
+      var a=garcs[0];var qkey=buildQueueKey(cellName,a);
+      var inQueue=S.queue.some(function(q){return q._qkey===qkey;});
+      var div=document.createElement('div');div.className='arow'+(inQueue?' inq':'');div.dataset.arcId=qkey;
       div.innerHTML='<span class="adesc">'+
         '<span class="atag" style="font-size:10px;">'+esc(a.arc_type)+'</span> '+
         esc(a.probe_pin)+'/'+esc(a.probe_dir)+' &middot; '+esc(a.rel_pin)+'/'+esc(a.rel_dir)+
@@ -960,37 +960,42 @@ function renderArcList(head,cellName,arcs){
         '</span>'+srcLink(a.source,'arc')+'<span class="abtn">'+(inQueue?'&#10003; added':'+ Add')+'</span>';
       if(!inQueue){div.addEventListener('click',function(){addToQueue(cellName,a,div);});}
       alist.appendChild(div);}});}
-  head.parentNode.insertBefore(alist,head.nextSibling);}
+  head.parentNode.insertBefore(alist,head.nextSibling);bindSrcLinks(alist);}
 function srcLink(src,type){if(!src)return '';
   var path=src.template_tcl||'';var line=type==='arc'?src.arc_line:src.cell_line;
   var nd=src.netlist_dir||'';
   var html='<span class="src-links">';
-  if(path){
-    var vsHref='vscode://file/'+encodeURIComponent(path)+(line?':'+line:'');
-    var ln=line||1;
-    html+='<a class="src-btn" href="#" title="template.tcl'+(line?' :'+line:'')+'" '+
-      'onclick="event.preventDefault();event.stopPropagation();openSourceViewer('+JSON.stringify(path)+','+ln+');" '+
-      'oncontextmenu="event.preventDefault();navigator.clipboard.writeText('+JSON.stringify(vsHref)+');">tcl</a>';}
-  if(nd){var nhref='vscode://file/'+encodeURIComponent(nd);
-    html+='<a class="src-btn" href="'+nhref+'" title="netlist dir" onclick="event.stopPropagation();">net</a>';}
+  if(path){var ln=line||1;
+    var ep=encodeURIComponent(path);
+    html+='<a class="src-btn src-open" href="#" data-src-path="'+ep+'" data-src-line="'+ln+'" title="template.tcl'+(line?' :'+line:'')+'">tcl</a>';}
+  if(nd){var en=encodeURIComponent(nd);
+    html+='<a class="src-btn src-open" href="#" data-src-path="'+en+'" data-src-line="1" title="netlist dir">net</a>';}
   return html+'</span>';}
+function bindSrcLinks(container){container.querySelectorAll('.src-open').forEach(function(el){
+  el.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();
+    openSourceViewer(decodeURIComponent(this.dataset.srcPath),parseInt(this.dataset.srcLine)||1);});
+  el.addEventListener('contextmenu',function(e){e.preventDefault();
+    var p=decodeURIComponent(this.dataset.srcPath);var l=this.dataset.srcLine||1;
+    navigator.clipboard.writeText('vim +'+l+' '+p);});});}
 function buildArcId(cellName,a){
-  return [a.arc_type,cellName,a.probe_pin,a.probe_dir,a.rel_pin,a.rel_dir,a.when||'NO_CONDITION'].join('_');}
+  return [a.arc_type,cellName,a.probe_pin,a.probe_dir||'rise',a.rel_pin,a.rel_dir||'rise',a.when||'NO_CONDITION'].join('_');}
+function buildQueueKey(cellName,a){
+  return buildArcId(cellName,a)+'__'+(a.vector||'');}
 function addToQueue(cellName,a,rowEl){
-  var arcId=buildArcId(cellName,a);
-  if(S.queue.some(function(q){return q.arc_id===arcId;}))return;
+  var qkey=buildQueueKey(cellName,a);var arcId=buildArcId(cellName,a);
+  if(S.queue.some(function(q){return q._qkey===qkey;}))return;
   S.queue.push({arc_type:a.arc_type,probe_pin:a.probe_pin,probe_dir:a.probe_dir,
     rel_pin:a.rel_pin,rel_dir:a.rel_dir,when:a.when||'NO_CONDITION',
-    cell:cellName,arc_id:arcId,index_1:a.index_1||[],index_2:a.index_2||[]});
+    cell:cellName,arc_id:arcId,_qkey:qkey,vector:a.vector||'',index_1:a.index_1||[],index_2:a.index_2||[]});
   rowEl.classList.add('inq');rowEl.querySelector('.abtn').textContent='added';rowEl.onclick=null;
   renderQueue();}
 function clearQueue(){S.queue=[];
   document.querySelectorAll('.arow.inq').forEach(function(r){
     r.classList.remove('inq');r.querySelector('.abtn').textContent='+ Add';});
   renderQueue();}
-function removeFromQueue(arcId){
-  S.queue=S.queue.filter(function(q){return q.arc_id!==arcId;});
-  var el=document.querySelector('.arow[data-arc-id="'+arcId+'"]');
+function removeFromQueue(qkey){
+  S.queue=S.queue.filter(function(q){return q._qkey!==qkey;});
+  var el=document.querySelector('.arow[data-arc-id="'+CSS.escape(qkey)+'"]');
   if(el){el.classList.remove('inq');el.querySelector('.abtn').textContent='+ Add';}
   renderQueue();}
 function renderQueue(){var qList=document.getElementById('arcQueueList');
@@ -1001,9 +1006,9 @@ function renderQueue(){var qList=document.getElementById('arcQueueList');
       div.innerHTML='<span class="atag" style="flex-shrink:0;">'+esc(q.arc_type)+'</span>'+
         '<span class="qtext">'+esc(q.cell)+' &nbsp;|&nbsp; '+
         esc(q.probe_pin)+'/'+esc(q.probe_dir)+' &middot; '+esc(q.rel_pin)+'/'+esc(q.rel_dir)+'</span>'+
-        '<span class="qx" data-arc="'+encodeURIComponent(q.arc_id)+'">&#215;</span>';
+        '<span class="qx" data-qkey="'+encodeURIComponent(q._qkey)+'">&#215;</span>';
       div.querySelector('.qx').addEventListener('click',function(){
-        removeFromQueue(decodeURIComponent(this.dataset.arc));});
+        removeFromQueue(decodeURIComponent(this.dataset.qkey));});
       qList.appendChild(div);});}
   renderTpInputs();renderQueueSummary();updateGenerateButton();}
 function renderTpInputs(){var container=document.getElementById('tpInputs');container.innerHTML='';
@@ -1325,7 +1330,7 @@ function _srcRender(highlightLine){
     var ln=s+i;var cls=ln===highlightLine?'src-hl':'';
     var raw=_srcState.lines[i];
     var escaped=raw.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    var linked=escaped.replace(/(-delay|-constraint|-power|-mpw)\s+(\S+)/g,
+    var linked=escaped.replace(/(-delay|-constraint|-power|-mpw)\\s+(\\S+)/g,
       function(_,flag,tok){return flag+' <span class="src-ref" data-token="'+esc(tok)+'" title="Ctrl+click to find definition">'+tok+'</span>';});
     html+='<div class="src-line'+((cls)?' '+cls:'')+'" data-ln="'+ln+'"><span class="src-ln">'+ln+'</span><span class="src-code">'+linked+'</span></div>';}
   mount.innerHTML=html;
@@ -1382,7 +1387,7 @@ function _srcLazyLoad(){
         var mount=document.getElementById('srcEditorMount');var s=chunk.start;
         for(var i=0;i<chunk.lines.length;i++){var ln=s+i;
           var raw=chunk.lines[i];var escaped=raw.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-          var linked=escaped.replace(/(-delay|-constraint|-power|-mpw)\s+(\S+)/g,
+          var linked=escaped.replace(/(-delay|-constraint|-power|-mpw)\\s+(\\S+)/g,
             function(_,flag,tok){return flag+' <span class="src-ref" data-token="'+esc(tok)+'">'+tok+'</span>';});
           mount.insertAdjacentHTML('beforeend','<div class="src-line" data-ln="'+ln+'"><span class="src-ln">'+ln+'</span><span class="src-code">'+linked+'</span></div>');}});}}
 </script>
