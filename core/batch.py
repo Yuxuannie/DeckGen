@@ -449,4 +449,20 @@ def _plan_jobs_from_collateral(arc_ids, corner_names, node, lib_type,
                     'warnings': [],
                 })
 
+    # Disambiguate jobs with identical (arc_id, corner) but different vectors.
+    # Append vector suffix to arc_id only for duplicates.
+    from collections import Counter
+    key_counts = Counter(
+        (j.get('arc_id', ''), j.get('corner', ''))
+        for j in jobs if j.get('arc_info'))
+    for j in jobs:
+        ai = j.get('arc_info')
+        if not ai:
+            continue
+        key = (j.get('arc_id', ''), j.get('corner', ''))
+        if key_counts[key] > 1:
+            vector = ai.get('VECTOR', '')
+            if vector:
+                j['arc_id'] = j['arc_id'] + '_' + vector.strip('{}')
+
     return jobs, errors
