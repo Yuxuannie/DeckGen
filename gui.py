@@ -717,7 +717,9 @@ table.vtbl tr:hover td{background:var(--tint);}
         <div class="qsrow total"><span>0 arcs &times; 0 corners</span><span class="qnum">0 total</span></div>
       </div>
     </div>
-    <div class="pf" id="queueFooter">
+    <div class="pf" id="queueFooter" style="flex-wrap:wrap;gap:6px;">
+      <span style="font-size:11px;color:var(--text-3);">Output:</span>
+      <input type="text" id="outputDir" value="./output/" placeholder="./output/" style="flex:1;min-width:120px;max-width:300px;font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;">
       <div class="spacer"></div>
       <button class="btn" onclick="doPreview()">Preview</button>
       <button class="btn btn-primary" id="btnGenerate" onclick="doGenerate()">Generate</button>
@@ -1168,8 +1170,9 @@ function doPreview(){var body=buildGenerateBody();
     alert('Preview: '+(d.jobs?d.jobs.length:0)+' jobs planned. Errors: '+(d.errors?d.errors.length:0));});}
 function buildGenerateBody(){var tpMap=getTpMap();
   var arcIds=S.queue.map(function(q){return q.arc_id;});
+  var outDir=document.getElementById('outputDir').value.trim()||'./output/';
   return{mode:'explore',node:S.node,lib_type:S.libtype,
-    corners:Array.from(S.selCorners),arc_ids:arcIds,table_points:tpMap,output_dir:'./output/'};}
+    corners:Array.from(S.selCorners),arc_ids:arcIds,table_points:tpMap,output_dir:outDir};}
 function doGenerate(){var body=buildGenerateBody();showResultsView();
   document.getElementById('genStatus').textContent='Generating...';
   document.getElementById('resultList').innerHTML='';S.results=[];
@@ -1286,7 +1289,7 @@ function directGenerate(){var lines=document.getElementById('directTA').value.sp
   document.getElementById('resultList').innerHTML='';S.results=[];
   fetch('/api/generate_v2',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({mode:'batch',node:S.node,lib_type:S.libtype,
-      corners:Array.from(S.selCorners),arc_ids:lines,output_dir:'./output/'})
+      corners:Array.from(S.selCorners),arc_ids:lines,output_dir:document.getElementById('outputDir').value.trim()||'./output/'})
   }).then(function(resp){var reader=resp.body.getReader();var decoder=new TextDecoder();var buf='';
     function pump(){return reader.read().then(function(chunk){
       if(chunk.done){finalizeResults();return;}
