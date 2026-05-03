@@ -1887,7 +1887,8 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
         for j in jobs[:3]:
             print(f"[generate_v2]   job: {j.get('arc_id','?')} corner={j.get('corner','?')} err={j.get('error','')}", file=sys.stderr)
 
-        output_dir = data.get('output_dir') or data.get('output', './output')
+        output_dir = data.get('output_dir') or data.get('output') or './output'
+        print(f"[generate_v2] output_dir={output_dir!r}", file=sys.stderr)
         total = len(jobs)
         all_results = []
         done_count = 0

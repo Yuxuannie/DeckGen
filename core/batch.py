@@ -401,10 +401,10 @@ def _plan_jobs_from_collateral(arc_ids, corner_names, node, lib_type,
             if not corner_name:
                 continue
             try:
-                # MCQC convention: constraint arcs have constr_dir opposite of rel_dir
-                is_constraint = arc['arc_type'] in CONSTRAINT_ARC_TYPES
-                default_constr_dir = (_opposite_dir(arc['rel_dir'])
-                                      if is_constraint else arc['rel_dir'])
+                # MCQC convention: constr_dir is opposite of rel_dir for both
+                # constraint arcs AND combinational arcs (where constr_dir maps
+                # to output transition direction, which inverts the input).
+                default_constr_dir = _opposite_dir(arc['rel_dir'])
                 result = resolve_all_from_collateral(
                     cell_name=arc['cell_name'],
                     arc_type=arc['arc_type'],
