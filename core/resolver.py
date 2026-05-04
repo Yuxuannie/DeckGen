@@ -400,8 +400,15 @@ def resolve_all_from_collateral(
     else:
         chartcl = None
 
-    # 4. Resolve model file (.inc) via chartcl
+    # 4. Resolve model file (.inc) via chartcl, with fallback to corner model dict
     include_file = store.pick_model_file(corner_name, arc_type) or ''
+    if not include_file:
+        # Fallback: try corner's model dict directly
+        model = corner.get('model', {})
+        # MCQC: for delay/combinational -> 'delay', for hold/setup -> arc_type
+        from core.collateral import _normalize_arc_type
+        norm = _normalize_arc_type(arc_type)
+        include_file = model.get(norm, '') or model.get('traditional', '') or ''
 
     # 5. Find the matching arc entry in template_info
     arc = _find_matching_arc(template_info, cell_name, arc_type,

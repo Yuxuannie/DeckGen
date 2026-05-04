@@ -139,13 +139,16 @@ def _process_line(line, sub_map, arc_info, profile, when):
         result.extend(_generate_when_condition_lines(arc_info, when))
         return result
 
-    # Section: Output Load -- inject load capacitor line
+    # Section: Output Load -- inject load capacitor for ALL output pins (MCQC parity)
     if '* Output Load' in line:
         result = [line]
-        load_val = sub_map.get('OUTPUT_LOAD', '0')
-        if load_val and load_val != '0':
+        output_pins = (arc_info.get('OUTPUT_PINS', '') or '').split()
+        if output_pins:
+            for i, pin in enumerate(output_pins):
+                result.append(f"C{i} {pin} 0 'cl'\n")
+        else:
             probe = arc_info.get('PROBE_PIN_1', 'Y')
-            result.append(f"CL {probe} 0 'cl'\n")
+            result.append(f"C0 {probe} 0 'cl'\n")
         return result
 
     # Section: Voltage -- inject extra power pins if needed
