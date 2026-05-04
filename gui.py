@@ -373,6 +373,25 @@ def _api_source_find_definition(file_id, token):
     return {'error': 'Not found: ' + token}
 
 
+def _api_source_search(file_id, query, max_results=500):
+    """Search for all occurrences of query in the file. Returns {lines: [int]}."""
+    with _SOURCE_LOCK:
+        info = _SOURCE_FILES.get(file_id)
+    if not info:
+        return {'error': 'Unknown file_id', 'lines': []}
+    hits = []
+    try:
+        with open(info['path'], 'r', encoding='utf-8', errors='replace') as f:
+            for lineno, text in enumerate(f, 1):
+                if query in text:
+                    hits.append(lineno)
+                    if len(hits) >= max_results:
+                        break
+    except Exception as e:
+        return {'error': str(e), 'lines': []}
+    return {'lines': hits, 'total': len(hits)}
+
+
 def _parse_table_points(text):
     """Parse a table-point text string into a list of (i1, i2) int tuples.
 
@@ -603,6 +622,10 @@ html,body{background:var(--bg);color:var(--text);
 .dvbody{flex:1;overflow:auto;padding:16px;background:#1a1a2e;}
 .dvbody pre{margin:0;font-family:"SF Mono",Menlo,monospace;font-size:11px;
   color:#c9d1d9;line-height:1.6;white-space:pre;}
+.deck-line{display:flex;white-space:pre;}
+.deck-ln{width:36px;text-align:right;padding-right:8px;color:#555;user-select:none;flex-shrink:0;}
+.deck-link{color:#4ec9b0;text-decoration:underline;text-decoration-style:dotted;cursor:pointer;}
+.deck-link:hover{color:#fff;background:#4ec9b0;border-radius:2px;}
 .dgrid{display:flex;height:100%;}
 .dgrid>.panel{flex:1 1 0;min-width:200px;border-right:1px solid var(--border);}
 .dgrid>.panel:last-child{border-right:none;flex:1 1 0;}
@@ -1236,12 +1259,30 @@ function openDeck(row,path,title){
   document.querySelectorAll('.rrow').forEach(function(r){r.classList.remove('sel');});
   if(row)row.classList.add('sel');S.lastDeckPath=path;
   document.getElementById('dvTitle').textContent=title||path;
-  document.getElementById('dvContent').textContent='Loading...';
+  document.getElementById('dvContent').innerHTML='<span style="color:#888;">Loading...</span>';
   document.getElementById('deckOv').classList.add('open');
   fetch('/api/deck?path='+encodeURIComponent(path))
     .then(function(r){return r.text();})
-    .then(function(txt){document.getElementById('dvContent').textContent=txt;})
-    .catch(function(e){document.getElementById('dvContent').textContent='Error: '+e.message;});}
+    .then(function(txt){renderDeckContent(txt,path);})
+    .catch(function(e){document.getElementById('dvContent').innerHTML='<span style="color:#f66;">Error: '+esc(e.message)+'</span>';});}
+function renderDeckContent(txt,deckPath){
+  var el=document.getElementById('dvContent');
+  var lines=txt.split('\\n');var html='';
+  for(var i=0;i<lines.length;i++){
+    var ln=lines[i];var escaped=ln.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    var cls='';
+    if(ln.startsWith('*')){cls=' style="color:#6a9955;"';
+      escaped=escaped.replace(/^(\\*\\s*)(\\S.*)$/,'$1<span style="color:#dcdcaa;">$2</span>');}
+    else if(ln.startsWith('.')){cls=' style="color:#569cd6;"';}
+    escaped=escaped.replace(/\\.inc\\s+'([^']+)'/g,function(m,p){
+      return '.inc \\x27<a class="deck-link" href="#" data-path="'+esc(p)+'" title="Click to open: '+esc(p)+'">'+esc(p)+'</a>\\x27';});
+    escaped=escaped.replace(/'([^']*value[^']*)'/g,'<span style="color:#ce9178;">\\x27$1\\x27</span>');
+    escaped=escaped.replace(/'([0-9][^']*)'/g,'<span style="color:#b5cea8;">\\x27$1\\x27</span>');
+    html+='<div class="deck-line"><span class="deck-ln">'+(i+1)+'</span><span'+cls+'>'+escaped+'</span></div>';}
+  el.innerHTML=html;
+  el.querySelectorAll('.deck-link').forEach(function(a){
+    a.addEventListener('click',function(e){e.preventDefault();
+      var p=this.dataset.path;if(p)openSourceViewer(p,1);});});}
 function closeDeck(){document.getElementById('deckOv').classList.remove('open');
   document.querySelectorAll('.rrow').forEach(function(r){r.classList.remove('sel');});}
 function copyDeck(){navigator.clipboard.writeText(document.getElementById('dvContent').textContent).catch(function(){});}
@@ -1382,10 +1423,26 @@ function srcFwd(){if(_srcState.histIdx>=_srcState.history.length-1)return;
   document.getElementById('btnSrcBack').disabled=false;}
 function srcGoto(){var v=prompt('Go to line (1-'+_srcState.total+'):');
   if(!v)return;var n=parseInt(v);if(isNaN(n))return;srcNavTo(n,true);}
-function srcSearch(){var q=prompt('Search:');if(!q)return;
-  fetch('/api/source/'+_srcState.fileId+'/find_definition?token='+encodeURIComponent(q))
+function srcSearch(){
+  var bar=document.getElementById('srcSearchBar');
+  bar.style.display=bar.style.display==='flex'?'none':'flex';
+  if(bar.style.display==='flex')document.getElementById('srcSearchInput').focus();}
+function srcDoSearch(){var q=document.getElementById('srcSearchInput').value.trim();
+  if(!q||!_srcState.fileId){_srcState.searchHits=[];_srcState.searchIdx=-1;_srcUpdateSearchStatus();return;}
+  fetch('/api/source/'+_srcState.fileId+'/search?q='+encodeURIComponent(q))
     .then(function(r){return r.json();}).then(function(res){
-      if(res.line){srcNavTo(res.line,true);}else{alert('Not found: '+q);}});}
+      _srcState.searchHits=res.lines||[];_srcState.searchIdx=_srcState.searchHits.length>0?0:-1;
+      _srcUpdateSearchStatus();
+      if(_srcState.searchIdx>=0)srcNavTo(_srcState.searchHits[0],true);});}
+function srcSearchNext(){if(!_srcState.searchHits||!_srcState.searchHits.length)return;
+  _srcState.searchIdx=(_srcState.searchIdx+1)%_srcState.searchHits.length;
+  _srcUpdateSearchStatus();srcNavTo(_srcState.searchHits[_srcState.searchIdx],true);}
+function srcSearchPrev(){if(!_srcState.searchHits||!_srcState.searchHits.length)return;
+  _srcState.searchIdx=(_srcState.searchIdx-1+_srcState.searchHits.length)%_srcState.searchHits.length;
+  _srcUpdateSearchStatus();srcNavTo(_srcState.searchHits[_srcState.searchIdx],true);}
+function _srcUpdateSearchStatus(){var el=document.getElementById('srcSearchStatus');
+  if(!_srcState.searchHits||!_srcState.searchHits.length){el.textContent='No matches';return;}
+  el.textContent=(_srcState.searchIdx+1)+' / '+_srcState.searchHits.length+' matches';}
 function closeSrcModal(){document.getElementById('srcModal').classList.remove('open');}
 function _srcLazyLoad(){
   if(!_srcState.fileId||_srcState.loadedEnd>=_srcState.total)return;
@@ -1408,11 +1465,19 @@ function _srcLazyLoad(){
   <div class="src-modal-hdr">
     <button class="btn btn-sm btn-ghost" id="btnSrcBack" onclick="srcBack()" disabled>&#8592; Back</button>
     <button class="btn btn-sm btn-ghost" id="btnSrcFwd" onclick="srcFwd()" disabled>Forward &#8594;</button>
-    <button class="btn btn-sm btn-ghost" onclick="srcGoto()">Goto&#x2026;</button>
-    <button class="btn btn-sm btn-ghost" onclick="srcSearch()">Search&#x2026;</button>
+    <button class="btn btn-sm btn-ghost" onclick="srcGoto()">Goto</button>
+    <button class="btn btn-sm btn-ghost" onclick="srcSearch()">Search</button>
     <span class="src-modal-path" id="srcModalPath"></span>
-    <span style="color:var(--text-3);font-size:10px;">Ctrl+click underlined tokens to jump</span>
-    <button class="btn btn-sm btn-ghost" onclick="closeSrcModal()">&#215; Close</button>
+    <span style="color:var(--text-3);font-size:10px;">Ctrl+click underlined tokens</span>
+    <button class="btn btn-sm btn-ghost" onclick="closeSrcModal()">&#215;</button>
+  </div>
+  <div id="srcSearchBar" style="display:none;padding:4px 12px;border-bottom:1px solid var(--border);align-items:center;gap:6px;background:var(--panel);">
+    <input type="text" id="srcSearchInput" placeholder="Search..." style="flex:1;font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:3px;"
+      onkeydown="if(event.key==='Enter'){event.shiftKey?srcSearchPrev():srcDoSearch();}">
+    <button class="btn btn-sm btn-ghost" onclick="srcDoSearch()">Find</button>
+    <button class="btn btn-sm btn-ghost" onclick="srcSearchPrev()">&#9650;</button>
+    <button class="btn btn-sm btn-ghost" onclick="srcSearchNext()">&#9660;</button>
+    <span id="srcSearchStatus" style="font-size:11px;color:var(--text-3);min-width:80px;"></span>
   </div>
   <div class="src-modal-body" id="srcEditorMount" style="overflow:auto;flex:1;"></div>
 </div>
@@ -1561,6 +1626,10 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
         if sub == 'find_definition':
             token = (qs.get('token') or [''])[0]
             result = _api_source_find_definition(file_id, token)
+            self._send_json(result)
+        elif sub == 'search':
+            query = (qs.get('q') or [''])[0]
+            result = _api_source_search(file_id, query)
             self._send_json(result)
         else:
             try:
