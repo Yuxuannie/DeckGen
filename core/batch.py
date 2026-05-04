@@ -407,6 +407,13 @@ def _plan_jobs_from_collateral(arc_ids, corner_names, node, lib_type,
                 # constraint arcs AND combinational arcs (where constr_dir maps
                 # to output transition direction, which inverts the input).
                 default_constr_dir = _opposite_dir(arc['rel_dir'])
+                # Pass i1/i2 table point indices so build_arc_info can
+                # look up the correct slew/load values from template.tcl
+                arc_overrides = dict(overrides)
+                if arc.get('i1') is not None:
+                    arc_overrides['index_1_index'] = arc['i1']
+                if arc.get('i2') is not None:
+                    arc_overrides['index_2_index'] = arc['i2']
                 result = resolve_all_from_collateral(
                     cell_name=arc['cell_name'],
                     arc_type=arc['arc_type'],
@@ -417,7 +424,7 @@ def _plan_jobs_from_collateral(arc_ids, corner_names, node, lib_type,
                     probe_pin=arc['probe_pin'],
                     node=node, lib_type=lib_type, corner_name=corner_name,
                     collateral_root=collateral_root,
-                    overrides=overrides,
+                    overrides=arc_overrides,
                 )
                 # Normalize to list (backward-compat: resolver returns dict for 1 result)
                 arc_info_list = result if isinstance(result, list) else [result]
