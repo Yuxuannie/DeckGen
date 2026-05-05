@@ -127,22 +127,22 @@ def _api_list_corners(node, lib_type):
 
 
 _ARC_COUNTS_CACHE = {}  # {(node, lib_type): {cell: {type: count}}}
+_ARC_COUNTS_LOADING = set()  # keys currently being loaded
 
 
 def _api_list_cells(node, lib_type):
-    """Return cells with per-type arc counts. Arc counts use cache or compute in background."""
+    """Return cells with per-type arc counts. First call triggers background parse."""
     from core.collateral import CollateralError
     store = _get_store(node, lib_type)
     if store is None:
         return []
 
     cell_names = store.list_cells()
-
-    # Use cached arc counts if available; otherwise trigger background parse
     key = (node, lib_type)
     arc_counts = _ARC_COUNTS_CACHE.get(key, {})
-    if not arc_counts:
-        # Start background thread to parse template.tcl for arc counts
+
+    if not arc_counts and key not in _ARC_COUNTS_LOADING:
+        _ARC_COUNTS_LOADING.add(key)
         def _bg_parse():
             corners = store.list_corners()
             tcl_path = None
@@ -164,9 +164,12 @@ def _api_list_cells(node, lib_type):
                                 counts[cell] = {}
                             counts[cell][atype] = counts[cell].get(atype, 0) + 1
                     _ARC_COUNTS_CACHE[key] = counts
+            _ARC_COUNTS_LOADING.discard(key)
         threading.Thread(target=_bg_parse, daemon=True).start()
 
-    return [{'name': c, 'arc_counts': arc_counts.get(c, {})} for c in cell_names]
+    # Return 'loading' flag so frontend knows to poll
+    return {'cells': [{'name': c, 'arc_counts': arc_counts.get(c, {})} for c in cell_names],
+            'counts_ready': bool(arc_counts)}
 
 
 def _api_list_arcs(node, lib_type, cell):
@@ -287,6 +290,10 @@ def _api_list_arcs(node, lib_type, cell):
 
 
 def _api_rescan(node, lib_type):
+    # Clear caches so next loadCells gets fresh data
+    key = (node, lib_type)
+    _ARC_COUNTS_CACHE.pop(key, None)
+    _ARC_COUNTS_LOADING.discard(key)
     from tools.scan_collateral import build_manifest
     root = getattr(DeckgenHandler, 'COLLATERAL_ROOT', _DEFAULT_COLLATERAL_ROOT)
     try:
@@ -936,7 +943,12 @@ function updateStatusPill(){var pill=document.getElementById('statusPill');
   if(nc)nc.textContent=cells+' cells';}
 function loadCells(){document.getElementById('cellList').innerHTML='<div class="cell-loading">Loading cells...</div>';
   post('/api/cells',{node:S.node,lib_type:S.libtype}).then(function(d){
-    S.cells=d.cells||[];S.arcCache={};updateStatusPill();renderCells();});}
+    S.cells=d.cells||d||[];S.arcCache={};updateStatusPill();renderCells();
+    if(d.counts_ready===false){setTimeout(function(){pollArcCounts();},3000);}});}
+function pollArcCounts(){
+  post('/api/cells',{node:S.node,lib_type:S.libtype}).then(function(d){
+    if(d.counts_ready){S.cells=d.cells||d||[];renderCells();}
+    else{setTimeout(function(){pollArcCounts();},2000);}});}
 function filterCells(){S.cellFilter=document.getElementById('cellSearch').value.toLowerCase();renderCells();}
 function setArcFilter(type,el){S.arcFilter=type;
   document.querySelectorAll('.fbar .fc').forEach(function(c){c.classList.remove('on');});
@@ -1682,8 +1694,8 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
             self._send_json({'corners': _api_list_corners(
                 data.get('node', ''), data.get('lib_type', ''))}); return
         elif path == '/api/cells':
-            self._send_json({'cells': _api_list_cells(
-                data.get('node', ''), data.get('lib_type', ''))}); return
+            self._send_json(_api_list_cells(
+                data.get('node', ''), data.get('lib_type', ''))); return
         elif path == '/api/arcs':
             self._send_json({'arcs': _api_list_arcs(
                 data.get('node', ''), data.get('lib_type', ''),
