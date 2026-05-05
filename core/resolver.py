@@ -501,6 +501,8 @@ def resolve_all_from_collateral(
             template_deck_path = ''
 
     # 8. Hand off to arc_info_builder (may return 1 or 3 dicts for 3D arcs)
+    import sys
+    print(f"[resolver] overrides keys: {list(overrides.keys())} idx1={overrides.get('index_1_index')} idx2={overrides.get('index_2_index')}", file=sys.stderr)
     results = build_arc_infos(
         arc=arc, cell_info=cell_info,
         template_info=template_info, chartcl=chartcl,
