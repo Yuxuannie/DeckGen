@@ -410,10 +410,13 @@ def _plan_jobs_from_collateral(arc_ids, corner_names, node, lib_type,
                 # Pass i1/i2 table point indices so build_arc_info can
                 # look up the correct slew/load values from template.tcl
                 arc_overrides = dict(overrides)
+                import sys
+                print(f"[batch] arc_id={arc_id[:50]} i1={arc.get('i1')} i2={arc.get('i2')} parsed_keys={list(arc.keys())}", file=sys.stderr)
                 if arc.get('i1') is not None:
                     arc_overrides['index_1_index'] = arc['i1']
                 if arc.get('i2') is not None:
                     arc_overrides['index_2_index'] = arc['i2']
+                print(f"[batch] arc_overrides keys={list(arc_overrides.keys())}", file=sys.stderr)
                 result = resolve_all_from_collateral(
                     cell_name=arc['cell_name'],
                     arc_type=arc['arc_type'],
