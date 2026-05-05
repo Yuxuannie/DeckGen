@@ -405,10 +405,11 @@ def resolve_all_from_collateral(
     if not include_file:
         # Fallback: try corner's model dict directly
         model = corner.get('model', {})
-        # MCQC: for delay/combinational -> 'delay', for hold/setup -> arc_type
         from core.collateral import _normalize_arc_type
         norm = _normalize_arc_type(arc_type)
         include_file = model.get(norm, '') or model.get('traditional', '') or ''
+    import sys
+    print(f"[resolver] model .inc for {arc_type}/{corner_name}: {include_file!r}", file=sys.stderr)
 
     # 5. Find the matching arc entry in template_info
     arc = _find_matching_arc(template_info, cell_name, arc_type,
@@ -442,8 +443,10 @@ def resolve_all_from_collateral(
             netlist_pins = pins_override or ''
 
     # 7. Waveform
-    waveform_file = waveform_override or overrides.get(
-        'waveform_file', '/server/default/stdvs_wv.spi')
+    # Waveform: from overrides, or corner's usage_l, or MCQC standard path
+    waveform_file = waveform_override or overrides.get('waveform_file', '')
+    if not waveform_file:
+        waveform_file = '/CAD/stdcell/DesignKits/Sponsor/Script/MCQC_automation/Template/std_wv_c651.spi'
 
     # 7b. SPICE template (deck) -- try delay rules, then MCQC JSON rules, then registry
     template_deck_path = template_override or ''

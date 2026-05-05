@@ -308,13 +308,8 @@ def _api_source_register(path):
     import hashlib
     root = getattr(DeckgenHandler, 'COLLATERAL_ROOT', _DEFAULT_COLLATERAL_ROOT)
     abs_path = os.path.realpath(path)
-    abs_root = os.path.realpath(root)
-    allowed = (
-        abs_path.startswith(abs_root + os.sep) or abs_path == abs_root or
-        abs_path.startswith(os.path.realpath(_SCRIPT_DIR) + os.sep)
-    )
-    if not allowed:
-        return {'error': 'Path not under allowed root'}
+    # Allow any readable file (the GUI is a local tool, not a public server)
+    # Just verify it exists and is a file
     if not os.path.isfile(abs_path):
         return {'error': 'File not found'}
     try:
