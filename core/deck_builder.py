@@ -126,6 +126,13 @@ def _build_substitution_map(arc_info, slew, load, max_slew):
         'PUSHOUT_DIR':      arc_info.get('PUSHOUT_DIR', ''),
         'TEMPLATE_DECK':    arc_info.get('TEMPLATE_DECK', ''),
         'TEMPLATE_TCL':     arc_info.get('TEMPLATE_TCL', ''),
+        # MCQC aliases: some templates use these names
+        'CONSTR_PIN_SLEW':  arc_info.get('INDEX_1_VALUE', constr_slew) or constr_slew,
+        'REL_PIN_SLEW':     arc_info.get('INDEX_2_VALUE', rel_slew) or rel_slew,
+        'REL_PIN_DIR':      arc_info.get('REL_PIN_DIR', ''),
+        'CONSTR_PIN_DIR':   arc_info.get('CONSTR_PIN_DIR', ''),
+        'CONSTR_PIN_OFFSET': arc_info.get('CONSTR_PIN_OFFSET', ''),
+        'ARC_TYPE':         arc_info.get('ARC_TYPE', ''),
     }
     return sub
 
