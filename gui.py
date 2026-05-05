@@ -137,9 +137,11 @@ def _api_list_cells(node, lib_type):
     if store is None:
         return []
 
-    cell_names = store.list_cells()
+    manifest_cells = store.list_cells()
     key = (node, lib_type)
     arc_counts = _ARC_COUNTS_CACHE.get(key, {})
+    # Use template.tcl cells when arc_counts loaded; else manifest cells
+    cell_names = sorted(arc_counts.keys()) if arc_counts else manifest_cells
 
     if not arc_counts and key not in _ARC_COUNTS_LOADING:
         _ARC_COUNTS_LOADING.add(key)
