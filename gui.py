@@ -126,8 +126,11 @@ def _api_list_corners(node, lib_type):
     return store.list_corners()
 
 
+_ARC_COUNTS_CACHE = {}  # {(node, lib_type): {cell: {type: count}}}
+
+
 def _api_list_cells(node, lib_type):
-    """Return cells with per-type arc counts from template.tcl."""
+    """Return cells with per-type arc counts. Arc counts use cache or compute in background."""
     from core.collateral import CollateralError
     store = _get_store(node, lib_type)
     if store is None:
@@ -135,27 +138,33 @@ def _api_list_cells(node, lib_type):
 
     cell_names = store.list_cells()
 
-    # Try to get arc counts from template.tcl
-    corners = store.list_corners()
-    tcl_path = None
-    for corner in corners:
-        try:
-            tcl_path = store.get_template_tcl(corner)
-            break
-        except CollateralError:
-            continue
-
-    arc_counts = {}  # {cell_name: {arc_type: count}}
-    if tcl_path and os.path.isfile(tcl_path):
-        parsed = _get_parsed_tcl(tcl_path)
-        if parsed:
-            for a in parsed.get('arcs', []):
-                cell = a.get('cell', '')
-                atype = a.get('arc_type', '')
-                if cell and atype:
-                    if cell not in arc_counts:
-                        arc_counts[cell] = {}
-                    arc_counts[cell][atype] = arc_counts[cell].get(atype, 0) + 1
+    # Use cached arc counts if available; otherwise trigger background parse
+    key = (node, lib_type)
+    arc_counts = _ARC_COUNTS_CACHE.get(key, {})
+    if not arc_counts:
+        # Start background thread to parse template.tcl for arc counts
+        def _bg_parse():
+            corners = store.list_corners()
+            tcl_path = None
+            for corner in corners:
+                try:
+                    tcl_path = store.get_template_tcl(corner)
+                    break
+                except CollateralError:
+                    continue
+            if tcl_path and os.path.isfile(tcl_path):
+                parsed = _get_parsed_tcl(tcl_path)
+                if parsed:
+                    counts = {}
+                    for a in parsed.get('arcs', []):
+                        cell = a.get('cell', '')
+                        atype = a.get('arc_type', '')
+                        if cell and atype:
+                            if cell not in counts:
+                                counts[cell] = {}
+                            counts[cell][atype] = counts[cell].get(atype, 0) + 1
+                    _ARC_COUNTS_CACHE[key] = counts
+        threading.Thread(target=_bg_parse, daemon=True).start()
 
     return [{'name': c, 'arc_counts': arc_counts.get(c, {})} for c in cell_names]
 
