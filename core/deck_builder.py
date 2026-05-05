@@ -68,11 +68,24 @@ def build_deck(arc_info, global_config=None, slew=None, load=None,
 
     # Process template line by line
     write_list = []
+    seen_inc = set()
     for line in template_lines:
         processed = _process_line(line, sub_map, arc_info, profile, when)
         if isinstance(processed, list):
-            write_list.extend(processed)
+            for p in processed:
+                # Deduplicate .inc lines
+                stripped = p.strip() if isinstance(p, str) else p
+                if isinstance(stripped, str) and stripped.startswith('.inc '):
+                    if stripped in seen_inc:
+                        continue
+                    seen_inc.add(stripped)
+                write_list.append(p)
         else:
+            stripped = processed.strip() if isinstance(processed, str) else processed
+            if isinstance(stripped, str) and stripped.startswith('.inc '):
+                if stripped in seen_inc:
+                    continue
+                seen_inc.add(stripped)
             write_list.append(processed)
 
     return write_list

@@ -382,7 +382,7 @@ def resolve_all_from_collateral(
     overrides = overrides or {}
 
     # 1. Load store + corner
-    store = CollateralStore(collateral_root, node, lib_type)
+    store = CollateralStore(collateral_root, node, lib_type, skip_autoscan=True)
     corner = store.get_corner(corner_name)
 
     # 2. Parse template.tcl (full)
