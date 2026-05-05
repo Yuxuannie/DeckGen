@@ -643,12 +643,21 @@ def parse_template_tcl_full(path):
             logger = logging.getLogger('deckgen.parser')
             for w in parse_warnings:
                 logger.warning(w)
-        base = parse_template_tcl(path)
+        # Reuse already-parsed ALAPI templates instead of re-reading file
+        base_templates = {
+            name: {k: v for k, v in t.items() if v}
+            for name, t in templates.items()
+        }
+        base_global = {}
+        for t in base_templates.values():
+            if t.get('index_1'):
+                base_global = t
+                break
         return {
-            'templates':       base['templates'],
+            'templates':       base_templates,
             'cells':           cells,
             'arcs':            arcs,
-            'global':          base['global'],
+            'global':          base_global,
             'index_overrides': [],
             'sis':             sis,
         }
