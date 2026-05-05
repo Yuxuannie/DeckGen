@@ -947,7 +947,7 @@ function renderCells(){var list=document.getElementById('cellList');
     if(S.cellFilter&&!name.toLowerCase().includes(S.cellFilter))return false;
     if(S.arcFilter!=='all'){
       var cts=(typeof c==='object'&&c.arc_counts)?c.arc_counts:{};
-      if(!cts[S.arcFilter])return false;}
+      if(Object.keys(cts).length>0&&!cts[S.arcFilter])return false;}
     return true;});
   if(!filtered.length){list.innerHTML='<div class="cell-loading">No cells match'+(S.arcFilter!=='all'?' for filter: '+esc(S.arcFilter):'')+'. </div>';return;}
   list.innerHTML='';
