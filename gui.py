@@ -1905,6 +1905,9 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
             if not raw_arc_ids and arc_queue:
                 raw_arc_ids = [q.get('arc_id', '') for q in arc_queue]
 
+            import sys
+            print(f"[generate_v2] table_points={table_points}", file=sys.stderr)
+            print(f"[generate_v2] raw_arc_ids={raw_arc_ids[:3]}", file=sys.stderr)
             if table_points and raw_arc_ids:
                 expanded = []
                 for aid in raw_arc_ids:
@@ -1912,6 +1915,7 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
                     arc_type = parts[0] if parts else ''
                     tp_text = table_points.get(arc_type, '')
                     pts = _parse_table_points(tp_text)
+                    print(f"[generate_v2] expand: arc_type={arc_type!r} tp_text={tp_text!r} pts={pts}", file=sys.stderr)
                     if pts:
                         for i1, i2 in pts:
                             expanded.append(f"{aid}_{i1}_{i2}")
