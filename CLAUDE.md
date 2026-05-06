@@ -11,7 +11,10 @@ Bottom-up: user specifies exact arc, tool generates deck or reports exactly why 
 - `gui.py` -- browser GUI (default port 8585)
 - `core/` -- importable library: `resolver`, `deck_builder`, `writer`, `parsers/`
 - `config/` -- `config.yaml`, `template_registry.yaml`, `corners/`
-- `templates/min_pulse_width/` -- 63 SPICE templates
+- `templates/` -- SPICE deck templates (min_pulse_width/ + node-specific subdirs)
+- `config/delay_template_rules.py` -- delay arc template selection rules
+- `core/template_rules.py` -- MCQC-parity hold/setup/mpw/removal/recovery rules (688+ rules)
+- `core/arc_info_builder.py` -- MCQC-parity arc_info dict composition
 - `docs/design.md` -- architecture decisions
 - `docs/task.md` -- remaining work items
 
@@ -92,5 +95,13 @@ Never fail silently. Never drop arcs without telling the user.
 
 See `docs/task.md` for the full task list.
 
-Done: backend modules, parsers, CLI, 63 SPICE templates, GUI v1.0 (3-tab redesign: Explore/Direct/Validate).
-Remaining: template.tcl slew/load integration, tests.
+Done: backend modules, parsers, CLI, SPICE templates, GUI v2.0 with:
+- 3-tab layout: Explore / Direct / Validate
+- ALAPI template.tcl parser (auto-detect + full Tcl tokenizer)
+- MCQC-parity template selection (688+ hold/setup/mpw rules + delay rules)
+- Inline source viewer (Monaco Editor, tcl/SPICE syntax highlighting)
+- LUT grid picker (inline per arc-type, Shift+click rectangle selection)
+- Collateral-backed deck generation (netlist/model/waveform auto-resolved)
+- i1/i2 table-point index lookup from template.tcl
+
+Remaining: additional test coverage, template.tcl slew/load edge cases.

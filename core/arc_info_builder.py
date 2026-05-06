@@ -129,10 +129,6 @@ def build_arc_info(arc, cell_info, template_info, chartcl, corner,
     except (ValueError, TypeError):
         idx2 = None
 
-    import sys
-    print(f"[arc_info] {cell_name} {arc_type}: idx1={idx1} idx2={idx2} "
-          f"len(i1)={len(index_1_list)} len(i2)={len(index_2_list)}", file=sys.stderr)
-
     def _val(lst, idx, unit):
         if idx is None or not lst or idx < 1 or idx > len(lst):
             return ''
@@ -204,7 +200,7 @@ def build_arc_info(arc, cell_info, template_info, chartcl, corner,
         'DONT_TOUCH_PINS':  '',
         'WHEN':             arc.get('when', ''),
         'LIT_WHEN':         arc.get('lit_when', ''),
-        'HEADER_INFO':      (lambda h: (print(f"[arc_info] HEADER_INFO={h[:80]!r}...", file=sys.stderr), h)[1])(_build_header_info(arc, cell_info, arc_type, index_1_list, index_2_list, max_slew, output_load)),
+        'HEADER_INFO':      _build_header_info(arc, cell_info, arc_type, index_1_list, index_2_list, max_slew, output_load),
         'TEMPLATE_PINLIST': cell_info.get('pinlist', ''),
         'VECTOR':           arc.get('vector', ''),
 

@@ -1919,9 +1919,6 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
             if not raw_arc_ids and arc_queue:
                 raw_arc_ids = [q.get('arc_id', '') for q in arc_queue]
 
-            import sys
-            print(f"[generate_v2] table_points={table_points}", file=sys.stderr)
-            print(f"[generate_v2] raw_arc_ids={raw_arc_ids[:3]}", file=sys.stderr)
             if table_points and raw_arc_ids:
                 expanded = []
                 for aid in raw_arc_ids:
@@ -1929,7 +1926,6 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
                     arc_type = parts[0] if parts else ''
                     tp_text = table_points.get(arc_type, '')
                     pts = _parse_table_points(tp_text)
-                    print(f"[generate_v2] expand: arc_type={arc_type!r} tp_text={tp_text!r} pts={pts}", file=sys.stderr)
                     if pts:
                         for i1, i2 in pts:
                             expanded.append(f"{aid}_{i1}_{i2}")
@@ -1974,12 +1970,7 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
         # Run all jobs, collect results, send as single JSON response.
         # (Streaming via Transfer-Encoding:chunked doesn't work correctly
         #  with Python's BaseHTTPRequestHandler — browser never sees EOF.)
-        import sys
-        print(f"[generate_v2] {len(jobs)} jobs planned, {len(errors)} errors",
-              file=sys.stderr)
-
         output_dir = data.get('output_dir') or data.get('output') or './output'
-        print(f"[generate_v2] output_dir={output_dir!r}", file=sys.stderr)
         all_results = []
 
         for job in jobs:
@@ -1991,8 +1982,6 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
                     num_samples=data.get('num_samples', 5000),
                     files={})
             except Exception as ex:
-                print(f"[generate_v2] execute_jobs EXCEPTION: {ex}",
-                      file=sys.stderr)
                 results = [{'arc_id': arc_id, 'corner': job.get('corner',''),
                             'success': False, 'error': str(ex)}]
             for r in results:
@@ -2000,8 +1989,6 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
                 r['corner'] = job.get('corner', '')
                 r['output_path'] = r.get('nominal') or ''
                 all_results.append(r)
-                print(f"[generate_v2]   result: {arc_id} ok={r.get('success')} err={r.get('error','')[:100] if r.get('error') else ''}",
-                      file=sys.stderr)
 
         succeeded = sum(1 for r in all_results if r.get('success'))
         failed = sum(1 for r in all_results if not r.get('success'))
@@ -2014,8 +2001,6 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
                 'output_path': str(r.get('output_path', '') or ''),
                 'error': str(r.get('error', '') or ''),
             })
-        print(f"[generate_v2] done: {succeeded} ok, {failed} fail",
-              file=sys.stderr)
         response = json.dumps({
             'status': 'done',
             'succeeded': succeeded,

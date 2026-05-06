@@ -408,9 +408,6 @@ def resolve_all_from_collateral(
         from core.collateral import _normalize_arc_type
         norm = _normalize_arc_type(arc_type)
         include_file = model.get(norm, '') or model.get('traditional', '') or ''
-    import sys
-    print(f"[resolver] model .inc for {arc_type}/{corner_name}: {include_file!r}", file=sys.stderr)
-
     # 5. Find the matching arc entry in template_info
     arc = _find_matching_arc(template_info, cell_name, arc_type,
                              rel_pin, rel_dir)
@@ -501,8 +498,6 @@ def resolve_all_from_collateral(
             template_deck_path = ''
 
     # 8. Hand off to arc_info_builder (may return 1 or 3 dicts for 3D arcs)
-    import sys
-    print(f"[resolver] overrides keys: {list(overrides.keys())} idx1={overrides.get('index_1_index')} idx2={overrides.get('index_2_index')}", file=sys.stderr)
     results = build_arc_infos(
         arc=arc, cell_info=cell_info,
         template_info=template_info, chartcl=chartcl,

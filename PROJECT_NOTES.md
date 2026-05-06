@@ -145,12 +145,23 @@ MCQC `--char_type non_cons` 路径生成 combinational delay deck。globals.cfg 
 - 修复: 新增 ALAPI 格式自动检测 + 完整 parser（续行合并、Tcl tokenizer、flag 解析）
 - 验证: 合成测试通过，222 existing tests pass (Claude Code)
 
+### 2026-05-01: Debug print cleanup
+- 现象: stderr 被 [batch], [resolver], [arc_info], [generate_v2] 调试输出污染
+- 修复: 删除全部临时 debug print 语句及其 inline `import sys`
+- 验证: grep 无残留 (Claude Code)
+
 ## 5. 待办 feature
 
 - [x] Source quick-link: [tcl] [net] buttons on arc rows (2026-05-02)
 - [x] Vector-based arc 分类 sanity check (2026-05-02)
 - [x] Deck 列表按 (related_pin, when) 分组折叠展示 (2026-05-02)
 - [x] AIOI21 ground truth 自动化测试 (2026-05-02, 12 assertions)
+- [x] MCQC-parity template selection: 688+ hold/setup/mpw rules (2026-05-02)
+- [x] Collateral-backed deck generation with auto-resolved netlist/model/waveform (2026-05-02)
+- [x] LUT grid picker: inline per arc-type, Shift+click rectangle, preset buttons (2026-05-02)
+- [x] Monaco Editor inline source viewer with Tcl/SPICE syntax highlighting (2026-05-02)
+- [x] i1/i2 table-point index lookup from template.tcl in batch generate (2026-05-02)
+- [x] arc_id parse: ALAPI combinational vector direction mapping fix (2026-05-02)
 
 ### 2026-05-02: Generate NetworkError
 
