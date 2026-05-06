@@ -36,6 +36,10 @@ _SOURCE_LOCK = threading.Lock()
 _STORE_CACHE = {}
 _STORE_LOCK = threading.Lock()
 
+# Async generate task store: task_id -> {status, progress, total, current, results, errors}
+_GENERATE_TASKS = {}
+_GENERATE_LOCK = threading.Lock()
+
 
 def _get_store(node, lib_type):
     """Return a cached CollateralStore for (node, lib_type), reloading if manifest changed."""
@@ -69,22 +73,42 @@ def _get_store(node, lib_type):
 
 
 def _get_parsed_tcl(tcl_path):
-    """Return parse_template_tcl_full result for tcl_path, using a cache."""
+    """Return parse_template_tcl_full result for tcl_path, using memory + disk cache."""
     from core.parsers.template_tcl import parse_template_tcl_full
     try:
-        mtime = os.path.getmtime(tcl_path)
+        tcl_mtime = os.path.getmtime(tcl_path)
     except OSError:
         return None
     with _TCL_PARSE_LOCK:
         cached = _TCL_PARSE_CACHE.get(tcl_path)
-        if cached and cached[0] == mtime:
+        if cached and cached[0] == tcl_mtime:
             return cached[1]
+    # Check disk cache: {tcl_path}.parse_cache.json
+    cache_path = tcl_path + '.parse_cache.json'
+    try:
+        if os.path.isfile(cache_path):
+            cache_mtime = os.path.getmtime(cache_path)
+            if cache_mtime > tcl_mtime:
+                with open(cache_path, 'r') as f:
+                    parsed = json.load(f)
+                with _TCL_PARSE_LOCK:
+                    _TCL_PARSE_CACHE[tcl_path] = (tcl_mtime, parsed)
+                return parsed
+    except Exception:
+        pass
+    # Parse fresh
     try:
         parsed = parse_template_tcl_full(tcl_path)
     except Exception:
         return None
+    # Save to disk cache
+    try:
+        with open(cache_path, 'w') as f:
+            json.dump(parsed, f)
+    except Exception:
+        pass
     with _TCL_PARSE_LOCK:
-        _TCL_PARSE_CACHE[tcl_path] = (mtime, parsed)
+        _TCL_PARSE_CACHE[tcl_path] = (tcl_mtime, parsed)
     return parsed
 
 from core.resolver import ResolutionError, TemplateResolver
@@ -757,6 +781,7 @@ table.vtbl tr:hover td{background:var(--tint);}
       <span style="font-size:11px;color:var(--text-3);">Output:</span>
       <input type="text" id="outputDir" value="./output/" placeholder="./output/" style="flex:1;min-width:120px;max-width:300px;font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;">
       <div class="spacer"></div>
+      <button class="btn btn-sm btn-ghost" onclick="exportArcList()">Export list</button>
       <button class="btn" onclick="doPreview()">Preview</button>
       <button class="btn btn-primary" id="btnGenerate" onclick="doGenerate()">Generate</button>
     </div>
@@ -870,8 +895,8 @@ table.vtbl tr:hover td{background:var(--tint);}
 <script>
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 var S={node:'',libtype:'',corners:[],selCorners:new Set(),cells:[],arcCache:{},
-  queue:[],arcFilter:'all',cellFilter:'',results:[],lastDeckPath:'',
-  vResults:[],vFilter:'all'};
+  queue:[],arcFilter:'all',cellFilter:'',cellGlob:false,results:[],lastDeckPath:'',
+  vResults:[],vFilter:'all',genTaskId:'',genTotal:0,_restore:{}};
 function showTab(name){
   ['explore','direct','validate'].forEach(function(n){
     document.getElementById('view-'+n).classList.toggle('view-hidden',n!==name);});
@@ -882,24 +907,41 @@ function showTab(name){
 function post(url,body){return fetch(url,{method:'POST',
   headers:{'Content-Type':'application/json'},body:JSON.stringify(body)
   }).then(function(r){return r.json();});}
-function loadNodes(){post('/api/nodes',{}).then(function(d){
+function saveSelection(){
+  try{localStorage.setItem('deckgen_sel',JSON.stringify({
+    node:S.node,libtype:S.libtype,corners:Array.from(S.selCorners)}));}catch(e){}}
+function restoreSelection(){
+  try{var s=JSON.parse(localStorage.getItem('deckgen_sel')||'{}');
+    if(s.node)S._restore=s;}catch(e){}}
+function loadNodes(){restoreSelection();post('/api/nodes',{}).then(function(d){
   var sel=document.getElementById('selNode');sel.innerHTML='';
   (d.nodes||[]).forEach(function(n){var o=document.createElement('option');
     o.value=o.textContent=n;sel.appendChild(o);});
-  if(d.nodes&&d.nodes.length){S.node=d.nodes[0];loadLibtypes();}
+  if(d.nodes&&d.nodes.length){
+    var node=S._restore.node&&d.nodes.indexOf(S._restore.node)>=0?S._restore.node:d.nodes[0];
+    S.node=node;sel.value=node;loadLibtypes();}
   else updateStatusPill();}).catch(function(){updateStatusPill();});}
 function onNodeChange(){S.node=document.getElementById('selNode').value;
-  S.libtype='';S.selCorners=new Set();S.cells=[];S.arcCache={};loadLibtypes();}
+  S._restore={};S.libtype='';S.selCorners=new Set();S.cells=[];S.arcCache={};
+  saveSelection();loadLibtypes();}
 function loadLibtypes(){post('/api/lib_types',{node:S.node}).then(function(d){
   var sel=document.getElementById('selLibtype');sel.innerHTML='';
   (d.lib_types||[]).forEach(function(lt){var o=document.createElement('option');
     o.value=o.textContent=lt;sel.appendChild(o);});
-  if(d.lib_types&&d.lib_types.length){S.libtype=d.lib_types[0];loadCorners();}
+  if(d.lib_types&&d.lib_types.length){
+    var lt=S._restore.libtype&&d.lib_types.indexOf(S._restore.libtype)>=0?S._restore.libtype:d.lib_types[0];
+    S.libtype=lt;sel.value=lt;loadCorners();}
   else updateStatusPill();});}
 function onLibtypeChange(){S.libtype=document.getElementById('selLibtype').value;
-  S.selCorners=new Set();S.cells=[];S.arcCache={};loadCorners();}
+  S._restore={};S.selCorners=new Set();S.cells=[];S.arcCache={};
+  saveSelection();loadCorners();}
 function loadCorners(){post('/api/corners',{node:S.node,lib_type:S.libtype}).then(function(d){
-  S.corners=d.corners||[];S.selCorners=new Set(S.corners);
+  S.corners=d.corners||[];
+  if(S._restore.corners&&S._restore.corners.length){
+    var valid=new Set(d.corners||[]);
+    S.selCorners=new Set(S._restore.corners.filter(function(c){return valid.has(c);}));
+    if(!S.selCorners.size)S.selCorners=new Set(S.corners);
+  } else {S.selCorners=new Set(S.corners);}
   renderCornerChips();renderCornerMenu();loadCells();});}
 function renderCornerChips(){var el=document.getElementById('cornerChips');
   var sel=Array.from(S.selCorners);
@@ -917,7 +959,7 @@ function renderCornerMenu(){var list=document.getElementById('cornerList');
     var chk=document.createElement('input');chk.type='checkbox';chk.checked=S.selCorners.has(c);
     chk.addEventListener('change',function(){
       if(this.checked)S.selCorners.add(c);else S.selCorners.delete(c);
-      renderCornerChips();updateStatusPill();renderQueue();});
+      saveSelection();renderCornerChips();updateStatusPill();renderQueue();});
     div.appendChild(chk);div.appendChild(document.createTextNode(c));list.appendChild(div);});}
 function filterCorners(){var q=document.getElementById('cornerSearch').value.toLowerCase();
   document.querySelectorAll('#cornerList .mitem').forEach(function(el){
@@ -951,14 +993,23 @@ function pollArcCounts(){
   post('/api/cells',{node:S.node,lib_type:S.libtype}).then(function(d){
     if(d.counts_ready){S.cells=d.cells||d||[];renderCells();}
     else{setTimeout(function(){pollArcCounts();},2000);}});}
-function filterCells(){S.cellFilter=document.getElementById('cellSearch').value.toLowerCase();renderCells();}
+function filterCells(){
+  var q=document.getElementById('cellSearch').value.trim();
+  S.cellFilter=q.toLowerCase();
+  S.cellGlob=q.includes('*');
+  renderCells();}
 function setArcFilter(type,el){S.arcFilter=type;
   document.querySelectorAll('.fbar .fc').forEach(function(c){c.classList.remove('on');});
   el.classList.add('on');renderCells();}
 function renderCells(){var list=document.getElementById('cellList');
   var filtered=S.cells.filter(function(c){
     var name=(typeof c==='string')?c:c.name;
-    if(S.cellFilter&&!name.toLowerCase().includes(S.cellFilter))return false;
+    if(S.cellGlob){
+      var re=new RegExp('^'+S.cellFilter.replace(/[.+^$()|]/g,'\\$&').replace(/[*]/g,'.*')+'$','i');
+      if(!re.test(name))return false;
+    } else {
+      if(S.cellFilter&&!name.toLowerCase().includes(S.cellFilter))return false;
+    }
     if(S.arcFilter!=='all'){
       var cts=(typeof c==='object'&&c.arc_counts)?c.arc_counts:{};
       if(Object.keys(cts).length>0&&!cts[S.arcFilter])return false;}
@@ -1215,13 +1266,31 @@ function buildGenerateBody(){var tpMap=getTpMap();
   return{mode:'explore',node:S.node,lib_type:S.libtype,
     corners:Array.from(S.selCorners),arc_queue:arcQueue,table_points:tpMap,output_dir:outDir};}
 function doGenerate(){var body=buildGenerateBody();showResultsView();
-  document.getElementById('genStatus').textContent='Generating...';
-  document.getElementById('resultList').innerHTML='';S.results=[];
+  document.getElementById('genStatus').textContent='Starting...';
+  document.getElementById('resultList').innerHTML='';S.results=[];S.genTaskId='';S.genTotal=0;
   post('/api/generate_v2',body).then(function(d){
-    if(d.results){d.results.forEach(function(res){S.results.push(res);appendResultRow(res);});}
-    finalizeResults();
+    if(d.task_id){
+      S.genTaskId=d.task_id;S.genTotal=d.total||0;
+      pollGenerate();
+    } else {
+      if(d.results){d.results.forEach(function(res){S.results.push(res);appendResultRow(res);});}
+      finalizeResults();}
   }).catch(function(e){
     document.getElementById('genStatus').textContent='Error: '+e.message;});}
+function pollGenerate(){
+  post('/api/generate_status',{task_id:S.genTaskId}).then(function(d){
+    document.getElementById('genStatus').textContent=
+      'Generating '+d.progress+'/'+d.total+'... '+(d.current||'');
+    var newResults=(d.results||[]).slice(S.results.length);
+    newResults.forEach(function(res){S.results.push(res);appendResultRow(res);});
+    if(d.status==='done'){finalizeResults();}
+    else{setTimeout(pollGenerate,500);}
+  }).catch(function(){setTimeout(pollGenerate,1000);});}
+function exportArcList(){
+  var text=S.queue.map(function(q){return q.arc_id;}).join('\\n');
+  var blob=new Blob([text],{type:'text/plain'});
+  var a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download='arc_list.txt';a.click();}
 function appendResultRow(r){
   var list=document.getElementById('resultList');
   var arcKey=r.arc_id||r.id||'?';var ok=r.success!==false&&!r.error;
@@ -1708,6 +1777,8 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
             self._handle_preview_v2(data); return
         elif path == '/api/generate_v2':
             self._handle_generate_v2(data); return
+        elif path == '/api/generate_status':
+            self._handle_generate_status(data); return
         elif path == '/api/validate':
             self._send_json(_api_validate(
                 data.get('deckgen_root', ''),
@@ -1906,12 +1977,11 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
     # ------------------------------------------------------------------
 
     def _handle_generate_v2(self, data):
-        """Generate: run the batch using collateral-backed planning (streams NDJSON)."""
+        """Generate: plan jobs, start background thread, return task_id immediately."""
+        import uuid
         from core.batch import plan_jobs, execute_jobs
         try:
             mode = data.get('mode', 'batch')
-            # Expand arc_ids using table_points if provided.
-            # arc_queue: [{arc_id, vector}, ...] or arc_ids: [str, ...]
             arc_queue = data.get('arc_queue', [])
             raw_arc_ids = data.get('arc_ids', [])
             table_points = data.get('table_points', {})
@@ -1935,7 +2005,6 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
                 data['arc_ids'] = expanded
                 raw_arc_ids = expanded
 
-            # Build vector lookup from arc_queue for directory disambiguation
             _vec_lookup = {}
             if arc_queue:
                 for q in arc_queue:
@@ -1948,7 +2017,7 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
             else:
                 arc_ids = raw_arc_ids
 
-            jobs, errors = plan_jobs(
+            jobs, plan_errors = plan_jobs(
                 arc_ids,
                 corner_names=data.get('corners', []),
                 files={},
@@ -1957,58 +2026,70 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
                 lib_type=data.get('lib_type') or None,
                 collateral_root=DeckgenHandler.COLLATERAL_ROOT)
         except Exception as e:
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/x-ndjson')
-            self.send_header('Transfer-Encoding', 'chunked')
-            self.end_headers()
-            line = json.dumps({'status': 'done', 'succeeded': 0, 'failed': 0,
-                               'results': [], 'errors': [str(e)]}) + '\n'
-            self.wfile.write(line.encode('utf-8'))
-            self.wfile.flush()
+            self._send_json({'status': 'done', 'succeeded': 0, 'failed': 0,
+                             'results': [], 'errors': [str(e)]})
             return
 
-        # Run all jobs, collect results, send as single JSON response.
-        # (Streaming via Transfer-Encoding:chunked doesn't work correctly
-        #  with Python's BaseHTTPRequestHandler — browser never sees EOF.)
+        task_id = uuid.uuid4().hex[:12]
         output_dir = data.get('output_dir') or data.get('output') or './output'
-        all_results = []
+        nominal_only = data.get('nominal_only', False)
+        num_samples = data.get('num_samples', 5000)
 
-        for job in jobs:
-            arc_id = job.get('arc_id', '')
-            try:
-                results = execute_jobs(
-                    [job], output_dir,
-                    nominal_only=data.get('nominal_only', False),
-                    num_samples=data.get('num_samples', 5000),
-                    files={})
-            except Exception as ex:
-                results = [{'arc_id': arc_id, 'corner': job.get('corner',''),
-                            'success': False, 'error': str(ex)}]
-            for r in results:
-                r['arc_id'] = arc_id
-                r['corner'] = job.get('corner', '')
-                r['output_path'] = r.get('nominal') or ''
-                all_results.append(r)
+        with _GENERATE_LOCK:
+            _GENERATE_TASKS[task_id] = {
+                'status': 'running',
+                'progress': 0,
+                'total': len(jobs),
+                'current': '',
+                'results': [],
+                'errors': [str(e) for e in plan_errors],
+            }
 
-        succeeded = sum(1 for r in all_results if r.get('success'))
-        failed = sum(1 for r in all_results if not r.get('success'))
-        safe_results = []
-        for r in all_results:
-            safe_results.append({
-                'arc_id': str(r.get('arc_id', '')),
-                'corner': str(r.get('corner', '')),
-                'success': bool(r.get('success', False)),
-                'output_path': str(r.get('output_path', '') or ''),
-                'error': str(r.get('error', '') or ''),
-            })
-        response = json.dumps({
-            'status': 'done',
-            'succeeded': succeeded,
-            'failed': failed,
-            'results': safe_results,
-            'errors': [str(e) for e in errors],
-        })
-        self._send_json(json.loads(response))
+        def _run_jobs():
+            for idx, job in enumerate(jobs):
+                arc_id = job.get('arc_id', '')
+                with _GENERATE_LOCK:
+                    _GENERATE_TASKS[task_id]['current'] = arc_id
+                try:
+                    results = execute_jobs(
+                        [job], output_dir,
+                        nominal_only=nominal_only,
+                        num_samples=num_samples,
+                        files={})
+                except Exception as ex:
+                    results = [{'arc_id': arc_id, 'corner': job.get('corner', ''),
+                                'success': False, 'error': str(ex)}]
+                safe = []
+                for r in results:
+                    safe.append({
+                        'arc_id': str(r.get('arc_id', arc_id)),
+                        'corner': str(r.get('corner', job.get('corner', ''))),
+                        'success': bool(r.get('success', False)),
+                        'output_path': str(r.get('nominal') or r.get('output_path', '') or ''),
+                        'error': str(r.get('error', '') or ''),
+                    })
+                with _GENERATE_LOCK:
+                    _GENERATE_TASKS[task_id]['results'].extend(safe)
+                    _GENERATE_TASKS[task_id]['progress'] = idx + 1
+            with _GENERATE_LOCK:
+                _GENERATE_TASKS[task_id]['status'] = 'done'
+                _GENERATE_TASKS[task_id]['current'] = ''
+
+        threading.Thread(target=_run_jobs, daemon=True).start()
+        self._send_json({'task_id': task_id, 'total': len(jobs)})
+
+    def _handle_generate_status(self, data):
+        """Return current state of an async generate task."""
+        task_id = data.get('task_id', '')
+        with _GENERATE_LOCK:
+            task = _GENERATE_TASKS.get(task_id)
+            if task is None:
+                self._send_json({'error': 'Unknown task_id'})
+                return
+            snapshot = dict(task)
+            snapshot['results'] = list(task['results'])
+            snapshot['errors'] = list(task['errors'])
+        self._send_json(snapshot)
 
     @staticmethod
     def _build_arc_id_single(data):
