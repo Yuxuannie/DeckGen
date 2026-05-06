@@ -5,6 +5,19 @@ Source: `/Users/nieyuxuan/Downloads/Work/4-MCQC/mcqc_flow/1-general/`.
 
 This document is precise enough that someone could reimplement MCQC from it.
 
+> **Erratum** (2026-05-06): This document originally stated that
+> `templateFileMap/funcs.py` was "not available locally." This was incorrect.
+> The file exists at `/Users/nieyuxuan/Downloads/Work/4-MCQC/mcqc_flow/2-flow/funcs.py`
+> (18,624 lines, containing `mapCharacteristicsToTemplate` at line 21,
+> `getHspiceTemplateName` at line 67, `getThanosTemplateName` at line 14,753).
+> See `docs/foundation/A_templatefilemap_check.md` for the authoritative
+> source analysis and 30-rule extraction fidelity check.
+>
+> Three sections below are superseded by this finding:
+> - SS5h (Template deck selection) -- marked inline
+> - Q1 (templateFileMap Source) -- marked inline
+> - Appendix C row "Template deck map" -- marked inline
+
 > **Phase 1.5 Supersessions** (2026-05-06):
 > - Section 3.8 (templateFileMap as black box): **Superseded** by
 >   `docs/foundation/A_templatefilemap_check.md`. The file IS locally available
@@ -337,7 +350,13 @@ for each cell in template_info:
   per unique arc shape are silently dropped
 
 #### 5h. Template deck selection (`templateFileMap.mapCharacteristicsToTemplate`)
-- **Not available locally** -- this is the 18K-line if-chain on the server
+
+> [SUPERSEDED -- see foundation/A] The claim below that this module is "not
+> available locally" was incorrect. The file is at `mcqc_flow/2-flow/funcs.py`
+> (18,624 lines). See `docs/foundation/A_templatefilemap_check.md`.
+
+- ~~**Not available locally**~~ -- this is the 18K-line if-chain ~~on the server~~
+  at `mcqc_flow/2-flow/funcs.py`
   that maps `(cell_name, arc_type, pin, pin_dir, rel_pin, rel_pin_dir,
   probe_list, when, template_type)` to a template `.sp` file path
 - DeckGen's replacement: `core/template_rules.py` with 688 HSPICE rules
@@ -929,16 +948,21 @@ fallback.
 ## 5. Open Questions for Yuxuan
 
 ### Q1: templateFileMap Source
-The `templateFileMap/funcs.py` module (the 18K-line if-chain that maps arc
-characteristics to template deck paths) is not available locally. It is
+
+> [SUPERSEDED -- see foundation/A] This question is resolved. The file is at
+> `mcqc_flow/2-flow/funcs.py` (18,624 lines). 26/30 sampled rules verified
+> exact; 4/30 have incomplete OR-alternative extraction. See
+> `docs/foundation/A_templatefilemap_check.md`.
+
+~~The `templateFileMap/funcs.py` module (the 18K-line if-chain that maps arc
+characteristics to template deck paths) is not available locally.~~ It is
 imported at runtime via `sys.path.insert(0, TEMPLATE_LUT_PATH)`.
 
-- **Where is this module deployed?** Is it at the `TEMPLATE_LUT_PATH` specified
-  in globals.cfg?
+- ~~**Where is this module deployed?**~~ At `mcqc_flow/2-flow/funcs.py`.
 - **Is the extracted `template_rules.json` (854 rules) a complete representation?**
-  Were any rules lost in extraction?
-- **Are there version differences?** The JSON was extracted from a `2-flow/funcs.py`
-  reference; is that the same as the production `templateFileMap`?
+  26/30 sampled exact; 4/30 have incomplete OR-alternatives (false negatives).
+- **Are there version differences?** The JSON was extracted from `2-flow/funcs.py`
+  which IS the production `templateFileMap`.
 
 ### Q2: Rule Reduction Feasibility
 Of the 688 HSPICE rules:
@@ -1107,7 +1131,7 @@ char.tcl             -->  ChartclParser (glitch, pushout, load overrides, cell l
 | Output load default | qaTemplateMaker/funcs.py | 489-539 | `index_2[2]` |
 | Pin dir from vector | qaTemplateMaker/funcs.py | 819-853 | Position-based |
 | When count limit | qaTemplateMaker/funcs.py | 405-452 | `max_num_when` gate |
-| Template deck map | templateFileMap/funcs.py | N/A | Remote, 18K lines |
+| Template deck map | templateFileMap/funcs.py | N/A | ~~Remote~~, 18K lines [SUPERSEDED -- see foundation/A: local at `mcqc_flow/2-flow/funcs.py`] |
 | Index suffix logic | timingArcInfo/funcs.py | 361-370 | `'p'` for delay, `'n'` for constraint |
 | Netlist fallback | timingArcInfo/funcs.py | 390-402 | `_c_qa` > `_c` > plain |
 | $VAR substitution | spiceDeckMaker/funcs.py | 291-324 | Template instantiation |
