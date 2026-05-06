@@ -5,6 +5,22 @@ Source: `/Users/nieyuxuan/Downloads/Work/4-MCQC/mcqc_flow/1-general/`.
 
 This document is precise enough that someone could reimplement MCQC from it.
 
+> **Phase 1.5 Supersessions** (2026-05-06):
+> - Section 3.8 (templateFileMap as black box): **Superseded** by
+>   `docs/foundation/A_templatefilemap_check.md`. The file IS locally available
+>   at `mcqc_flow/2-flow/funcs.py` (18,624 lines). 26/30 sampled rules verified
+>   exact; 4/30 have incomplete OR-alternative extraction.
+> - Q2 (do same-signature rules map to same template?): **Answered** by
+>   `docs/foundation/B_rule_groupby.md`. No -- 71% of rules are in
+>   discriminating groups where cell pattern matters. But the discrimination
+>   follows 8 categorizable patterns, not arbitrary per-cell overrides.
+> - Template path structure: **Analyzed** in
+>   `docs/foundation/C_template_path_clusters.md`. 457 templates, 412 families,
+>   98.9% covered by a BNF grammar with 142-token vocabulary.
+> - Shipped template calibration: **Validated** in
+>   `docs/foundation/D_template_calibration.md`. All 63 shipped MPW templates
+>   are structurally consistent; zero inconsistencies with rule predictions.
+
 ---
 
 ## 1. Pipeline Stage Map
