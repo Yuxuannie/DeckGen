@@ -1,5 +1,18 @@
 # B: Rule Set Group-By Analysis
 
+## Corrections
+
+See `docs/foundation/B_audit_d3_d5.md` for detailed investigation of:
+
+- **D5 numbering gap**: Formatting error only. D5 (min_pulse_width, CP, null,
+  fall) was described as "mirror of D4" in the text but the heading jumped
+  from D4 to D6. No data was omitted.
+- **D3 "unknown" arc_type**: Extraction pipeline artifact. 37 rules (not 16)
+  have `arc_type: "unknown"` because the source code does not explicitly test
+  arc_type in those branches. True categories span mpw (17), hold (7),
+  nochange (11), removal (2). Creates 5.4% false negatives in DeckGen's
+  rule engine. Fix proposed but not applied.
+
 ## Full Tables
 
 The complete machine-readable data lives in `docs/foundation/B_tables/`:
