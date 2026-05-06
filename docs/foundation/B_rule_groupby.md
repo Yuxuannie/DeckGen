@@ -1,5 +1,19 @@
 # B: Rule Set Group-By Analysis
 
+## Full Tables
+
+The complete machine-readable data lives in `docs/foundation/B_tables/`:
+
+- `B1_trivial.csv` -- all 228 trivial signatures (236 rules)
+- `B2_discriminating.csv` -- all 115 discriminating signatures (452 rules),
+  including JSON column with `(cell_pattern -> template)` pairs per group
+- `README.md` -- column schema and join instructions
+
+Note: the CSV tables use a more granular probe abstraction than the narrative
+below (e.g., `contains_Q|len_1` vs `contains_Q`), producing 343 total
+signatures vs the 315 in the narrative. The narrative coarsened probe patterns
+for readability; the CSV is the authoritative source.
+
 ## Overview
 
 This document analyzes the 688 HSPICE rules from `config/template_rules.json`
