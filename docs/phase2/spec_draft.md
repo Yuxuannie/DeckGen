@@ -308,8 +308,13 @@ def load_families(families_dir: str) -> dict[str, TemplateFamily]:
 
 **Inputs**: Config directory.
 **Outputs**: Dict mapping family key -> TemplateFamily.
-**Depends on**: Filesystem (template library).
+**Depends on**: Filesystem (template library at `templates/v2/`).
 **Replaces**: `config/template_registry.yaml` (for v2 path).
+
+Loads template families from `templates/v2/` directory of real `.sp` files
+(Q4 decision). Pipeline-depth parameterization (e.g., SYNC depth) uses base
+templates with a Python composition step where structural substitution is
+required.
 
 #### `core/principle_engine/engine.py`
 
@@ -403,8 +408,26 @@ the documentation of "what MCQC does" for debugging v2 mismatches.
 ### template_rules.json
 
 Same: frozen, not deleted. The 37 `arc_type: "unknown"` entries
-(B_audit_d3_d5.md) are left unfixed in the JSON to preserve v1
-behavioral parity. The fix is applied only in v2's classifier.
+(B_audit_d3_d5.md) will be fixed via Patch 5 (see below). The v2
+classifier implements the same corrections via attribute-based
+classification.
+
+### Pre-Phase-2 data fixes
+
+A separate Patch 5 commit on feat/foundation-closure fixes:
+1. The 37 `arc_type: "unknown"` entries in `template_rules.json`
+   (B_audit_d3_d5.md). v1 immediately benefits from a 5.4%
+   false-negative rate reduction.
+2. The 4 known OR-alternative extraction diffs in
+   `template_rules.json` (A_templatefilemap_check.md, R6 in SS6).
+
+These are data fixes, not architecture changes. v2 classifier
+implements the same logic via attribute-based classification, so
+v2 is correct regardless of whether v1 data is fixed. Fixing v1
+data is for SCLD's benefit while they remain on v1 during Phase 2
+development.
+
+The Patch 5 commit is a prerequisite for Phase 2B, not 2A.
 
 ---
 
@@ -436,30 +459,30 @@ defer architectural problems.
 | 3 | Multi-bank (MB*SRLSDF*) | MB | PREDICTED nodeset_extended for hold (Task E pending) | glitch | Tests multi-input expansion (AO22) |
 | 4 | Synchronizer (SYNC2-6) | SYNC | TEMPLATE_EMBEDDED for MPW (verified: 16 .nodeset lines) | pushout | Tests depth parameterization + waveform scaling |
 | 5 | Clock gater (CKGAN2*, CKGND2*) | CKG | TEMPLATE_EMBEDDED for MPW (verified: 16 .nodeset lines) | pushout | Tests gate-type sub-classification (AND vs NAND) |
+| 6 | Retention flop (*RETN* + *RSSDF*) | RETN | IC_RETENTION (PREDICTED, Task E pending) | glitch (maxq/minq) | Smoke-tests IC_RETENTION init path during MVP; same cell as regression suite #18 |
 
-These 5 families exercise:
-- **1 of 4 init strategies verified**: TEMPLATE_EMBEDDED (all MPW templates).
-  The other 3 strategies (NODESET_STANDARD, NODESET_EXTENDED, IC_RETENTION)
-  are predictions for hold/non_seq templates pending Task E.
+These 6 families exercise:
+- **2 of 4 init strategies exercised in MVP**: TEMPLATE_EMBEDDED (verified
+  for MPW, families 1/4/5) and IC_RETENTION (exercised via family 6,
+  pending Task E verification). NODESET_STANDARD and NODESET_EXTENDED
+  remain predictions for hold/non_seq paths.
 - Both measurement criteria (pushout + glitch)
 - Output polarity dispatch (latch family)
 - Depth parameterization (SYNC)
 - Multi-input expansion (MB/AO22)
 - Gate-type sub-classification (CKG)
+- Retention init smoke test (family 6)
 
-> **Risk note**: MVP does NOT exercise IC_RETENTION (retention cells are
-> out of scope). This means the retention init path ships untested until
-> Phase 2C. This is acceptable because (a) retention cells are a small
-> fraction of the total cell population, (b) Phase 2C is explicitly
-> scoped to cover them, and (c) the fallback-to-v1 mechanism ensures
-> retention cells still produce correct decks during MVP via the legacy
-> engine. If earlier coverage is desired, add a 6th MVP family:
-> `*RETN* + *RSSDF*` (retention flop, IC_RETENTION init, glitch
-> measurement, non_seq_hold arcs).
+> **Risk note**: MVP includes retention via family 6 specifically to
+> smoke-test IC_RETENTION. Full retention coverage (multiple retention
+> cell variants, all retention arc types) is still scoped to Phase 2C.
+> Family 6 uses non_seq_hold arcs only; retention removal, retention
+> nochange, and retention sync variants remain out of MVP scope.
 
 ### Explicit out-of-scope for MVP
 
-- Retention cells (RETN*): complex init, deferred to Phase 2C
+- Retention cells beyond family 6 smoke test: full retention coverage
+  (multiple variants, all arc types) deferred to Phase 2C
 - DET/DRDF/DIV4: specialized topologies, low volume
 - SLH/ESLH: scan-specific, deferred
 - basemeg (WWL*): memory cells, specialized
@@ -507,7 +530,7 @@ strategies, and both measurement types. Cells chosen from names observed in
 | 15 | *CKG*ND2* | Clock gater (NAND) | nodeset | pushout | hold, nochange |
 | 16 | *CKGMUX2* | Clock gater (MUX2) | nodeset | pushout | nochange |
 | 17 | DCCKSDIV2* | GCLK divider (scan variants) | nodeset | pushout | hold |
-| 18 | *RETN* + *RSSDF* | Retention flop | ic_retention | glitch | non_seq_hold |
+| 18 | *RETN* + *RSSDF* | Retention flop (= MVP family 6) | ic_retention | glitch | non_seq_hold |
 | 19 | *RCB* | Register-controlled buffer | nodeset | pushout | hold |
 | 20 | *basemeg* (WWL) | Memory cell | nodeset | glitch | hold |
 
@@ -621,10 +644,11 @@ B_audit found 37 rules with wrong arc_type. Some of these likely
 produce wrong decks in v1.
 **Impact**: Technical debt. v2 inherits v1 bugs, then must fix them
 separately.
-**Mitigation**: (1) Document known v1 bugs in `ACCEPTED_DIFFS.md`.
-(2) Phase 2B explicitly addresses the 37 `unknown` rules. (3) For
-the OR-alternative issue, fix in `template_rules.json` is a data
-change, not an architecture change.
+**Mitigation**: (1) Document known v1 bugs in `KNOWN_V1_BUGS.md` (SS5).
+(2) Patch 5 on feat/foundation-closure fixes the 37 `unknown` rules and
+4 OR-alternative diffs in `template_rules.json` before Phase 2B starts
+(SS3 "Pre-Phase-2 data fixes"). (3) v2 classifier handles these correctly
+regardless via attribute-based classification.
 
 ### R4: Parameter binding edge cases
 
@@ -671,75 +695,41 @@ as a Patch 5 before Phase 2 code starts.
 
 ## 7. Open Questions for Yuxuan
 
-### Q1: MVP arc type scope [AWAITING DECISION]
+### Q1: MVP arc type scope [RESOLVED -> (A) + 6th family]
 
-**Options**:
-- (A) hold + setup + mpw (recommended above): exercises the most
-  architecture, but mpw templates are already validated and may feel like
-  wasted effort
-- (B) hold + setup only: smaller scope, faster to ship, but defers mpw
-  which is the only structurally validated family
-- (C) hold only: minimum viable, but setup's triviality is a good sanity
-  check
+**Decision**: (A) hold + setup + mpw, with a 6th MVP cell family
+(`*RETN* + *RSSDF*`) added for IC_RETENTION init path smoke-testing.
+See SS4 MVP table family 6.
 
-**Recommendation**: (A). The mpw templates are already on disk and validated
-(Task D), so they are nearly free to include. Setup is trivial and validates
-the "easy path." Hold exercises the hard path.
+### Q2: FMC simulation submission integration [RESOLVED -> (A)]
 
-### Q2: FMC simulation submission integration [AWAITING DECISION]
+**Decision**: (A) deck generation only. Yuxuan's FMC estimator project is
+independent; coordinate timing later. FMC integration is orthogonal to
+the principle engine and can be added without architectural changes.
 
-Phase 2 generates SPICE decks. The next step is submitting them to FMC for
-simulation. Should Phase 2 include:
-- (A) Deck generation only (current scope)
-- (B) Deck generation + FMC job submission (adds `core/fmc_submit.py`)
-- (C) Deck generation + FMC submission + result collection
+### Q3: GUI invasiveness [RESOLVED -> (B)]
 
-**Recommendation**: (A). FMC integration is orthogonal to the principle
-engine and can be added later without architectural changes. Yuxuan has a
-separate FMC estimator project; coordinate timing.
+**Decision**: (B) moderate debug panel. Phase 2D delivers:
+- Engine toggle in settings bar
+- Principle Engine debug panel (collapsible) showing per-arc:
+  classification result, selected template family, parameter bindings,
+  init strategy used, fallback status if applicable
+- Panel sits under existing arc detail view, not a new tab
 
-### Q3: GUI invasiveness [AWAITING DECISION]
+### Q4: Template library format [RESOLVED -> (A)]
 
-Phase 2 adds an engine toggle to the GUI. Beyond that:
-- (A) Minimal: just the toggle, no other GUI changes
-- (B) Moderate: add a "Principle Engine" tab showing classification results,
-  selected family, parameter bindings (useful for debugging)
-- (C) Full: redesign batch mode to show v1/v2 comparison inline
+**Decision**: (A) real `.sp` files in `templates/v2/`. Diffable against MCQC
+originals. Pipeline-depth parameterization (e.g., SYNC depth) uses base
+templates with a Python composition step where structural substitution is
+required.
 
-**Recommendation**: (B). The debug visibility is essential during Phase 2
-development. It does not require a GUI redesign -- just a collapsible panel
-under the existing arc detail view.
+### Q5: Should the 37 `unknown` arc_type rules be fixed before Phase 2? [RESOLVED -> (C)]
 
-### Q4: Template library format [AWAITING DECISION]
-
-The reduced template library (~50-70 families) can be stored as:
-- (A) Actual `.sp` files in `templates/v2/` (easy to read, hard to
-  parameterize pipeline depth)
-- (B) YAML/JSON family descriptors + `.sp` base templates (more flexible,
-  requires a template composition step)
-- (C) Python-embedded template strings (most flexible, hardest to review)
-
-**Recommendation**: (A) for MVP. Real `.sp` files are diffable against MCQC
-originals. Parameterization that requires structural changes (e.g., SYNC
-depth) can use a small set of base templates with a Python post-processor.
-
-### Q5: Should the 37 `unknown` arc_type rules be fixed before Phase 2? [AWAITING DECISION]
-
-B_audit_d3_d5.md diagnosed the issue and proposed a fix. Options:
-- (A) Fix in `template_rules.json` now (Patch 5 on foundation-closure)
-- (B) Fix only in v2 classifier (leave v1 data untouched)
-- (C) Fix both: JSON for v1, classifier for v2
-
-**Recommendation**: (C). The JSON fix is low-risk (data change, not logic)
-and immediately improves v1's 5.4% false-negative rate. The classifier fix
-is needed regardless for v2.
-
-> **Updated by spec revision**: Fix 4 (KNOWN_V1_BUGS in S5) provides a
-> mechanism to handle the 37 rules regardless of whether the JSON is fixed.
-> If option (B) is chosen, the 37 affected cell/arc combinations are added
-> to KNOWN_V1_BUGS and v2 produces correct output while v1 continues to
-> silently skip them. Option (C) remains preferred because it also fixes
-> v1, but (B) is now viable without regression breakage.
+**Decision**: (C) fix both JSON for v1 and classifier for v2. The JSON fix
+is low-risk (data change, not logic) and immediately improves v1's 5.4%
+false-negative rate. Implementation: Patch 5 on feat/foundation-closure
+(see SS3 "Pre-Phase-2 data fixes" subsection). Patch 5 is a prerequisite
+for Phase 2B, not 2A.
 
 ### Q6: Task E template samples timeline [AWAITING INPUT]
 
@@ -790,8 +780,9 @@ and families are structured lookups.
 - Fix for the 37 `unknown` arc_type rules (if Q5 decision is (C))
 
 **Acceptance**: `--engine principle --diff` reports `BYTE_EQUAL` for all
-hold arcs in the 5-family MVP set across 3 corners. Fallback-to-v1 works
-for cells outside MVP.
+hold arcs in the 6-family MVP set across 3 corners, including the
+retention smoke test (family 6: `*RETN* + *RSSDF*`, non_seq_hold arcs,
+IC_RETENTION init path). Fallback-to-v1 works for cells outside MVP.
 
 **Complexity**: L (large). Parameter binding is the most fiddly part --
 matching MCQC's exact formatting, unit suffixes, cascade logic, and
@@ -843,13 +834,18 @@ mode (delivered here) is needed for 2D's GUI integration.
 ### Phase 2D: GUI Integration + Documentation [S]
 
 **Delivers**:
-- GUI engine toggle
-- Principle engine debug panel (classification, selected family, parameters)
+- GUI engine toggle in settings bar
+- Principle Engine debug panel (collapsible, under existing arc detail view,
+  not a new tab) showing per-arc: classification result, selected template
+  family, parameter bindings, init strategy used, fallback status if
+  applicable (Q3 decision)
 - Updated `docs/design.md` with v2 architecture section
 - Updated `CLAUDE.md` with v2 commands and conventions
 - `docs/phase2/changelog.md` summarizing what shipped
 
-**Acceptance**: GUI works with both engines. Documentation is complete.
+**Acceptance**: GUI works with both engines. Debug panel shows correct
+classification and parameter data for all 6 MVP cell families.
+Documentation is complete.
 
 **Complexity**: S (small). No new engine logic -- GUI integration and docs.
 
