@@ -836,32 +836,15 @@ for Phase 2B, not 2A.
 `docs/foundation/E2_sampling_results.md`. SS1.X resolved. Phase 2A
 blocker lifted.
 
-### Q7: Spectre coverage breadth [AWAITING DECISION]
+### Q7: Spectre coverage breadth [RESOLVED -> (B)]
 
-The MVP includes one Spectre family (AO22 in `delay/hold/`). Task E.2
-Section D sampled only this AO22 pattern. Production Spectre usage may
-extend to other cell families.
+**Decision**: (B) Sample 3 more non-AO22 Spectre files before Phase 2C.
+This is tracked as Task E.3 (in progress). E.3 is not on the critical
+path for Phase 2A or 2B -- it must complete before Phase 2C starts.
 
-The audit found 94 `.thanos.sp` files. We do not yet know whether all
-94 share the AO22 structural pattern or whether non-AO22 variants exist
-with distinct structure.
-
-**Options**:
-- (A) Trust the structural similarity assumption from Section D sample.
-  Build Spectre support for the AO22 pattern. Extend if other patterns
-  surface during Phase 2C development.
-- (B) Sample 3 more Spectre files from different cell families before
-  Phase 2C code starts. Specifically: run
-  `find . -name '*.thanos.sp' | grep -v 'AO22' | head -3` and inspect
-  each.
-
-**Recommendation**: (B). Spectre is the highest-risk new axis in Phase 2.
-An extra hour of targeted sampling is cheap insurance against discovering
-a divergent Spectre pattern mid-2C.
-
-If (B) is chosen, this becomes a Phase E.3 task to complete before
-Phase 2C starts (not before 2A -- Phase 2A and 2B do not exercise
-Spectre, so the sampling is not on the critical path until 2C).
+Server-side command: `find . -name '*.thanos.sp' | grep -v 'AO22' | head -3`
+then inspect each file's structure per the E_execution_plan.md fingerprint
+extraction method.
 
 ---
 
