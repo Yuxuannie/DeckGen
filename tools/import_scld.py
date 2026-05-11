@@ -55,22 +55,15 @@ import sys
 
 
 # Files we want from SCLD's Char/ folder (lowercase suffix match).
+# Shell / helper scripts (.sh, .csh) are included to mirror SCLD's layout.
 WANTED_CHAR_SUFFIXES = (
-    '.inc',          # base + .delay.inc / .hold.inc / .setup.inc / .mpw.inc all match
+    '.inc',          # base + .delay.inc / .hold.inc / .setup.inc / .mpw.inc
     '.usage.l',
     '.tcl',          # captures char_*.cons.tcl, .non_cons.tcl, template.tcl, plain char_*.tcl
-)
-
-# Shell / helper scripts -- copied for reference but kept under Scripts/ so the
-# data-file scanner never sees them.
-SCRIPT_SUFFIXES = (
-    '.sh',
+    '.sh',           # SCLD ships shell scripts in Char/; preserve them
     '.csh',
     '.bash',
     '.zsh',
-    '.py',
-    '.pl',
-    '.tk',
 )
 
 # .tcl files containing this token go to Template/, otherwise Char/.
@@ -110,17 +103,14 @@ def import_one_lib(src_lib, deckgen_root, node, link=False, dry_run=False,
     dst_char = os.path.join(dst_root, 'Char')
     dst_template = os.path.join(dst_root, 'Template')
     dst_netlist = os.path.join(dst_root, 'Netlist')
-    dst_scripts = os.path.join(dst_root, 'Scripts')
 
     if not dry_run:
         os.makedirs(dst_char, exist_ok=True)
         os.makedirs(dst_template, exist_ok=True)
         os.makedirs(dst_netlist, exist_ok=True)
-        os.makedirs(dst_scripts, exist_ok=True)
 
     counts = {'char_files': 0, 'template_files': 0,
-              'netlist_dirs': 0, 'script_files': 0,
-              'skipped': 0, 'errors': 0}
+              'netlist_dirs': 0, 'skipped': 0, 'errors': 0}
 
     # ----- Char/ + Template/ files (top-level of SCLD's Char/) -----
     for fname in sorted(os.listdir(src_char)):
@@ -128,20 +118,17 @@ def import_one_lib(src_lib, deckgen_root, node, link=False, dry_run=False,
         if os.path.isdir(src):
             continue                                 # Netlist/ etc. handled below
         lower = fname.lower()
-        # Decide destination based on extension and filename token.
-        if lower.endswith(SCRIPT_SUFFIXES):
-            dst = os.path.join(dst_scripts, fname)
-            kind = 'script'
-        elif lower.endswith(WANTED_CHAR_SUFFIXES):
-            if TEMPLATE_TCL_TOKEN in lower:
-                dst = os.path.join(dst_template, fname)
-                kind = 'template'
-            else:
-                dst = os.path.join(dst_char, fname)
-                kind = 'char'
-        else:
+        if not lower.endswith(WANTED_CHAR_SUFFIXES):
             counts['skipped'] += 1
             continue
+
+        # Decide destination based on filename
+        if TEMPLATE_TCL_TOKEN in lower:
+            dst = os.path.join(dst_template, fname)
+            kind = 'template'
+        else:
+            dst = os.path.join(dst_char, fname)
+            kind = 'char'
 
         if dry_run:
             if verbose:
@@ -163,8 +150,6 @@ def import_one_lib(src_lib, deckgen_root, node, link=False, dry_run=False,
 
         if kind == 'template':
             counts['template_files'] += 1
-        elif kind == 'script':
-            counts['script_files'] += 1
         else:
             counts['char_files'] += 1
 
@@ -256,14 +241,17 @@ def main():
                    help='Suppress per-file output')
     args = p.parse_args()
 
+    # --- Destination: where collateral/<node>/<lib>/ will live ---
     if args.deckgen_root:
-        root = os.path.abspath(args.deckgen_root)
+        deckgen_root = os.path.abspath(args.deckgen_root)
     else:
-        root = os.path.normpath(
+        deckgen_root = os.path.normpath(
             os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
+    # --- Source: where to find SCLD lib folders ---
     if args.src:
         libs = [os.path.abspath(args.src)]
+        src_label = os.path.dirname(libs[0])
     elif args.src_parent:
         parent = os.path.abspath(args.src_parent)
         if not os.path.isdir(parent):
@@ -278,27 +266,33 @@ def main():
                 continue
             if _looks_like_scld_lib(full):
                 libs.append(full)
+        src_label = parent
     else:
         # --auto: walk recursively up to depth 4 to find SCLD libs anywhere
-        root = os.path.abspath(args.auto)
-        if not os.path.isdir(root):
-            print(f"ERROR: --auto not found: {root}", file=sys.stderr)
+        auto_root = os.path.abspath(args.auto)
+        if not os.path.isdir(auto_root):
+            print(f"ERROR: --auto not found: {auto_root}", file=sys.stderr)
             sys.exit(1)
-        libs = _autodiscover_libs(root)
+        libs = _autodiscover_libs(auto_root)
         if args.filter:
             libs = [l for l in libs
                     if args.filter in os.path.basename(l)]
-        print(f"Auto-discovered {len(libs)} SCLD lib folder(s) under {root}")
+        print(f"Auto-discovered {len(libs)} SCLD lib folder(s) under {auto_root}")
+        src_label = auto_root
 
     if not libs:
         print("ERROR: no SCLD lib folders to import.", file=sys.stderr)
         sys.exit(1)
 
+    # Make sure the destination root exists so the importer can create
+    # collateral/<node>/<lib>/Char etc. underneath it.
+    os.makedirs(os.path.join(deckgen_root, 'collateral', args.node),
+                exist_ok=True)
+
     total = {'char_files': 0, 'template_files': 0,
-             'netlist_dirs': 0, 'script_files': 0,
-             'skipped': 0, 'errors': 0}
-    print(f"Importing {len(libs)} library/libraries -> "
-          f"{root}/collateral/{args.node}/")
+             'netlist_dirs': 0, 'skipped': 0, 'errors': 0}
+    print(f"Importing {len(libs)} library/libraries from {src_label} -> "
+          f"{deckgen_root}/collateral/{args.node}/")
     if args.dry_run:
         print("(dry-run; no files written)")
     print()
@@ -306,20 +300,20 @@ def main():
     for src_lib in libs:
         lib_type = os.path.basename(os.path.normpath(src_lib))
         print(f"== {lib_type} ==")
-        c = import_one_lib(src_lib, root, args.node,
+        c = import_one_lib(src_lib, deckgen_root, args.node,
                            link=args.link, dry_run=args.dry_run,
                            verbose=not args.quiet)
         for k in total:
             total[k] += c[k]
         print(f"  char={c['char_files']} template={c['template_files']} "
-              f"netlist_dirs={c['netlist_dirs']} scripts={c['script_files']} "
-              f"skipped={c['skipped']} errors={c['errors']}")
+              f"netlist_dirs={c['netlist_dirs']} skipped={c['skipped']} "
+              f"errors={c['errors']}")
         print()
 
     print("---")
     print(f"TOTAL  char={total['char_files']} template={total['template_files']} "
-          f"netlist_dirs={total['netlist_dirs']} scripts={total['script_files']} "
-          f"skipped={total['skipped']} errors={total['errors']}")
+          f"netlist_dirs={total['netlist_dirs']} skipped={total['skipped']} "
+          f"errors={total['errors']}")
     if total['errors']:
         sys.exit(1)
 

@@ -245,6 +245,8 @@ def execute_jobs(jobs, output_dir, nominal_only=False, num_samples=5000, files=N
             corner   = job.get('corner', '')
             arc_type = arc_info.get('ARC_TYPE', 'unknown')
             arc_id   = job.get('arc_id') or get_deck_dirname(arc_info, when)
+            # Sanitize: replace ! with not in directory names (MCQC convention)
+            arc_id = arc_id.replace('!', 'not')
             if lib_type and corner:
                 deck_dir = os.path.join(output_dir, lib_type, corner,
                                         arc_type, arc_id + deck_suffix)
@@ -401,10 +403,17 @@ def _plan_jobs_from_collateral(arc_ids, corner_names, node, lib_type,
             if not corner_name:
                 continue
             try:
-                # MCQC convention: constraint arcs have constr_dir opposite of rel_dir
-                is_constraint = arc['arc_type'] in CONSTRAINT_ARC_TYPES
-                default_constr_dir = (_opposite_dir(arc['rel_dir'])
-                                      if is_constraint else arc['rel_dir'])
+                # MCQC convention: constr_dir is opposite of rel_dir for both
+                # constraint arcs AND combinational arcs (where constr_dir maps
+                # to output transition direction, which inverts the input).
+                default_constr_dir = _opposite_dir(arc['rel_dir'])
+                # Pass i1/i2 table point indices so build_arc_info can
+                # look up the correct slew/load values from template.tcl
+                arc_overrides = dict(overrides)
+                if arc.get('i1') is not None:
+                    arc_overrides['index_1_index'] = arc['i1']
+                if arc.get('i2') is not None:
+                    arc_overrides['index_2_index'] = arc['i2']
                 result = resolve_all_from_collateral(
                     cell_name=arc['cell_name'],
                     arc_type=arc['arc_type'],
@@ -415,7 +424,7 @@ def _plan_jobs_from_collateral(arc_ids, corner_names, node, lib_type,
                     probe_pin=arc['probe_pin'],
                     node=node, lib_type=lib_type, corner_name=corner_name,
                     collateral_root=collateral_root,
-                    overrides=overrides,
+                    overrides=arc_overrides,
                 )
                 # Normalize to list (backward-compat: resolver returns dict for 1 result)
                 arc_info_list = result if isinstance(result, list) else [result]
@@ -448,5 +457,21 @@ def _plan_jobs_from_collateral(arc_ids, corner_names, node, lib_type,
                     'arc_info': None,
                     'warnings': [],
                 })
+
+    # Disambiguate jobs with identical (arc_id, corner) but different vectors.
+    # Append vector suffix to arc_id only for duplicates.
+    from collections import Counter
+    key_counts = Counter(
+        (j.get('arc_id', ''), j.get('corner', ''))
+        for j in jobs if j.get('arc_info'))
+    for j in jobs:
+        ai = j.get('arc_info')
+        if not ai:
+            continue
+        key = (j.get('arc_id', ''), j.get('corner', ''))
+        if key_counts[key] > 1:
+            vector = ai.get('VECTOR', '')
+            if vector:
+                j['arc_id'] = j['arc_id'] + '_' + vector.strip('{}')
 
     return jobs, errors

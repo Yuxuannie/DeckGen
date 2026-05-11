@@ -2,3 +2,6 @@
 collateral/*/*/Char/
 collateral/*/*/Template/
 collateral/*/*/Netlist/
+__pycache__/
+*.py[cod]
+*.pyo

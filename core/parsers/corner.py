@@ -33,7 +33,8 @@ def parse_corner_name(corner_name):
     # Pattern: {process}_{voltage}v_{temperature}c
     # Voltage: digits with 'p' as decimal separator, ending in 'v'
     # Temperature: optional 'm' for minus, digits, ending in 'c'
-    pattern = r'^([a-zA-Z]+)_(\d+p\d+)v_(m?\d+)c$'
+    # Allow trailing suffixes like _cbest_CCbest_T after the temperature
+    pattern = r'^([a-zA-Z]+)_(\d+p\d+)v_(m?\d+)c(?:_.*)?$'
     m = re.match(pattern, corner_name)
     if not m:
         return None

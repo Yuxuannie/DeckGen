@@ -43,8 +43,10 @@ def test_list_corners(tmp_path, monkeypatch):
 def test_list_cells(tmp_path, monkeypatch):
     _setup_collateral(tmp_path, monkeypatch)
     from gui import _api_list_cells
-    cells = _api_list_cells('N2P_v1.0', 'test_lib')
-    assert 'DFFQ1' in cells
+    result = _api_list_cells('N2P_v1.0', 'test_lib')
+    cells = result.get('cells', result) if isinstance(result, dict) else result
+    cell_names = [c['name'] if isinstance(c, dict) else c for c in cells]
+    assert 'DFFQ1' in cell_names
 
 
 def test_list_lib_types_unknown_node(tmp_path, monkeypatch):

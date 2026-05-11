@@ -68,11 +68,24 @@ def build_deck(arc_info, global_config=None, slew=None, load=None,
 
     # Process template line by line
     write_list = []
+    seen_inc = set()
     for line in template_lines:
         processed = _process_line(line, sub_map, arc_info, profile, when)
         if isinstance(processed, list):
-            write_list.extend(processed)
+            for p in processed:
+                # Deduplicate .inc lines
+                stripped = p.strip() if isinstance(p, str) else p
+                if isinstance(stripped, str) and stripped.startswith('.inc '):
+                    if stripped in seen_inc:
+                        continue
+                    seen_inc.add(stripped)
+                write_list.append(p)
         else:
+            stripped = processed.strip() if isinstance(processed, str) else processed
+            if isinstance(stripped, str) and stripped.startswith('.inc '):
+                if stripped in seen_inc:
+                    continue
+                seen_inc.add(stripped)
             write_list.append(processed)
 
     return write_list
@@ -126,6 +139,13 @@ def _build_substitution_map(arc_info, slew, load, max_slew):
         'PUSHOUT_DIR':      arc_info.get('PUSHOUT_DIR', ''),
         'TEMPLATE_DECK':    arc_info.get('TEMPLATE_DECK', ''),
         'TEMPLATE_TCL':     arc_info.get('TEMPLATE_TCL', ''),
+        # MCQC aliases: some templates use these names
+        'CONSTR_PIN_SLEW':  arc_info.get('INDEX_1_VALUE', constr_slew) or constr_slew,
+        'REL_PIN_SLEW':     arc_info.get('INDEX_2_VALUE', rel_slew) or rel_slew,
+        'REL_PIN_DIR':      arc_info.get('REL_PIN_DIR', ''),
+        'CONSTR_PIN_DIR':   arc_info.get('CONSTR_PIN_DIR', ''),
+        'CONSTR_PIN_OFFSET': arc_info.get('CONSTR_PIN_OFFSET', ''),
+        'ARC_TYPE':         arc_info.get('ARC_TYPE', ''),
     }
     return sub
 
@@ -139,13 +159,16 @@ def _process_line(line, sub_map, arc_info, profile, when):
         result.extend(_generate_when_condition_lines(arc_info, when))
         return result
 
-    # Section: Output Load -- inject load capacitor line
+    # Section: Output Load -- inject load capacitor for ALL output pins (MCQC parity)
     if '* Output Load' in line:
         result = [line]
-        load_val = sub_map.get('OUTPUT_LOAD', '0')
-        if load_val and load_val != '0':
+        output_pins = (arc_info.get('OUTPUT_PINS', '') or '').split()
+        if output_pins:
+            for i, pin in enumerate(output_pins):
+                result.append(f"C{i} {pin} 0 'cl'\n")
+        else:
             probe = arc_info.get('PROBE_PIN_1', 'Y')
-            result.append(f"CL {probe} 0 'cl'\n")
+            result.append(f"C0 {probe} 0 'cl'\n")
         return result
 
     # Section: Voltage -- inject extra power pins if needed

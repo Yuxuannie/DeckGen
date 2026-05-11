@@ -382,7 +382,7 @@ def resolve_all_from_collateral(
     overrides = overrides or {}
 
     # 1. Load store + corner
-    store = CollateralStore(collateral_root, node, lib_type)
+    store = CollateralStore(collateral_root, node, lib_type, skip_autoscan=True)
     corner = store.get_corner(corner_name)
 
     # 2. Parse template.tcl (full)
@@ -400,9 +400,14 @@ def resolve_all_from_collateral(
     else:
         chartcl = None
 
-    # 4. Resolve model file (.inc) via chartcl
+    # 4. Resolve model file (.inc) via chartcl, with fallback to corner model dict
     include_file = store.pick_model_file(corner_name, arc_type) or ''
-
+    if not include_file:
+        # Fallback: try corner's model dict directly
+        model = corner.get('model', {})
+        from core.collateral import _normalize_arc_type
+        norm = _normalize_arc_type(arc_type)
+        include_file = model.get(norm, '') or model.get('traditional', '') or ''
     # 5. Find the matching arc entry in template_info
     arc = _find_matching_arc(template_info, cell_name, arc_type,
                              rel_pin, rel_dir)
@@ -435,11 +440,50 @@ def resolve_all_from_collateral(
             netlist_pins = pins_override or ''
 
     # 7. Waveform
-    waveform_file = waveform_override or overrides.get(
-        'waveform_file', '/server/default/stdvs_wv.spi')
+    # Waveform: from overrides, or corner's usage_l, or MCQC standard path
+    waveform_file = waveform_override or overrides.get('waveform_file', '')
+    if not waveform_file:
+        waveform_file = '/CAD/stdcell/DesignKits/Sponsor/Script/MCQC_automation/Template/std_wv_c651.spi'
 
-    # 7b. SPICE template (deck) -- resolve via TemplateResolver (registry + map)
+    # 7b. SPICE template (deck) -- try delay rules, then MCQC JSON rules, then registry
     template_deck_path = template_override or ''
+    if not template_deck_path:
+        # Probe pin is the output/constrained pin for delay arcs
+        probe_pin = arc.get('pin', '') or (cell_info.get('output_pins', [''])[0] if cell_info.get('output_pins') else '')
+
+        # Try delay-specific rules first (hack_template_v2)
+        from config.delay_template_rules import get_delay_template
+        tmpl_rel = get_delay_template(
+            cell_name=cell_name, arc_type=arc_type,
+            constr_pin=probe_pin, constr_pin_dir=constr_dir,
+            rel_pin=rel_pin, rel_pin_dir=rel_dir,
+            when=arc.get('when', ''))
+
+        # Then try MCQC JSON rules (hold/setup/mpw/etc.)
+        if not tmpl_rel:
+            from core.template_rules import match_template
+            probe_list_val = arc.get('probe_list', [])
+            tmpl_rel = match_template(
+                cell_name=cell_name, arc_type=arc_type,
+                rel_pin=rel_pin, rel_pin_dir=rel_dir,
+                constr_pin=constr_pin, constr_pin_dir=constr_dir,
+                probe_list=probe_list_val, when=arc.get('when', ''))
+
+        if tmpl_rel:
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            templates_dir = os.path.normpath(
+                os.path.join(script_dir, '..', 'templates'))
+            for base in [
+                os.path.join(templates_dir, node) if node else None,
+                templates_dir,
+            ]:
+                if base is None:
+                    continue
+                candidate = os.path.join(base, tmpl_rel)
+                if os.path.isfile(candidate):
+                    template_deck_path = candidate
+                    break
+    # Fallback to old TemplateResolver (registry + map) if rules didn't match
     if not template_deck_path:
         script_dir = os.path.dirname(os.path.abspath(__file__))
         registry_path = os.path.normpath(

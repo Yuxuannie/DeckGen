@@ -23,8 +23,23 @@ _DECKGEN_ROOT = os.path.normpath(os.path.join(_SCRIPT_DIR, '..'))
 
 # Corner regex: captures {process}_{voltage}v_{temp}c_{rc_type} with rc ending in _T
 # Example match: ssgnp_0p450v_m40c_cworst_CCworst_T
+#
+# The <process> token is constrained to a real TSMC PVT name:
+#   (ss|tt|ff)<lookahead-letters>np
+# e.g. ssgnp, ttgnp, ffgnp, ssrnp, etc.
+#
+# Boundary before <process> can be: start, '_', a digit (e.g. c221227ssgnp...)
+# OR another letter (e.g. svtssgnp...). The strict process pattern keeps the
+# permissive boundary safe.
+#
+# Voltage allows 1+ digits on each side of 'p' (handles 0p7, 0p475, 1p1).
 _CORNER_RE = re.compile(
-    r'(?:^|_)(?P<process>[a-z]+\d*)_(?P<vdd>\d+p\d+)v_(?P<temp>m?\d+)c_(?P<rc>[A-Za-z0-9]+(?:_[A-Za-z0-9]+)*?_T)(?=[._]|$)'
+    r'(?:^|_|(?<=\d)|(?<=[a-z]))'
+    r'(?P<process>(?:ss|tt|ff)\w*?np)'
+    r'_(?P<vdd>\d+p\d+)v'
+    r'_(?P<temp>m?\d+)c'
+    r'_(?P<rc>[A-Za-z0-9]+(?:_[A-Za-z0-9]+)*?_T)'
+    r'(?=[._]|$)'
 )
 
 
@@ -72,34 +87,30 @@ def _find_char_files(char_dir):
         ('usage_l',       '.usage.l'),
     ]
 
+    # Philosophy: Char/ may contain anything (it's a "disk"). We grab only
+    # what MCQC needs and silently skip the rest -- no warnings about
+    # unrecognized files. Warnings are reserved for MISSING required data.
     for fname in sorted(os.listdir(char_dir)):
         full = os.path.join(char_dir, fname)
         if not os.path.isfile(full):
             continue
 
-        # Skip template tcl files that ended up in Char/ (we collect them
-        # under Template/ separately).
+        # Skip template tcl files that ended up in Char/ (collected separately).
         if fname.endswith('.template.tcl'):
             continue
 
-        matched = False
         for kind, suffix in SUFFIXES:
             if not fname.endswith(suffix):
                 continue
             stem = fname[:-len(suffix)]
             corner_parse = _parse_corner(stem)
 
-            # No corner in the filename -> SCLD lib-global char file
-            # (only meaningful for the cons/non_cons/combined char tcl files;
-            # *.inc / *.usage.l without a corner is unusual -- skip with warning).
+            # No corner in the filename -> for char tcl, treat as lib-global.
+            # For other types (.inc, .usage.l) silently skip; not actionable.
             if corner_parse is None:
                 if kind in ('char_cons', 'char_non_cons', 'char_combined'):
                     rel = os.path.relpath(full, os.path.dirname(char_dir))
                     lib_global.setdefault(kind, rel)
-                    matched = True
-                    break
-                warnings.append(f"Char/{fname}: no corner pattern matched")
-                matched = True
                 break
 
             process, vdd, temp, rc = corner_parse
@@ -108,11 +119,8 @@ def _find_char_files(char_dir):
             corner_key = f"{process}_{vdd_raw}v_{temp_raw}c_{rc}"
             entry = result.setdefault(corner_key, {})
             entry.setdefault(kind, os.path.relpath(full, os.path.dirname(char_dir)))
-            matched = True
             break
-
-        if not matched:
-            warnings.append(f"Char/{fname}: unknown suffix")
+        # No suffix match -> silently ignore (could be README, .sh, junk)
 
     return result, warnings, lib_global
 
@@ -124,15 +132,15 @@ def _find_template_files(template_dir):
     if not os.path.isdir(template_dir):
         return result, warnings
 
+    # Same philosophy as Char/: silently skip anything that isn't a
+    # *.template.tcl with a parseable corner.
     for fname in sorted(os.listdir(template_dir)):
         if not fname.endswith('.template.tcl'):
-            warnings.append(f"Template/{fname}: not a .template.tcl file")
             continue
         full = os.path.join(template_dir, fname)
         stem = fname[:-len('.template.tcl')]
         corner_parse = _parse_corner(stem)
         if not corner_parse:
-            warnings.append(f"Template/{fname}: no corner pattern matched")
             continue
         process, vdd, temp, rc = corner_parse
         vdd_raw = vdd.replace('.', 'p')
@@ -201,7 +209,8 @@ def scan_one(collateral_root, node, lib_type):
     for corner_key, char in char_map.items():
         parse = _parse_corner(corner_key)
         if parse is None:
-            warnings.append(f"corner '{corner_key}' failed to parse")
+            # corner_key was produced by _parse_corner above, this is
+            # effectively unreachable; ignore silently.
             continue
         process, vdd, temp, rc = parse
         lpe_subdir = _lpe_suffix_for_corner(rc, temp)

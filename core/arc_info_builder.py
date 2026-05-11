@@ -56,6 +56,38 @@ def _index_2_unit_suffix(arc_type):
     return 'p'
 
 
+def _build_header_info(arc, cell_info, arc_type, index_1_list, index_2_list,
+                       max_slew, output_load):
+    """Generate MCQC-format pipe-delimited header string.
+
+    Example: CELL DFFQ1 | REL_PIN CP | REL_PIN_DIR fall | CONSTR_PIN E |
+             CONSTR_PIN_DIR fall | OUTPUT_PINS Q | PROBE_PIN_1 Q |
+             OUTPUT_LOAD 0.000558 | ...
+    """
+    parts = [
+        f"CELL {arc.get('cell', '')}",
+        f"REL_PIN {arc.get('rel_pin', '')}",
+        f"REL_PIN_DIR {arc.get('rel_pin_dir', '')}",
+        f"CONSTR_PIN {arc.get('pin', '') or arc.get('rel_pin', '')}",
+        f"CONSTR_PIN_DIR {arc.get('pin_dir', '') or arc.get('rel_pin_dir', '')}",
+        f"OUTPUT_PINS {' '.join(cell_info.get('output_pins', []))}",
+        f"PROBE_PIN_1 {(arc.get('probe_list') or [''])[0]}",
+        f"WHEN {arc.get('when', '')}",
+        f"OUTPUT_LOAD {output_load}",
+    ]
+    if index_1_list:
+        parts.append(f"REL_PIN_SLEWS {' '.join(str(v) for v in index_1_list)}")
+    if index_2_list:
+        parts.append(f"CONSTR_PIN_SLEWS {' '.join(str(v) for v in index_2_list)}")
+    parts.append(f"MAX_SLEW {max_slew}")
+    parts.append(f"ARC_TYPE {arc_type}")
+    parts.append(f"VECTOR {arc.get('vector', '')}")
+    pinlist = cell_info.get('pinlist', '')
+    if pinlist:
+        parts.append(f"TEMPLATE_PINLIST {pinlist}")
+    return ' | '.join(parts)
+
+
 def build_arc_info(arc, cell_info, template_info, chartcl, corner,
                    netlist_path, netlist_pins, include_file, waveform_file,
                    overrides=None):
@@ -87,6 +119,15 @@ def build_arc_info(arc, cell_info, template_info, chartcl, corner,
 
     idx1 = overrides.get('index_1_index')
     idx2 = overrides.get('index_2_index')
+    # Ensure int (may come as string from JSON)
+    try:
+        idx1 = int(idx1) if idx1 is not None else None
+    except (ValueError, TypeError):
+        idx1 = None
+    try:
+        idx2 = int(idx2) if idx2 is not None else None
+    except (ValueError, TypeError):
+        idx2 = None
 
     def _val(lst, idx, unit):
         if idx is None or not lst or idx < 1 or idx > len(lst):
@@ -96,17 +137,34 @@ def build_arc_info(arc, cell_info, template_info, chartcl, corner,
     index_1_value = _val(index_1_list, idx1, 'n')
     index_2_value = _val(index_2_list, idx2, _index_2_unit_suffix(arc_type))
 
-    max_slew = format_index_value(max(index_1_list), 'n') if index_1_list else ''
+    # max_slew: MCQC uses max(max(index_1), max(index_2)) for constraint arcs
+    max_vals = []
+    if index_1_list:
+        max_vals.append(max(index_1_list))
+    if index_2_list and (arc_type in _CONSTRAINT_ARC_TYPES or arc_type.startswith('nochange')):
+        max_vals.append(max(index_2_list))
+    max_slew = format_index_value(max(max_vals), 'n') if max_vals else ''
 
     # --- chartcl-derived fields -----------------------------------------
     chart = resolve_chartcl_for_arc(chartcl, cell_name, arc_type) if chartcl else {
         'GLITCH': '', 'PUSHOUT_PER': '', 'OUTPUT_LOAD_INDEX': None,
     }
 
-    # --- output_load (MCQC: index_2[output_load_index - 1]) -------------
+    # --- output_load (MCQC: index_2[load_index] from DELAY template) ----
+    # MCQC default: load_index=2 (3rd element, 0-based) of the DELAY
+    # template's index_2 list. chartcl can override per cell.
     output_load = ''
     ol_idx = chart.get('OUTPUT_LOAD_INDEX')
-    if ol_idx is not None:
+    if ol_idx is None:
+        # MCQC default: use delay template's index_2, entry at index 2 (3rd)
+        delay_tmpl_name = cell_info.get('delay_template')
+        delay_tmpl = template_info['templates'].get(delay_tmpl_name, {}) if delay_tmpl_name else {}
+        delay_idx2 = delay_tmpl.get('index_2', []) or template_info['global'].get('index_2', [])
+        if len(delay_idx2) > 2:
+            output_load = format_index_value(delay_idx2[2], 'p')
+        elif delay_idx2:
+            output_load = format_index_value(delay_idx2[-1], 'p')
+    else:
         try:
             ol_idx_int = int(ol_idx)
             if 1 <= ol_idx_int <= len(index_2_list):
@@ -142,7 +200,7 @@ def build_arc_info(arc, cell_info, template_info, chartcl, corner,
         'DONT_TOUCH_PINS':  '',
         'WHEN':             arc.get('when', ''),
         'LIT_WHEN':         arc.get('lit_when', ''),
-        'HEADER_INFO':      template_info.get('global', {}).get('header_info', ''),
+        'HEADER_INFO':      _build_header_info(arc, cell_info, arc_type, index_1_list, index_2_list, max_slew, output_load),
         'TEMPLATE_PINLIST': cell_info.get('pinlist', ''),
         'VECTOR':           arc.get('vector', ''),
 
