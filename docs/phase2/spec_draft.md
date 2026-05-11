@@ -159,12 +159,16 @@ decision made at generation time.
 core/principle_engine/
     __init__.py
     classifier.py       Cell topology classifier
-    selector.py         Template family selector
+    selector.py         Template family selector (backend-aware)
     param_binder.py     Parameter binding and value resolution
     init_style.py       Init style metadata reader (not a dispatcher)
     measurement.py      Measurement profile dispatcher
     families.py         Template family registry (reduced library)
     engine.py           Top-level orchestrator (public API)
+    backends/
+        __init__.py
+        hspice.py       HSPICE-specific deck assembly
+        spectre.py      Spectre-specific deck assembly
 ```
 
 #### `core/principle_engine/classifier.py`
@@ -201,10 +205,45 @@ def classify_cell(cell_name: str, cell_obj=None) -> CellClass:
 **Replaces**: The cell-name pattern matching scattered across 688 rules in
 `template_rules.json` / the 18K-line if-chain.
 
+#### `core/principle_engine/backends/` (NEW -- E.2 finding)
+
+**Responsibility**: Backend-specific deck assembly. Each backend implements
+a uniform interface; `engine.py` calls backend hooks and never emits
+backend-specific syntax directly.
+
+```python
+class Backend(Enum):
+    """Simulator backend. Determined by template file extension and
+    arc_type/cell_family. E.2 finding: 94 Spectre files exist, 97% in
+    delay/."""
+    HSPICE = "hspice"    # .sp files. Default for all non-delay arcs.
+    SPECTRE = "spectre"  # .thanos.sp files. Dominant for delay arcs (91/94).
+
+class TranStyle(Enum):
+    """Transient simulation command style. Strongly correlated with
+    arc_type (E.2 Section E)."""
+    MONTE_CARLO = "monte"      # .tran 1p 5000n sweep monte=1. Hold/setup/mpw/nochange.
+    OPTIMIZE = "optimize"      # .tran 1p 5000n sweep OPTIMIZE=OPT1. HSPICE delay.
+    BARE = "bare"              # .tran 1p 400ns. Simple HSPICE delay (seq_inpin).
+    SPECTRE_TRAN_ITER = "spectre_tran"  # tranIter tran stop=5000n. Spectre delay.
+```
+
+**Files**:
+- `core/principle_engine/backends/__init__.py`
+- `core/principle_engine/backends/hspice.py` -- `emit_options()`,
+  `emit_tran()`, `emit_simulator_directive()` for HSPICE
+- `core/principle_engine/backends/spectre.py` -- same interface for Spectre
+  (`simulator lang=spectre` switching, `tranIter`, Spectre `.options`)
+
+**Depends on**: `families.py` (TemplateFamily.backend field).
+**Replaces**: Hardcoded HSPICE syntax in `core/deck_builder.py` (which
+stays for v1 path; v2 uses backend dispatch).
+
 #### `core/principle_engine/selector.py`
 
 **Responsibility**: Given (cell_class, arc_type, direction, measurement_type,
-probe_info), select the correct template family from the registry.
+probe_info, backend, tran_style), select the correct template family from
+the registry.
 
 ```python
 def select_template_family(
@@ -216,6 +255,8 @@ def select_template_family(
     probe_info: ProbeInfo,
     gate_type: str = None,         # for CKG sub-typing
     sync_depth: int = None,        # for SYNC parameterization
+    backend: Backend = Backend.HSPICE,           # default HSPICE
+    tran_style: TranStyle = TranStyle.MONTE_CARLO,  # default monte=1
 ) -> TemplateFamily:
     """Select template family. Returns TemplateFamily or raises
     SelectionError with what was tried and closest matches."""
@@ -484,25 +525,31 @@ path. MPW validates against the 63 shipped templates.
 | 4 | Synchronizer (SYNC2-6) | SYNC | NODESET for mpw (verified: 16 lines) | pushout | Tests depth parameterization + waveform scaling |
 | 5 | Clock gater (CKGAN2*, CKGND2*) | CKG | NONE for hold; IC (ic_count=2) for hold/nx variants | pushout | Tests gate-type sub-classification (AND vs NAND) |
 | 6 | Retention flop (*RETN* + *RSSDF*) | RETN | IC (ic_count=4) for non_seq_hold; NONE for base retn | glitch (maxq/minq) | Smoke-tests deep IC init; same cell as regression suite #18 |
-| 7 | Delay inverter / FF | COMMON/EDF | IC (ic_count=1-4) for delay; OPTIMIZE .tran | delay (cp2q) | Validates delay ecosystem: OPTIMIZE .tran, .ic init, different measurement paradigm |
+| 7 | Delay inverter / FF (HSPICE) | COMMON/EDF | IC (ic_count=1-4) for delay; OPTIMIZE .tran; backend=HSPICE | delay (cp2q) | Validates delay ecosystem: OPTIMIZE .tran, .ic init, different measurement paradigm |
+| 8 | AO22 delay (Spectre) | MB/AO22 | NONE (V-source biasing for 7 dont-touch pins); backend=SPECTRE; tran_style=SPECTRE_TRAN_ITER | delay (cp2q) | Validates Spectre backend: `simulator lang=spectre`, `tranIter tran`, Spectre-specific .options. Same AO22 multi-input expansion as family 3 but via Spectre backend |
 
-These 7 families exercise:
-- **All 3 init styles** (E.2 verified): NONE (families 1/5 hold), IC
+These 8 families exercise:
+- **All 3 init styles** (E.2 verified): NONE (families 1/5/8), IC
   (families 2/3/5nx/6/7), NODESET (families 1/4 mpw)
-- Both .tran paradigms: monte=1 (hold/setup/mpw) and OPTIMIZE (delay)
+- **Both backends**: HSPICE (families 1-7) and SPECTRE (family 8)
+- **All 3 .tran paradigms**: monte=1 (hold/setup/mpw), OPTIMIZE (delay
+  HSPICE), tranIter (delay Spectre)
 - Both measurement criteria (pushout + glitch)
 - Output polarity dispatch (latch family)
 - Depth parameterization (SYNC)
-- Multi-input expansion (MB/AO22)
+- Multi-input expansion (MB/AO22 in both HSPICE and Spectre)
 - Gate-type sub-classification (CKG)
 - Retention IC init smoke test (family 6)
-- Delay ecosystem smoke test (family 7)
+- Delay HSPICE smoke test (family 7)
+- Spectre backend smoke test (family 8)
 
-> **Risk note**: MVP includes retention via family 6 and delay via family
-> 7 specifically to smoke-test IC init and OPTIMIZE .tran. Full retention
-> coverage (multiple retention cell variants, all retention arc types) and
-> full delay coverage (Spectre backend) are still scoped to Phase 2C.
-> Family 6 uses non_seq_hold arcs only; family 7 uses HSPICE delay only.
+> **Risk note**: MVP includes retention via family 6, HSPICE delay via
+> family 7, and Spectre delay via family 8 as smoke tests. Full retention
+> coverage (multiple variants, all arc types), full delay coverage
+> (seq_inpin, SDFNQSXGD families), and full Spectre coverage (non-AO22
+> Spectre files) are still scoped to Phase 2C/2D.
+> Family 6 uses non_seq_hold arcs only; family 8 covers one Spectre
+> cell pattern only.
 
 ### Explicit out-of-scope for MVP
 
@@ -719,6 +766,30 @@ may be misrouted because an alternative pin name was not captured.
 not for topology classification. (3) Fix the 4 known diffs in the JSON
 as a Patch 5 before Phase 2 code starts.
 
+### R7: Backend abstraction leakage
+
+**Description**: HSPICE-specific assumptions may leak into the principle
+engine's general code path, producing valid HSPICE but invalid Spectre
+output (or vice versa). For example, hardcoded `.tran` syntax, hardcoded
+`.options` keywords, or hardcoded measurement statement formatting that
+works in one backend but not the other.
+**Likelihood**: Medium. Spectre is only 10% of the corpus but 100% of
+`delay/hold/AO22*` cells; selection bugs would silently produce HSPICE
+output for a cell that needs Spectre, or vice versa.
+**Impact**: Silent wrong output for one backend. The deck may parse but
+fail simulation, or worse, simulate with wrong results.
+**Mitigation**:
+1. Backend-specific deck assemblers in
+   `core/principle_engine/backends/{hspice,spectre}.py`, each implementing
+   a uniform interface (`emit_options()`, `emit_tran()`,
+   `emit_simulator_directive()`).
+2. `engine.py` shared logic calls backend hooks; never emits backend-specific
+   syntax directly.
+3. Regression suite includes byte-equal verification for both backends per
+   MVP arc, with separate baseline files
+   `tests/fixtures/regression/v1_baselines/{hspice,spectre}/`.
+4. Phase 2A classifier must include backend detection test in CI.
+
 ---
 
 ## 7. Open Questions for Yuxuan
@@ -759,57 +830,92 @@ false-negative rate. Implementation: Patch 5 on feat/foundation-closure
 (see SS3 "Pre-Phase-2 data fixes" subsection). Patch 5 is a prerequisite
 for Phase 2B, not 2A.
 
-### Q6: Task E template samples timeline [AWAITING INPUT]
+### Q6: Task E template samples timeline [RESOLVED]
 
-The 10 template samples from Task E are needed before Phase 2 code starts
-(they validate whether topology sub-types share structure). When can you
-provide these?
+**Decision**: Task E.2 sampling completed (2026-05-08). Results in
+`docs/foundation/E2_sampling_results.md`. SS1.X resolved. Phase 2A
+blocker lifted.
+
+### Q7: Spectre coverage breadth [AWAITING DECISION]
+
+The MVP includes one Spectre family (AO22 in `delay/hold/`). Task E.2
+Section D sampled only this AO22 pattern. Production Spectre usage may
+extend to other cell families.
+
+The audit found 94 `.thanos.sp` files. We do not yet know whether all
+94 share the AO22 structural pattern or whether non-AO22 variants exist
+with distinct structure.
+
+**Options**:
+- (A) Trust the structural similarity assumption from Section D sample.
+  Build Spectre support for the AO22 pattern. Extend if other patterns
+  surface during Phase 2C development.
+- (B) Sample 3 more Spectre files from different cell families before
+  Phase 2C code starts. Specifically: run
+  `find . -name '*.thanos.sp' | grep -v 'AO22' | head -3` and inspect
+  each.
+
+**Recommendation**: (B). Spectre is the highest-risk new axis in Phase 2.
+An extra hour of targeted sampling is cheap insurance against discovering
+a divergent Spectre pattern mid-2C.
+
+If (B) is chosen, this becomes a Phase E.3 task to complete before
+Phase 2C starts (not before 2A -- Phase 2A and 2B do not exercise
+Spectre, so the sampling is not on the critical path until 2C).
 
 ---
 
 ## 8. Estimated Phase 2 Phasing
 
-### Phase 2A: Classifier + Selector + Regression Harness [M]
+### Phase 2A: Classifier + Selector + Backend Abstraction [L]
 
 **Delivers**:
 - `core/principle_engine/classifier.py` with 15 topology classes
-- `core/principle_engine/selector.py` with family lookup
+- `core/principle_engine/selector.py` with backend-aware family lookup
 - `core/principle_engine/families.py` with initial family registry
-- `tests/test_v1_v2_parity.py` regression harness (runs but expects failures
-  for unimplemented families)
+- `core/principle_engine/backends/{hspice,spectre}.py` with uniform
+  interface (`emit_options()`, `emit_tran()`, `emit_simulator_directive()`)
+- `Backend` and `TranStyle` enums
+- `tests/test_v1_v2_parity.py` regression harness (runs but expects
+  failures for unimplemented families)
 - `--engine principle` flag (CLI) that invokes classifier and reports
   classification result without generating decks
 
-**Acceptance**: Classifier correctly labels all 20 regression cells.
-Selector picks correct family for hold/setup/mpw arcs on the 5 MVP
-cell families. No deck generation yet.
+**Acceptance**: Classifier correctly labels all 8 MVP cell families
+including AO22 Spectre (family 8). Selector returns correct family for
+hold, setup, mpw, AND delay arcs with correct backend assignment.
+Backend detection via `.thanos.sp` extension works in CI.
 
-**Complexity**: M (medium). The classifier is the novel piece; selector
-and families are structured lookups.
+**Complexity**: L (large -- upgraded from M). Backend abstraction is a
+new architectural dimension: HSPICE vs Spectre file detection, delay-aware
+classification given the high concentration of distinctive patterns in
+delay/. The classifier, selector, and backend modules must all land
+together for the abstraction to be testable.
 
-**Sequencing**: Must be first. Everything depends on correct classification.
+**Sequencing**: Must be first. Everything depends on correct classification
+and backend routing.
 
 > **BLOCKER RESOLVED** (2026-05-11): Task E.2 sampling confirmed topology
 > sub-types are structurally distinct (see SS1.X). The classifier must
 > distinguish all 15 topology classes. ic_count is deterministic by
 > topology. Phase 2A can begin.
 
-### Phase 2B: Parameter Binder + Deck Generation for Hold [L]
+### Phase 2B: Param Binder + HSPICE Hold/Setup/MPW Generation [L]
 
 **Delivers**:
 - `core/principle_engine/param_binder.py`
-- `core/principle_engine/init_strategy.py`
+- `core/principle_engine/init_style.py`
 - `core/principle_engine/measurement.py`
-- `core/principle_engine/engine.py` (full pipeline)
+- `core/principle_engine/engine.py` (full pipeline, HSPICE path)
 - Integration with `core/deck_builder.py` for `$VAR` substitution
-- Hold arc decks byte-equal to v1 for the 5 MVP cell families
-- Fix for the 37 `unknown` arc_type rules (if Q5 decision is (C))
+- Hold + setup + MPW arc decks byte-equal to v1 for HSPICE MVP families
+- Retention smoke test (family 6: `*RETN* + *RSSDF*`, non_seq_hold, IC init)
+- Fix for the 37 `unknown` arc_type rules (Q5 decision: (C))
 
 **Acceptance**: `--engine principle --diff` reports `BYTE_EQUAL` for all
-hold + delay arcs in the 7-family MVP set across 3 corners, including:
-- Retention smoke test (family 6: `*RETN* + *RSSDF*`, non_seq_hold, IC init)
-- Delay smoke test (family 7: standard FF/EDF delay, OPTIMIZE .tran, IC init)
-Fallback-to-v1 works for cells outside MVP.
+hold/setup/mpw arcs in MVP families 1-6 across 3 corners, including the
+syn2 retention smoke test (family 6). Fallback-to-v1 works for cells
+outside MVP.
 
 **Complexity**: L (large). Parameter binding is the most fiddly part --
 matching MCQC's exact formatting, unit suffixes, cascade logic, and
@@ -817,72 +923,78 @@ dont-touch pin handling.
 
 **Sequencing**: After 2A. Requires correct classification.
 
-### Phase 2C: Remaining Arc Types + Retention + Nochange [L]
+### Phase 2C: Delay (HSPICE) + Spectre Backend [L]
 
 **Delivers**:
-- Setup arc support (different timing semantics from hold, though
-  structurally simpler)
-- MPW arc support (63 shipped templates validated, but waveform model
-  `stdvs_mpw_*` is distinct from hold's `stdvs_rise/fall`)
+- HSPICE delay arc generation for family 7 (COMMON/EDF delay),
+  including IC init handling and OPTIMIZE-style `.tran`
+- Spectre backend support for family 8 (AO22 Spectre):
+  - `core/principle_engine/backends/spectre.py` emission logic
+  - `simulator lang=spectre` / `simulator lang=spice` switching
+  - `tranIter tran stop=5000n` emission
+  - Spectre-specific `.options` block
+- Backend dispatch in `engine.py` based on `TemplateFamily.backend`
+- `--diff` mode (CLI and GUI)
+
+**Acceptance**: `BYTE_EQUAL` for delay arcs in HSPICE (family 7) AND
+Spectre (family 8) across MVP corners. `--diff` mode functional.
+
+**Complexity**: L (large). Three new architectural dimensions land
+together: IC init for delay, OPTIMIZE `.tran`, Spectre backend. The
+Spectre backend is a complete parallel deck assembler, not a patch on
+HSPICE.
+
+**Sequencing**: After 2B. Requires HSPICE param binding infrastructure.
+
+### Phase 2D: Remaining Arc Types + Retention Expansion [L]
+
+**Delivers**:
 - Removal/recovery arcs (share hold template directory but have distinct
   measurement semantics)
-- Non-seq hold/setup (async control pins CD/SDN, multi-phase stimulus,
-  introduces the async-pin biasing path not exercised in 2B)
-- Nochange arcs (130 templates, yet another waveform model distinct from
-  both hold and MPW, embeds both hold+setup sub-arcs in filenames)
-- Retention cell support (RETN*, introduces IC_RETENTION init strategy
-  not present in 2B -- first time this init path is exercised)
+- Non-seq hold/setup (async control pins CD/SDN, multi-phase stimulus)
+- Nochange arcs (130 templates, distinct waveform model, embeds both
+  hold+setup sub-arcs in filenames)
+- Full retention diversity (multiple retention cell variants beyond
+  family 6 smoke test)
+- Full delay diversity (seq_inpin, SDFNQSXGD families)
+- Expanded Spectre coverage (non-AO22 Spectre files if Q7 sampling
+  reveals new patterns)
 - Expanded regression suite: 20 cells x all arc types
-- `--diff` mode (CLI and GUI)
 
 **Acceptance**: `BYTE_EQUAL` for all 20 regression cells across all arc
 types. Fallback rate < 5% on a broader cell population test.
 
-**Complexity**: L (large). Justification for upgrade from original M:
-1. **Three distinct waveform models**: hold (`stdvs_rise/fall`), MPW
-   (`stdvs_mpw_*`), nochange (TBD -- not yet characterized). Each may
-   require different parameterization logic.
-2. **IC_RETENTION init strategy**: first implementation of this path,
-   previously untested and unverified (Task E pending).
-3. **Nochange dual-arc embedding**: nochange templates encode both
-   `hold` and `setup` sub-arcs in the filename (Task C SS2), requiring
-   a mapping layer not needed for other arc types.
-4. **Async pin biasing**: non_seq_hold/setup introduces CD/SDN pin
-   stimulus patterns that differ from clock-data timing in hold/setup.
-5. **130 nochange templates alone**: more templates than hold (204) is
-   less, but each has unique pin/direction/threshold combinations.
-6. **Retention state machine**: RETN cells have the deepest template
-   nesting (13 tokens, Task C SS5) and the most complex per-cell
-   override cascade.
+**Complexity**: L (large). Nochange dual-arc embedding, async pin biasing,
+130 nochange templates, and retention state machine depth all contribute.
 
-**Sequencing**: After 2B. Cannot parallelize with 2D because the `--diff`
-mode (delivered here) is needed for 2D's GUI integration.
+**Sequencing**: After 2C. Requires delay and Spectre infrastructure.
 
-### Phase 2D: GUI Integration + Documentation [S]
+### Phase 2E: GUI Integration + Documentation [S]
 
 **Delivers**:
 - GUI engine toggle in settings bar
 - Principle Engine debug panel (collapsible, under existing arc detail view,
   not a new tab) showing per-arc: classification result, selected template
-  family, parameter bindings, init strategy used, fallback status if
+  family, parameter bindings, init style, backend, fallback status if
   applicable (Q3 decision)
 - Updated `docs/design.md` with v2 architecture section
 - Updated `CLAUDE.md` with v2 commands and conventions
 - `docs/phase2/changelog.md` summarizing what shipped
 
 **Acceptance**: GUI works with both engines. Debug panel shows correct
-classification and parameter data for all 6 MVP cell families.
+classification and parameter data for all 8 MVP cell families.
 Documentation is complete.
 
 **Complexity**: S (small). No new engine logic -- GUI integration and docs.
 
-**Sequencing**: After 2C (or can start in parallel for the GUI toggle).
+**Sequencing**: After 2D (or can start in parallel for the GUI toggle).
 
 ### Summary
 
 | Sub-phase | Delivers | Size | Depends on |
 |-----------|----------|------|------------|
-| 2A | Classifier + selector + regression harness | M | Task E resolved |
-| 2B | Param binder + hold + delay + setup + mpw deck generation | L | 2A |
-| 2C | Remaining arcs + retention full + nochange + Spectre | L | 2B |
-| 2D | GUI integration + documentation | S | 2C (--diff mode needed) |
+| 2A | Classifier + selector + backend abstraction + delay-aware regression harness | L | Task E.2 (DONE) |
+| 2B | Param binder + hold/setup/mpw generation + family 6 retention smoke test | L | 2A |
+| 2C | Delay arcs (HSPICE) + Spectre backend | L | 2B |
+| 2D | Nochange + non_seq_* + full retention + full delay diversity | L | 2C |
+| 2E | GUI integration + documentation | S | 2D |
