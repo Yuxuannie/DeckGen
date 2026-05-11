@@ -84,6 +84,13 @@ Output must be empty.
 **Error reporting:** Resolution failures must list what was tried and suggest fixes.
 Never fail silently. Never drop arcs without telling the user.
 
+**Test discipline:** Never change a test assertion to make a test pass. If a test
+fails because the implementation disagrees with the assertion, fix the
+implementation -- not the assertion. Changing an assertion (expected value,
+exception type, attribute name) requires explicit approval from Yuxuan before
+the change is made. This rule exists because a silent assertion weakening once
+masked a backend-architecture error that was caught only on manual review.
+
 ## Gotchas
 
 - **PyYAML install:** `pip install pyyaml` (NOT `pip install yaml` -- that package is unrelated)
