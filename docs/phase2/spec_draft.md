@@ -81,52 +81,73 @@ Three lines of evidence:
 ```
 Trivial side:    228 signatures -> 32 families -> ~20 principles (parameterize direction/pin)
 Discriminating:  115 signatures -> 38 raw sub-principles -> ~30 compressed
-  Internal topology:  15 -> 15 (not compressible)
+  Internal topology:  15 -> ~12 (some ic_count=2 classes merge; E.2 confirmed non-compressible)
   Gate-type logic:     6 ->  3 (ckg/ckgn collapse, ckgmux2/3 collapse)
   Output polarity:     2 ->  1 (parameterize)
-  Retention depth:     6 ->  1 (parameterize depth=N)
+  Retention depth:     6 ->  1 (parameterize depth=N; but syn2/synx need IC, syn3-6 do not)
   Multi-input:         1 ->  1 (enumerate pins)
   MUX port count:      2 ->  2 (different thresholds)
   Scan/test:           4 ->  4 (irreducible)
   Per-cell override:   2 ->  ~3-5 escape-hatch entries
+Delay ecosystem:  +5-10 (OPTIMIZE .tran, delay-specific topologies, Spectre parallel set)
                           ------
-Subtotal:             ~50 principles + ~5 escape-hatch entries
+Subtotal:             ~50-65 principles + ~5 escape-hatch entries
 ```
 
-[F_feasibility_verdict.md SS1-SS4]
+[F_feasibility_verdict.md SS1-SS4, revised by E2_sampling_results.md]
 
-### 1.X Open Architectural Question: Topology Sub-Principle Compressibility
+> **E.2 revision**: Original estimate was 45-55. E.2 sampling revealed the
+> `delay/` ecosystem adds 5-10 principles not captured in the original
+> analysis (OPTIMIZE .tran, delay-specific cell topologies like seq_inpin,
+> Spectre parallel families). Additionally, syn2 retention requires IC init
+> while syn3-6 do not, adding a topology-conditional init axis. Revised
+> estimate: **50-65 principles**.
 
-> **This is the central uncertainty in the architecture.** It determines
-> whether the engine has 35 or 55 principles, and whether some topology
-> classes can be merged.
+### 1.X Resolved: Topology Sub-Principle Compressibility
 
-**The 15 internal-topology sub-principles are the least validated axis.**
-We know they are structurally different from template *names* (Task C), but
-we have not confirmed they are structurally different in template *contents*
-for any directory except MPW (Task D). Specifically:
+> **RESOLVED** (2026-05-11). Task E.2 sampling completed. Verdict: **PARTIAL
+> compression -- topology sub-types are structurally distinct**.
 
-- **Verified** (Task D): All 63 shipped MPW templates use `.nodeset` (16
-  lines each), zero `.ic`, `stdvs_mpw_*` waveform. Structural fingerprints
-  collapse into 5 families. The principle hypothesis holds for MPW.
-- **Unverified**: Hold, setup, nochange, non_seq_hold, non_seq_setup, delay
-  templates are NOT shipped locally. We do not know whether `hold/common`,
-  `hold/latch`, and `hold/MB` templates differ structurally (different init
-  blocks? different `.meas` counts? different waveform models?) or only in
-  parameterizable values.
+**Evidence** (from `docs/foundation/E2_sampling_results.md`):
 
-**Task E sampling must complete before Phase 2A begins.** The 10 template
-samples requested in `docs/foundation/E_sampling_request.md` are designed
-to resolve this question with binary outcomes:
-- If templates within the same arc-type directory share structural
-  fingerprints (same `.meas` count, same timing var count, same init style),
-  topology sub-types can be merged and the count drops toward 35.
-- If they genuinely differ (e.g., `hold/latch` has `.ic` while `hold/common`
-  has `.nodeset`), each needs its own template family and the count stays
-  near 55.
+The 899-template corpus has three mutually exclusive init styles, all
+template-embedded (no runtime dispatch):
 
-**Phase 2A is explicitly blocked on Task E results.** Do not begin
-classifier implementation until the structural hypothesis is validated.
+| Init style | Templates | % | Directories |
+|---|---:|---:|---|
+| NONE (V-source biasing only) | 604 | 67% | hold, setup, nochange, non_seq_* (majority) |
+| IC (embedded `.ic`) | 169 | 19% | delay (91), hold (56), nochange (14), non_seq (7), nochange_low_high (1) |
+| NODESET (embedded `.nodeset`) | 126 | 14% | mpw (63), min_pulse_width (63) |
+
+Within `.ic`-using templates, `ic_count` is deterministic by cell topology:
+
+| Cell topology | ic_count | Structural implication |
+|---|---:|---|
+| simple gates (latch_S, RCB, CKG) | 2 | slave latch only |
+| EDF (edge-detect FF) | 4 | master + slave |
+| MB (multi-bank) | 8 | multi-bank master + slave |
+| synx retention | 14 | full pipeline chain |
+| syn2 retention | 16 | asymmetric 2-stage (deepest) |
+| seq_inpin | 1 | output Q only |
+
+**Verdict**: Topology sub-types are **structurally distinct** -- they differ
+in ic_count, `.ic` node patterns, `.meas` count, and `.tran` style. The 15
+sub-principles cannot be compressed to fewer than ~12 (some collapse:
+latch_S + RCB share ic_count=2 structure). The principle count estimate is
+revised upward to **50-65** (was 45-55).
+
+**Additional finding: `delay/` is its own ecosystem.** 91 of 169 `.ic`
+files, 97% of 94 Spectre files, and all OPTIMIZE-style `.tran` lines live
+in `delay/`. This was not captured in the original Phase 1.5 analysis.
+Delay arcs have a fundamentally different `.tran` command (`OPTIMIZE`
+instead of `monte=1`) and a parallel Spectre template set (94
+`.thanos.sp` files). The classifier MUST handle delay separately.
+
+**Impact on Phase 2A**: The blocker is now resolved. Phase 2A can begin.
+The classifier must distinguish all 15 topology classes (no merging).
+The `init_strategy.py` module is demoted from a runtime dispatcher to a
+metadata reader -- init style is a property of the template, not a
+decision made at generation time.
 
 ---
 
@@ -140,7 +161,7 @@ core/principle_engine/
     classifier.py       Cell topology classifier
     selector.py         Template family selector
     param_binder.py     Parameter binding and value resolution
-    init_strategy.py    Initialization strategy dispatcher
+    init_style.py       Init style metadata reader (not a dispatcher)
     measurement.py      Measurement profile dispatcher
     families.py         Template family registry (reduced library)
     engine.py           Top-level orchestrator (public API)
@@ -236,31 +257,32 @@ def bind_parameters(
 (cell_class, arc_type) combination requires.
 
 ```python
-class InitStrategy(Enum):
-    NODESET_STANDARD = "nodeset"         # .nodeset for Q/QN (16 lines, verified in all 63 shipped MPW templates)
-    NODESET_EXTENDED = "nodeset_extended" # .nodeset with additional internal latch/bank state (PREDICTED, not verified -- Task E pending)
-    IC_RETENTION = "ic_retention"         # .ic for retention mode entry/exit (PREDICTED, not verified -- Task E pending)
-    TEMPLATE_EMBEDDED = "template_embedded" # Init is fully embedded in the template file; no runtime dispatch needed. Dominant case: 100% of shipped MPW templates use this -- .nodeset block is part of the template, not generated by the engine
+class InitStyle(Enum):
+    """Template-embedded init style. Metadata, not a runtime decision.
+    Determined by Task E.2 sampling of 899 templates."""
+    NONE = "none"         # 604 templates (67%). V-source biasing + DONT_TOUCH_PINS only.
+    IC = "ic"             # 169 templates (19%). Embedded .ic statements. ic_count determined by cell topology.
+    NODESET = "nodeset"   # 126 templates (14%). Embedded .nodeset statements. 100% in mpw/min_pulse_width.
 
-def get_init_strategy(cell_class: CellClass, arc_type: str) -> InitStrategy:
-    """Determine initialization approach."""
+def get_init_style(family: TemplateFamily) -> InitStyle:
+    """Read init style from template family metadata. NOT a classifier
+    decision -- init style is a property of the template file itself."""
 ```
 
-**Inputs**: Cell class + arc type.
-**Outputs**: `InitStrategy` enum.
-**Depends on**: `classifier.py`.
-**Replaces**: The implicit init logic embedded in each SPICE template
-(made explicit as a dispatcher).
+**Inputs**: Template family (after selection).
+**Outputs**: `InitStyle` enum (read from family metadata).
+**Depends on**: `families.py` (template family registry).
+**Role**: Metadata reader, not dispatcher. Task E.2 confirmed that all
+three init styles are template-embedded. The Python deck-generation code
+does NOT generate `.ic` or `.nodeset` statements -- it only does `$VAR`
+substitution and pin biasing.
 
-> **Verification status** (from Task D template fingerprinting):
-> All 63 shipped MPW templates embed `.nodeset` (16 lines) directly in the
-> template file. The Python deck-generation code (`spiceDeckMaker/funcs.py`)
-> does NOT generate `.ic` or `.nodeset` statements -- it only does `$VAR`
-> substitution and pin biasing. This means init is a **template-level
-> property**, not a runtime decision. The `TEMPLATE_EMBEDDED` strategy
-> covers the dominant case. The `NODESET_EXTENDED` and `IC_RETENTION`
-> variants are predictions for hold/non_seq templates pending Task E
-> verification.
+> **E.2 verification** (from `docs/foundation/E2_sampling_results.md`):
+> Init style distribution: NONE (604, 67%), IC (169, 19%), NODESET (126,
+> 14%). Mutually exclusive (0 templates use both). ic_count is
+> deterministic by cell topology: latch/RCB/CKG=2, EDF=4, MB=8,
+> synx=14, syn2=16. The module `init_strategy.py` is renamed to
+> `init_style.py` to reflect its metadata-reader role.
 
 #### `core/principle_engine/measurement.py`
 
@@ -440,44 +462,47 @@ The Patch 5 commit is a prerequisite for Phase 2B, not 2A.
 | **hold** | Yes | Largest rule set (255 rules), exercises all 8 discrimination categories, most complex templates |
 | **setup** | Yes | Fully trivial (10 rules, all signature-determined) -- validates that trivial path works |
 | **min_pulse_width** | Yes | 63 shipped templates available for structural validation (Task D), exercises SYNC scaling |
-| removal | No | Uses hold templates (shares directory), defer to Phase 2B |
+| **delay** | Yes | E.2 finding: delay/ is its own ecosystem (91 .ic files, 91 Spectre files, all OPTIMIZE .tran). Cannot validate architecture without it. HSPICE delay only in MVP; Spectre delay deferred to Phase 2C |
+| removal | No | Uses hold templates (shares directory), defer to Phase 2C |
 | nochange_* | No | 130 templates, unique waveform model, needs its own validator -- Phase 2C |
 | non_seq_hold/setup | No | Async control + retention, most complex init -- Phase 2C |
-| delay | No | Only 2 rules, minimal value -- Phase 2D |
 
-**Why hold first**: It is the hardest. 255 rules, 204 unique templates, all
-8 discrimination categories represented. If the architecture works for hold,
-it works for everything else. Starting with the easiest (delay, setup) would
-defer architectural problems.
+**Why hold + delay**: Hold is the hardest constraint arc (255 rules, 204
+templates, all 8 discrimination categories). Delay is the hardest
+non-constraint arc (its own ecosystem: OPTIMIZE .tran, .ic-heavy, Spectre
+parallel set). Together they exercise the two fundamentally different
+measurement paradigms (monte=1 vs OPTIMIZE). Setup validates the trivial
+path. MPW validates against the 63 shipped templates.
 
 ### Cell families in scope (MVP)
 
-| # | Cell family | Topology class | Init strategy (verified?) | Measurement | Why |
-|---|-------------|---------------|--------------------------|-------------|-----|
-| 1 | Standard FF (DFFQ1, SDFQ1) | COMMON | TEMPLATE_EMBEDDED for MPW; PREDICTED nodeset for hold (Task E pending) | pushout | Baseline: simplest hold arc |
-| 2 | Latch (LHQD1) | LATCH | PREDICTED nodeset_extended for hold (Task E pending) | glitch (maxq/minq) | Tests glitch polarity dispatch |
-| 3 | Multi-bank (MB*SRLSDF*) | MB | PREDICTED nodeset_extended for hold (Task E pending) | glitch | Tests multi-input expansion (AO22) |
-| 4 | Synchronizer (SYNC2-6) | SYNC | TEMPLATE_EMBEDDED for MPW (verified: 16 .nodeset lines) | pushout | Tests depth parameterization + waveform scaling |
-| 5 | Clock gater (CKGAN2*, CKGND2*) | CKG | TEMPLATE_EMBEDDED for MPW (verified: 16 .nodeset lines) | pushout | Tests gate-type sub-classification (AND vs NAND) |
-| 6 | Retention flop (*RETN* + *RSSDF*) | RETN | IC_RETENTION (PREDICTED, Task E pending) | glitch (maxq/minq) | Smoke-tests IC_RETENTION init path during MVP; same cell as regression suite #18 |
+| # | Cell family | Topology class | Init style (E.2 verified) | Measurement | Why |
+|---|-------------|---------------|---------------------------|-------------|-----|
+| 1 | Standard FF (DFFQ1, SDFQ1) | COMMON | NONE for hold; NODESET for mpw | pushout | Baseline: simplest hold arc |
+| 2 | Latch (LHQD1) | LATCH | IC (ic_count=2) for hold; NONE for setup | glitch (maxq/minq) | Tests glitch polarity + IC init |
+| 3 | Multi-bank (MB*SRLSDF*) | MB | IC (ic_count=8) for hold | glitch | Tests multi-input expansion (AO22) + deep IC init |
+| 4 | Synchronizer (SYNC2-6) | SYNC | NODESET for mpw (verified: 16 lines) | pushout | Tests depth parameterization + waveform scaling |
+| 5 | Clock gater (CKGAN2*, CKGND2*) | CKG | NONE for hold; IC (ic_count=2) for hold/nx variants | pushout | Tests gate-type sub-classification (AND vs NAND) |
+| 6 | Retention flop (*RETN* + *RSSDF*) | RETN | IC (ic_count=4) for non_seq_hold; NONE for base retn | glitch (maxq/minq) | Smoke-tests deep IC init; same cell as regression suite #18 |
+| 7 | Delay inverter / FF | COMMON/EDF | IC (ic_count=1-4) for delay; OPTIMIZE .tran | delay (cp2q) | Validates delay ecosystem: OPTIMIZE .tran, .ic init, different measurement paradigm |
 
-These 6 families exercise:
-- **2 of 4 init strategies exercised in MVP**: TEMPLATE_EMBEDDED (verified
-  for MPW, families 1/4/5) and IC_RETENTION (exercised via family 6,
-  pending Task E verification). NODESET_STANDARD and NODESET_EXTENDED
-  remain predictions for hold/non_seq paths.
+These 7 families exercise:
+- **All 3 init styles** (E.2 verified): NONE (families 1/5 hold), IC
+  (families 2/3/5nx/6/7), NODESET (families 1/4 mpw)
+- Both .tran paradigms: monte=1 (hold/setup/mpw) and OPTIMIZE (delay)
 - Both measurement criteria (pushout + glitch)
 - Output polarity dispatch (latch family)
 - Depth parameterization (SYNC)
 - Multi-input expansion (MB/AO22)
 - Gate-type sub-classification (CKG)
-- Retention init smoke test (family 6)
+- Retention IC init smoke test (family 6)
+- Delay ecosystem smoke test (family 7)
 
-> **Risk note**: MVP includes retention via family 6 specifically to
-> smoke-test IC_RETENTION. Full retention coverage (multiple retention
-> cell variants, all retention arc types) is still scoped to Phase 2C.
-> Family 6 uses non_seq_hold arcs only; retention removal, retention
-> nochange, and retention sync variants remain out of MVP scope.
+> **Risk note**: MVP includes retention via family 6 and delay via family
+> 7 specifically to smoke-test IC init and OPTIMIZE .tran. Full retention
+> coverage (multiple retention cell variants, all retention arc types) and
+> full delay coverage (Spectre backend) are still scoped to Phase 2C.
+> Family 6 uses non_seq_hold arcs only; family 7 uses HSPICE delay only.
 
 ### Explicit out-of-scope for MVP
 
@@ -487,7 +512,10 @@ These 6 families exercise:
 - SLH/ESLH: scan-specific, deferred
 - basemeg (WWL*): memory cells, specialized
 - nochange waveform model: different from hold/setup
-- Spectre backend: HSPICE only in Phase 2
+- Spectre backend (94 `.thanos.sp` files): HSPICE only in MVP; Spectre
+  delay deferred to Phase 2C
+- Delay families beyond family 7 smoke test (seq_inpin, SDFNQSXGD):
+  deferred to Phase 2C
 - GUI code changes beyond the engine toggle
 
 ### Acceptance criteria
@@ -761,12 +789,10 @@ and families are structured lookups.
 
 **Sequencing**: Must be first. Everything depends on correct classification.
 
-> **BLOCKER**: Phase 2A cannot begin until Task E template samples are
-> received and analyzed (see SS1.X). The classifier's topology class
-> definitions depend on knowing whether topology sub-types have
-> structurally different templates. Without Task E data, the classifier
-> may create distinctions that don't exist or merge classes that should
-> be separate.
+> **BLOCKER RESOLVED** (2026-05-11): Task E.2 sampling confirmed topology
+> sub-types are structurally distinct (see SS1.X). The classifier must
+> distinguish all 15 topology classes. ic_count is deterministic by
+> topology. Phase 2A can begin.
 
 ### Phase 2B: Parameter Binder + Deck Generation for Hold [L]
 
@@ -780,9 +806,10 @@ and families are structured lookups.
 - Fix for the 37 `unknown` arc_type rules (if Q5 decision is (C))
 
 **Acceptance**: `--engine principle --diff` reports `BYTE_EQUAL` for all
-hold arcs in the 6-family MVP set across 3 corners, including the
-retention smoke test (family 6: `*RETN* + *RSSDF*`, non_seq_hold arcs,
-IC_RETENTION init path). Fallback-to-v1 works for cells outside MVP.
+hold + delay arcs in the 7-family MVP set across 3 corners, including:
+- Retention smoke test (family 6: `*RETN* + *RSSDF*`, non_seq_hold, IC init)
+- Delay smoke test (family 7: standard FF/EDF delay, OPTIMIZE .tran, IC init)
+Fallback-to-v1 works for cells outside MVP.
 
 **Complexity**: L (large). Parameter binding is the most fiddly part --
 matching MCQC's exact formatting, unit suffixes, cascade logic, and
@@ -855,7 +882,7 @@ Documentation is complete.
 
 | Sub-phase | Delivers | Size | Depends on |
 |-----------|----------|------|------------|
-| 2A | Classifier + selector + regression harness | M | Task E results (BLOCKER) |
-| 2B | Param binder + hold deck generation | L | 2A |
-| 2C | Remaining arcs + retention + nochange | L | 2B |
+| 2A | Classifier + selector + regression harness | M | Task E resolved |
+| 2B | Param binder + hold + delay + setup + mpw deck generation | L | 2A |
+| 2C | Remaining arcs + retention full + nochange + Spectre | L | 2B |
 | 2D | GUI integration + documentation | S | 2C (--diff mode needed) |
