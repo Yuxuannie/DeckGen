@@ -213,19 +213,49 @@ backend-specific syntax directly.
 
 ```python
 class Backend(Enum):
-    """Simulator backend. Determined by template file extension and
-    arc_type/cell_family. E.2 finding: 94 Spectre files exist, 97% in
-    delay/."""
-    HSPICE = "hspice"    # .sp files. Default for all non-delay arcs.
-    SPECTRE = "spectre"  # .thanos.sp files. Dominant for delay arcs (91/94).
+    """Simulator backend.
+    NOT a selector parameter -- selection is backend-agnostic.
+    Used in TemplateFamily.available_backends and assert_backend_available().
+
+    E.3 clarification (2026-05-11): Spectre is a PARALLEL OUTPUT FORMAT for
+    the same logical family, not a separate family registered by backend.
+    A family can have both hspice_template_path and spectre_template_path.
+    FMC Spectre coverage is incremental: latch=25, AO22=16, common=10, ...
+    E.3 confirmed all 94 Spectre files share identical structural pattern."""
+    HSPICE = "hspice"    # .sp files
+    SPECTRE = "spectre"  # .thanos.sp files
 
 class TranStyle(Enum):
-    """Transient simulation command style. Strongly correlated with
-    arc_type (E.2 Section E)."""
+    """Transient simulation command style for HSPICE.
+    Stored on TemplateFamily as metadata; Spectre always uses tranIter.
+    Source: E2_sampling_results.md SS A (.tran style binding table)."""
     MONTE_CARLO = "monte"      # .tran 1p 5000n sweep monte=1. Hold/setup/mpw/nochange.
     OPTIMIZE = "optimize"      # .tran 1p 5000n sweep OPTIMIZE=OPT1. HSPICE delay.
     BARE = "bare"              # .tran 1p 400ns. Simple HSPICE delay (seq_inpin).
-    SPECTRE_TRAN_ITER = "spectre_tran"  # tranIter tran stop=5000n. Spectre delay.
+    SPECTRE_TRAN_ITER = "spectre_tran"  # Informational; Spectre always uses tranIter.
+
+class UnsupportedBackendError(Exception):
+    """Raised by TemplateFamily.assert_backend_available() when requested
+    backend has no template. Distinct from SelectionError (no family found)."""
+```
+
+**TemplateFamily dual-path shape** (2026-05-11 correction):
+
+```python
+@dataclass
+class TemplateFamily:
+    key: str
+    hspice_template_path: Optional[str] = None   # .sp file; None if not available
+    spectre_template_path: Optional[str] = None  # .thanos.sp file; None if not available
+    tran_style: TranStyle = TranStyle.MONTE_CARLO  # HSPICE tran style (Spectre always tranIter)
+    init_style: InitStyle = InitStyle.NONE
+    ...
+    @property
+    def available_backends(self) -> Set[Backend]: ...
+
+    def assert_backend_available(self, backend: Backend) -> None:
+        """Raises UnsupportedBackendError if backend has no template.
+        FMC Spectre rollout is incremental; many families HSPICE-only."""
 ```
 
 **Files**:
@@ -235,7 +265,7 @@ class TranStyle(Enum):
 - `core/principle_engine/backends/spectre.py` -- same interface for Spectre
   (`simulator lang=spectre` switching, `tranIter`, Spectre `.options`)
 
-**Depends on**: `families.py` (TemplateFamily.backend field).
+**Depends on**: `families.py` (TemplateFamily.hspice_template_path / spectre_template_path).
 **Replaces**: Hardcoded HSPICE syntax in `core/deck_builder.py` (which
 stays for v1 path; v2 uses backend dispatch).
 
@@ -247,27 +277,32 @@ the registry.
 
 ```python
 def select_template_family(
-    cell_class: CellClass,
+    classification: ClassifierResult,
     arc_type: str,
     rel_pin_dir: str,
     constr_pin_dir: str,
-    measurement: MeasurementProfile,
-    probe_info: ProbeInfo,
-    gate_type: str = None,         # for CKG sub-typing
-    sync_depth: int = None,        # for SYNC parameterization
-    backend: Backend = Backend.HSPICE,           # default HSPICE
-    tran_style: TranStyle = TranStyle.MONTE_CARLO,  # default monte=1
+    measurement: MeasurementProfile = None,
+    probe_info: ProbeInfo = None,
 ) -> TemplateFamily:
-    """Select template family. Returns TemplateFamily or raises
-    SelectionError with what was tried and closest matches."""
+    """Select template family. Backend-agnostic -- returns TemplateFamily
+    with hspice_template_path and/or spectre_template_path set.
+    Caller calls family.assert_backend_available(backend) before assembly.
+    Raises SelectionError with what was tried and closest matches."""
 ```
 
 **Inputs**: Classification result + arc electrical characteristics.
-**Outputs**: `TemplateFamily` (contains template path, parameter schema,
-init strategy).
+**Outputs**: `TemplateFamily` (dual template paths, init style, param schema).
+  Caller asserts backend availability after selection.
 **Depends on**: `classifier.py`, `families.py`.
 **Replaces**: `core/template_rules.py` (688-rule JSON lookup) and
 `core/template_map.py` (if-chain port).
+
+> **2026-05-11 correction**: `backend` parameter removed from
+> `select_template_family`. Selection is backend-agnostic. Backend
+> validation moves to `TemplateFamily.assert_backend_available(backend)`
+> (raises `UnsupportedBackendError` if the family lacks the requested
+> template). This correctly models Spectre as a parallel output format
+> rather than a separate family axis.
 
 #### `core/principle_engine/param_binder.py`
 
@@ -525,8 +560,17 @@ path. MPW validates against the 63 shipped templates.
 | 4 | Synchronizer (SYNC2-6) | SYNC | NODESET for mpw (verified: 16 lines) | pushout | Tests depth parameterization + waveform scaling |
 | 5 | Clock gater (CKGAN2*, CKGND2*) | CKG | NONE for hold; IC (ic_count=2) for hold/nx variants | pushout | Tests gate-type sub-classification (AND vs NAND) |
 | 6 | Retention flop (*RETN* + *RSSDF*) | RETN | IC (ic_count=4) for non_seq_hold; NONE for base retn | glitch (maxq/minq) | Smoke-tests deep IC init; same cell as regression suite #18 |
-| 7 | Delay inverter / FF (HSPICE) | COMMON/EDF | IC (ic_count=1-4) for delay; OPTIMIZE .tran; backend=HSPICE | delay (cp2q) | Validates delay ecosystem: OPTIMIZE .tran, .ic init, different measurement paradigm |
-| 8 | AO22 delay (Spectre) | MB/AO22 | NONE (V-source biasing for 7 dont-touch pins); backend=SPECTRE; tran_style=SPECTRE_TRAN_ITER | delay (cp2q) | Validates Spectre backend: `simulator lang=spectre`, `tranIter tran`, Spectre-specific .options. Same AO22 multi-input expansion as family 3 but via Spectre backend |
+| 7 | Delay inverter / FF (HSPICE) | COMMON/EDF | IC (ic_count=1-4) for delay; OPTIMIZE .tran; HSPICE-only | delay (cp2q) | Validates delay ecosystem: OPTIMIZE .tran, .ic init, different measurement paradigm |
+| 8 | Latch delay (dual-backend) | LATCH | IC (ic_count=2); both HSPICE and Spectre templates available | delay (cp2q) | Validates dual-backend path: assert_backend_available(HSPICE) and (SPECTRE) both pass; E.3: latch=25 is largest Spectre cell family |
+
+> **2026-05-11 reframe** (Patch 6a): Family 8 was originally "AO22 delay
+> (Spectre-only)" -- a single-backend Spectre smoke test. It is now "latch
+> delay (dual-backend)" -- a dual-backend validation target.  Reason: E.3
+> sampling confirmed latch=25 is the largest Spectre cell family, making
+> latch the best representative for the dual-path mechanism. AO22 (16
+> Spectre files, Spectre-only) remains in the registry as a supplementary
+> entry validating the `hspice_template_path=None` / `UnsupportedBackendError`
+> path; it is no longer an MVP family.
 
 These 8 families exercise:
 - **All 3 init styles** (E.2 verified): NONE (families 1/5/8), IC
@@ -537,7 +581,8 @@ These 8 families exercise:
 - Both measurement criteria (pushout + glitch)
 - Output polarity dispatch (latch family)
 - Depth parameterization (SYNC)
-- Multi-input expansion (MB/AO22 in both HSPICE and Spectre)
+- Multi-input expansion (MB in HSPICE)
+- Dual-backend dispatch (latch family 8: both HSPICE and Spectre paths)
 - Gate-type sub-classification (CKG)
 - Retention IC init smoke test (family 6)
 - Delay HSPICE smoke test (family 7)
@@ -865,9 +910,10 @@ extraction method.
   classification result without generating decks
 
 **Acceptance**: Classifier correctly labels all 8 MVP cell families
-including AO22 Spectre (family 8). Selector returns correct family for
-hold, setup, mpw, AND delay arcs with correct backend assignment.
-Backend detection via `.thanos.sp` extension works in CI.
+including latch dual-backend (family 8). Selector returns correct family
+for hold, setup, mpw, AND delay arcs (backend-agnostic). Backend
+validation via `family.assert_backend_available()` raises
+`UnsupportedBackendError` for Spectre-only families when HSPICE requested.
 
 **Complexity**: L (large -- upgraded from M). Backend abstraction is a
 new architectural dimension: HSPICE vs Spectre file detection, delay-aware
@@ -911,7 +957,7 @@ dont-touch pin handling.
 **Delivers**:
 - HSPICE delay arc generation for family 7 (COMMON/EDF delay),
   including IC init handling and OPTIMIZE-style `.tran`
-- Spectre backend support for family 8 (AO22 Spectre):
+- Spectre backend support for family 8 (latch dual-backend) and AO22 (Spectre-only):
   - `core/principle_engine/backends/spectre.py` emission logic
   - `simulator lang=spectre` / `simulator lang=spice` switching
   - `tranIter tran stop=5000n` emission
