@@ -4,16 +4,27 @@ family_types.py -- Core type definitions for the principle engine.
 All enums and dataclasses used across classifier, selector, families, and
 backends. No dependencies on other principle_engine modules (leaf module).
 
+Architectural note (2026-05-11 clarification):
+  Spectre is a parallel OUTPUT FORMAT for the same logical family, not a
+  separate family registered by backend. A TemplateFamily can have both
+  an HSPICE template path and a Spectre template path; selection is
+  backend-agnostic. Backend validation happens at deck-assembly time via
+  assert_backend_available().
+
+  Source: Yuxuan clarification "both spice and spectre version will be
+  needed one day, spice is mainstream now. FMC has been trying to support
+  spectre too" -- 2026-05-11.
+
 Sources:
   - CellClass: B_rule_groupby.md SS2 (15 topology classes)
-  - Backend/TranStyle: E2_sampling_results.md SS D (94 Spectre files, delay/ ecosystem)
+  - Backend/TranStyle: E2_sampling_results.md SS D (94 Spectre files, delay/)
   - InitStyle: E2_sampling_results.md SS Summary (NONE 67%, IC 19%, NODESET 14%)
   - TemplateFamily/MeasurementProfile/ProbeInfo: spec_draft.md SS2
 """
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List, Optional
+from typing import List, Optional, Set
 
 
 class CellClass(Enum):
@@ -40,28 +51,32 @@ class CellClass(Enum):
     RETN = "retn"           # Retention cell (base + syn2..syn6 depth variants)
     BASEMEG = "basemeg"     # Memory cell (WWL-based, basemeg token)
     CKG = "ckg"             # Clock gater (sub-typed by gate logic: ckg/ckgn/ckgian/ckgmux2/3)
-    AO22 = "ao22"           # AO22/OA22 compound gate (Spectre only, E.2 SS D)
+    AO22 = "ao22"           # AO22/OA22 compound gate
     UNKNOWN = "unknown"     # Not matched -- triggers v1 fallback
 
 
 class Backend(Enum):
     """Simulator backend.
 
-    Determined by template file extension and arc_type/cell_family.
-    E.2 finding: 94 Spectre .thanos.sp files exist, 97% in delay/.
+    Used in TemplateFamily.available_backends and assert_backend_available().
+    NOT a selector parameter -- family selection is backend-agnostic.
 
-    Source: E2_sampling_results.md SS D, spec_draft.md SS2.
+    E.3 sampling finding: Spectre is a parallel output format for the same
+    logical family. 94 Spectre files span 13 cell families (latch=25,
+    AO22=16, OA22=16, common=10, ...). FMC Spectre coverage is incremental.
+
+    Source: E2_sampling_results.md SS D, E3_sampling_results.md.
     """
-    HSPICE = "hspice"    # .sp files. Default for all non-delay arcs.
-    SPECTRE = "spectre"  # .thanos.sp files. Dominant for delay arcs (91/94).
+    HSPICE = "hspice"    # .sp files
+    SPECTRE = "spectre"  # .thanos.sp files
 
 
 class TranStyle(Enum):
-    """Transient simulation command style.
+    """Transient simulation command style for HSPICE templates.
 
-    Strongly correlated with arc_type and backend (E.2 Section A tran style
-    binding). The selector uses this to pick the correct template variant
-    within a family.
+    Strongly correlated with arc_type (E.2 Section A tran style binding).
+    Stored on TemplateFamily as HSPICE tran style metadata; Spectre always
+    uses tranIter regardless of this value.
 
     Source: E2_sampling_results.md SS A (.tran style binding table).
     """
@@ -72,7 +87,7 @@ class TranStyle(Enum):
     BARE = "bare"                   # .tran 1p 400ns (no sweep, no OPTIMIZE)
                                     # Simple HSPICE delay, seq_inpin variants (~6).
     SPECTRE_TRAN_ITER = "spectre_tran"  # tranIter tran stop=5000n
-                                        # Spectre delay arcs.
+                                        # Informational only -- Spectre always uses this.
 
 
 class InitStyle(Enum):
@@ -142,20 +157,62 @@ class TemplateFamily:
     Represents one entry in the ~50-65 principle families. The selector
     returns one of these; the param_binder then fills in $VAR slots.
 
-    key format: "{arc_type}/{topology}/{direction_pair}"
-    Example: "hold/common/rise_fall"
+    A family can have HSPICE and/or Spectre templates.  Both paths are
+    stored here; the caller requests a specific backend after selection
+    via assert_backend_available().
 
-    Source: spec_draft.md SS2 (families.py section).
+    key format: "{arc_type}/{topology}/{direction}"
+      Non-delay: "{arc_type}/{topology}/{rel_dir}_{constr_dir}"
+                 e.g. "hold/common/rise_fall"
+      Delay/slew: "{arc_type}/{topology}/{rel_dir}"
+                 e.g. "delay/common/rise"
+
+    Source: spec_draft.md SS2 (families.py section), Yuxuan clarification
+    2026-05-11 (Spectre as parallel output format).
     """
-    key: str                               # Lookup key, e.g. "hold/common/rise_fall"
-    template_path: str                     # Relative path to .sp or .thanos.sp file
-    backend: Backend = Backend.HSPICE      # Simulator backend
-    tran_style: TranStyle = TranStyle.MONTE_CARLO  # .tran command style
-    init_style: InitStyle = InitStyle.NONE # Template-embedded init style
-    param_schema: List[str] = field(default_factory=list)  # Required $VAR names
+    key: str
+    hspice_template_path: Optional[str] = None   # .sp file; None if not available
+    spectre_template_path: Optional[str] = None  # .thanos.sp file; None if not available
+    tran_style: TranStyle = TranStyle.MONTE_CARLO  # HSPICE .tran style (Spectre always tranIter)
+    init_style: InitStyle = InitStyle.NONE
+    param_schema: List[str] = field(default_factory=list)
     measurement: str = "standard"          # "standard", "pushout", "glitch", "both"
     ic_count: int = 0                      # Number of .ic statements (if IC style)
     description: str = ""                  # Human-readable description
+
+    def __post_init__(self):
+        if not self.hspice_template_path and not self.spectre_template_path:
+            raise ValueError(
+                f"TemplateFamily {self.key!r} must have at least one of "
+                f"hspice_template_path or spectre_template_path"
+            )
+
+    @property
+    def available_backends(self) -> Set[Backend]:
+        """Set of backends for which this family has a template file."""
+        result: Set[Backend] = set()
+        if self.hspice_template_path:
+            result.add(Backend.HSPICE)
+        if self.spectre_template_path:
+            result.add(Backend.SPECTRE)
+        return result
+
+    def assert_backend_available(self, backend: Backend) -> None:
+        """Assert that this family supports the requested backend.
+
+        Raises UnsupportedBackendError if the backend has no template.
+        FMC Spectre coverage is incremental -- many families are
+        HSPICE-only; a small number are currently Spectre-only (e.g.
+        AO22 delay where FMC has not yet shipped an HSPICE template).
+        """
+        if backend not in self.available_backends:
+            available = sorted(b.value for b in self.available_backends)
+            raise UnsupportedBackendError(
+                f"Family {self.key!r} does not have a {backend.value} template. "
+                f"Available: {available}. "
+                f"FMC Spectre coverage is incremental; this family may be "
+                f"HSPICE-only or Spectre-only by FMC tooling rollout."
+            )
 
 
 class SelectionError(Exception):
@@ -179,3 +236,12 @@ class SelectionError(Exception):
             for c in self.closest:
                 base += f"    - {c}\n"
         return base
+
+
+class UnsupportedBackendError(Exception):
+    """Raised when a selected family does not support the requested backend.
+
+    Raised by TemplateFamily.assert_backend_available(). Distinct from
+    SelectionError (which means no family matched at all).
+    """
+    pass

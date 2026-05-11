@@ -4,24 +4,29 @@ selector.py -- Template family selector for the principle engine.
 Given a classified cell (CellClass) plus arc electrical characteristics,
 selects the correct TemplateFamily from the registry.
 
+Selection is BACKEND-AGNOSTIC.  The returned TemplateFamily carries both
+hspice_template_path and spectre_template_path (either or both may be set).
+The caller requests a specific backend after selection via
+TemplateFamily.assert_backend_available(backend).
+
 Selection chain:
-  (cell_class, arc_type, rel_pin_dir, constr_pin_dir,
-   measurement, probe_info, backend, tran_style)
+  (cell_class, arc_type, rel_pin_dir, constr_pin_dir, measurement, probe_info)
       -> family key
       -> registry lookup
-      -> TemplateFamily
+      -> TemplateFamily  (caller then asserts backend availability)
 
 On failure, raises SelectionError with what was tried and closest matches.
 
 Replaces: core/template_rules.py (688-rule JSON lookup).
 
-Source: spec_draft.md SS2 (selector.py section), SS3 (v1/v2 coexistence).
+Source: spec_draft.md SS2 (selector.py section), SS3 (v1/v2 coexistence),
+        Yuxuan clarification 2026-05-11 (Spectre as parallel output format).
 """
 
 from typing import Optional
 
 from core.principle_engine.classifier import ClassifierResult
-from core.principle_engine.families import get_registry, list_families
+from core.principle_engine.families import get_registry
 from core.principle_engine.family_types import (
     Backend,
     CellClass,
@@ -35,25 +40,24 @@ from core.principle_engine.family_types import (
 
 def _dir_pair(rel_pin_dir: str, constr_pin_dir: str) -> str:
     """Normalize direction pair to string fragment used in family keys."""
-    r = (rel_pin_dir or "").lower().rstrip("e")    # "rise"->"ris", "fall"->"fal"
-    # Simpler: just use first char of each
     r = (rel_pin_dir or "rise").lower()
     c = (constr_pin_dir or "fall").lower()
     return f"{r}_{c}"
 
 
 def _infer_tran_style(arc_type: str, backend: Backend) -> TranStyle:
-    """Infer default TranStyle from arc_type and backend.
+    """Infer HSPICE TranStyle from arc_type and backend.
 
-    This matches the E.2 finding that tran_style is strongly correlated
-    with arc_type (source: E2_sampling_results.md SS A .tran style binding).
+    Utility for engine.py (Phase 2B) to know what .tran command to emit.
+    Not used by select_template_family itself (selection is backend-agnostic).
+
+    Source: E2_sampling_results.md SS A (.tran style binding table).
     """
     if backend == Backend.SPECTRE:
         return TranStyle.SPECTRE_TRAN_ITER
     arc = (arc_type or "").lower()
     if arc in ("delay", "slew"):
         return TranStyle.OPTIMIZE
-    # hold, setup, removal, recovery, nochange, mpw, min_pulse_width
     return TranStyle.MONTE_CARLO
 
 
@@ -73,7 +77,7 @@ def _topology_key(
 
     if cc == CellClass.CKG:
         subtype = classification.ckg_subtype or "ckg"
-        return subtype  # e.g., "ckg", "ckgn", "ckgmux2"
+        return subtype
 
     if cc == CellClass.RETN:
         depth = classification.sync_depth
@@ -87,7 +91,6 @@ def _topology_key(
             return f"sync{depth}"
         return "sync"
 
-    # Direct CellClass -> string mapping for other classes
     _MAP = {
         CellClass.COMMON:   "common",
         CellClass.LATCH:    "latch",
@@ -116,7 +119,7 @@ def _closest_matches(
     arc = (arc_type or "").lower()
     candidates = []
 
-    for key, fam in registry.items():
+    for key in registry:
         parts = key.split("/")
         score = 0
         if parts[0] == arc:
@@ -137,22 +140,21 @@ def select_template_family(
     constr_pin_dir: str,
     measurement: MeasurementProfile = None,
     probe_info: ProbeInfo = None,
-    backend: Backend = None,
-    tran_style: TranStyle = None,
 ) -> TemplateFamily:
     """Select template family from registry.
+
+    Selection is backend-agnostic.  The returned TemplateFamily may have
+    one or both of hspice_template_path / spectre_template_path set.
+    After selection, call family.assert_backend_available(backend) before
+    assembling the deck.
 
     Args:
         classification:  Result from classify_cell().
         arc_type:        Arc type string ("hold", "delay", "min_pulse_width", etc.)
         rel_pin_dir:     Related pin direction ("rise" or "fall").
         constr_pin_dir:  Constraint pin direction ("rise" or "fall").
-        measurement:     MeasurementProfile (optional; used for glitch/pushout
-                         variant selection).
-        probe_info:      ProbeInfo (optional; used for polarity selection).
-        backend:         Backend override. If None, inferred from arc_type.
-        tran_style:      TranStyle override. If None, inferred from arc_type
-                         and backend.
+        measurement:     MeasurementProfile (optional; glitch/pushout variant).
+        probe_info:      ProbeInfo (optional; polarity selection).
 
     Returns:
         TemplateFamily for the matching family.
@@ -166,38 +168,33 @@ def select_template_family(
     # is the correct path for unclassified cells (spec_draft.md SS3).
     if classification.cell_class == CellClass.UNKNOWN:
         raise SelectionError(
-            f"Cell not classified (CellClass.UNKNOWN); route to v1 engine",
+            "Cell not classified (CellClass.UNKNOWN); route to v1 engine",
             tried={"arc_type": arc, "cell_class": "unknown"},
             closest=[],
         )
 
-    # Resolve backend and tran_style defaults
-    if backend is None:
-        backend = Backend.HSPICE
-    if tran_style is None:
-        tran_style = _infer_tran_style(arc, backend)
-
     topology = _topology_key(classification, arc, measurement, probe_info)
 
     # Build candidate keys in preference order.
-    # Delay arcs use single-direction keys (probe transition direction);
-    # all other arcs use direction-pair keys.
+    # Delay/slew arcs use single-direction keys (output transition direction).
+    # All other arcs use direction-pair keys.
     if arc in ("delay", "slew"):
-        # Single direction = rel_pin_dir (the output transition being measured)
         rel_dir = (rel_pin_dir or "rise").lower()
         candidate_keys = [
             f"{arc}/{topology}/{rel_dir}",   # exact topology match
             f"{arc}/common/{rel_dir}",       # topology fallback
         ]
+        direction_desc = rel_dir
     else:
         dir_pair = _dir_pair(rel_pin_dir, constr_pin_dir)
         candidate_keys = [
             f"{arc}/{topology}/{dir_pair}",  # exact topology + direction
             f"{arc}/common/{dir_pair}",      # topology fallback, same direction
         ]
+        direction_desc = dir_pair
 
     # Deduplicate while preserving order
-    seen = set()
+    seen: set = set()
     ordered_keys = []
     for k in candidate_keys:
         if k not in seen:
@@ -207,12 +204,8 @@ def select_template_family(
     registry = get_registry()
     for key in ordered_keys:
         fam = registry.get(key)
-        if fam is None:
-            continue
-        # Backend must match if caller specified one explicitly
-        if fam.backend != backend:
-            continue
-        return fam
+        if fam is not None:
+            return fam
 
     # No match -- build diagnostic
     tried = {
@@ -220,13 +213,10 @@ def select_template_family(
         "cell_class": classification.cell_class.value,
         "topology": topology,
         "keys_tried": ordered_keys,
-        "backend": backend.value,
-        "tran_style": tran_style.value,
     }
     closest = _closest_matches(arc, topology, registry)
     raise SelectionError(
-        f"No template family found for {arc}/{topology}/{dir_pair} "
-        f"(backend={backend.value})",
+        f"No template family found for {arc}/{topology}/{direction_desc}",
         tried=tried,
         closest=closest,
     )

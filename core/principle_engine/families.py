@@ -1,55 +1,60 @@
 """
 families.py -- Template family registry for the principle engine.
 
-Loads the reduced template family library from config/families.yaml.
-Each family is a TemplateFamily dataclass mapping a key to a parameterized
-template with metadata (init_style, tran_style, backend, param_schema).
+Each family is a TemplateFamily dataclass with optional hspice_template_path
+and spectre_template_path.  Selection is backend-agnostic; the caller
+requests a backend after selection via TemplateFamily.assert_backend_available().
 
-In Phase 2A the registry is populated with a hardcoded bootstrap set of
-families covering the 8 MVP arc families from spec_draft.md SS4.  A full
-YAML-backed registry is planned for Phase 2B once the template library
-structure is finalized.
+Architectural note (2026-05-11 correction):
+  Spectre is a parallel output format for the same logical family, not a
+  separate family registered by backend.  Before this correction, the
+  registry had separate AO22-HSPICE and AO22-Spectre entries; those are
+  now a single AO22 family with only spectre_template_path set (FMC has
+  not shipped HSPICE AO22 delay templates as of N2P_v1.0).
 
-Family key format: "{arc_type}/{topology}/{direction_pair}"
-  Examples:
-    "hold/common/rise_fall"
-    "hold/latch/rise_fall"
-    "delay/common/rise"
-    "delay/common/fall"
-    "min_pulse_width/CP/rise_fall"
+Entry count: 12 entries -> 14 entries after correction:
+  - AO22 rise/fall: unchanged count (2), but backend field removed and
+    hspice_template_path=None (was backend=SPECTRE + template_path)
+  - latch delay rise/fall: +2 new entries (dual-backend, Patch 6a)
+    E.3 finding: latch=25 is the largest Spectre cell family; adding
+    dual-backend latch validates the dual-path mechanism.
 
-Source: spec_draft.md SS2 (families.py section), SS4 (8 MVP families).
+Family key format:
+  Non-delay: "{arc_type}/{topology}/{rel_dir}_{constr_dir}"
+  Delay/slew: "{arc_type}/{topology}/{rel_dir}"
+
+Source: spec_draft.md SS2 SS4, E2_sampling_results.md, E3_sampling_results.md.
 """
 
-import os
 from typing import Dict, Optional
 
 from core.principle_engine.family_types import (
-    Backend,
-    CellClass,
     InitStyle,
     TemplateFamily,
     TranStyle,
 )
 
 # ---------------------------------------------------------------------------
-# Bootstrap registry -- 8 MVP families from spec_draft.md SS4
+# Bootstrap registry
 # ---------------------------------------------------------------------------
-# Family 1: HSPICE hold, common topology (rise/fall)
-# Family 2: HSPICE hold, latch topology (rise/fall)
-# Family 3: HSPICE hold, MB topology (rise/fall)
-# Family 4: HSPICE hold, SLH topology (rise/fall)
-# Family 5: HSPICE min_pulse_width, CP-based
-# Family 6: HSPICE nochange, CKG
-# Family 7: HSPICE delay, common (rise and fall variants)
-# Family 8: Spectre delay, AO22
+# MVP families (spec_draft.md SS4):
+#   Family 1: HSPICE hold, common topology (rise/fall + fall/rise)
+#   Family 2: HSPICE hold, latch topology
+#   Family 3: HSPICE hold, MB topology
+#   Family 4: HSPICE hold, SLH topology
+#   Family 5: HSPICE min_pulse_width, common (CP clock)
+#   Family 6: HSPICE nochange, CKG
+#   Family 7: HSPICE delay, common (rise + fall)
+#   Family 8: Dual-backend delay, latch (HSPICE + Spectre)  [Patch 6a: was AO22-Spectre-only]
+#
+# Additional entries:
+#   AO22 delay (rise + fall): Spectre-only; validates single-backend path
 
 _BOOTSTRAP_FAMILIES: list = [
     # --- MVP family 1: HSPICE hold, common ---
     TemplateFamily(
         key="hold/common/rise_fall",
-        template_path="templates/v2/hold/template__common__rise__fall__1.sp",
-        backend=Backend.HSPICE,
+        hspice_template_path="templates/v2/hold/template__common__rise__fall__1.sp",
         tran_style=TranStyle.MONTE_CARLO,
         init_style=InitStyle.NONE,
         param_schema=["REL_PIN", "CONSTR_PIN", "PROBE_PIN_1", "VDD_VALUE",
@@ -59,8 +64,7 @@ _BOOTSTRAP_FAMILIES: list = [
     ),
     TemplateFamily(
         key="hold/common/fall_rise",
-        template_path="templates/v2/hold/template__common__fall__rise__1.sp",
-        backend=Backend.HSPICE,
+        hspice_template_path="templates/v2/hold/template__common__fall__rise__1.sp",
         tran_style=TranStyle.MONTE_CARLO,
         init_style=InitStyle.NONE,
         param_schema=["REL_PIN", "CONSTR_PIN", "PROBE_PIN_1", "VDD_VALUE",
@@ -71,8 +75,7 @@ _BOOTSTRAP_FAMILIES: list = [
     # --- MVP family 2: HSPICE hold, latch ---
     TemplateFamily(
         key="hold/latch/rise_fall",
-        template_path="templates/v2/hold/template__latch__rise__fall__glitch__minq__1.sp",
-        backend=Backend.HSPICE,
+        hspice_template_path="templates/v2/hold/template__latch__rise__fall__glitch__minq__1.sp",
         tran_style=TranStyle.MONTE_CARLO,
         init_style=InitStyle.NONE,
         param_schema=["REL_PIN", "CONSTR_PIN", "PROBE_PIN_1", "VDD_VALUE",
@@ -83,8 +86,7 @@ _BOOTSTRAP_FAMILIES: list = [
     # --- MVP family 3: HSPICE hold, MB ---
     TemplateFamily(
         key="hold/mb/rise_fall",
-        template_path="templates/v2/hold/template__MB__common__rise__fall__2.sp",
-        backend=Backend.HSPICE,
+        hspice_template_path="templates/v2/hold/template__MB__common__rise__fall__2.sp",
         tran_style=TranStyle.MONTE_CARLO,
         init_style=InitStyle.IC,
         ic_count=8,
@@ -96,8 +98,7 @@ _BOOTSTRAP_FAMILIES: list = [
     # --- MVP family 4: HSPICE hold, SLH ---
     TemplateFamily(
         key="hold/slh/rise_fall",
-        template_path="templates/v2/hold/template__SLH__rise__SE__rise__pushout__1.sp",
-        backend=Backend.HSPICE,
+        hspice_template_path="templates/v2/hold/template__SLH__rise__SE__rise__pushout__1.sp",
         tran_style=TranStyle.MONTE_CARLO,
         init_style=InitStyle.NONE,
         param_schema=["REL_PIN", "CONSTR_PIN", "PROBE_PIN_1", "VDD_VALUE",
@@ -107,12 +108,10 @@ _BOOTSTRAP_FAMILIES: list = [
     ),
     # --- MVP family 5: HSPICE min_pulse_width, standard CP clock (common topology) ---
     # Key uses "common" topology because mpw family selection is uniform across
-    # FF topologies for the standard CP clock pin.  Selector falls through to
-    # common for all non-specialized cells (FLOP, EDF, SLH, etc.).
+    # FF topologies for the standard CP clock pin.
     TemplateFamily(
         key="min_pulse_width/common/rise_fall",
-        template_path="templates/v2/min_pulse_width/template__CP__rise__fall__1.sp",
-        backend=Backend.HSPICE,
+        hspice_template_path="templates/v2/min_pulse_width/template__CP__rise__fall__1.sp",
         tran_style=TranStyle.MONTE_CARLO,
         init_style=InitStyle.NODESET,
         param_schema=["REL_PIN", "VDD_VALUE", "INDEX_1_VALUE", "OUTPUT_LOAD"],
@@ -121,8 +120,7 @@ _BOOTSTRAP_FAMILIES: list = [
     ),
     TemplateFamily(
         key="min_pulse_width/common/fall_rise",
-        template_path="templates/v2/min_pulse_width/template__CP__fall__rise__1.sp",
-        backend=Backend.HSPICE,
+        hspice_template_path="templates/v2/min_pulse_width/template__CP__fall__rise__1.sp",
         tran_style=TranStyle.MONTE_CARLO,
         init_style=InitStyle.NODESET,
         param_schema=["REL_PIN", "VDD_VALUE", "INDEX_1_VALUE", "OUTPUT_LOAD"],
@@ -132,8 +130,7 @@ _BOOTSTRAP_FAMILIES: list = [
     # --- MVP family 6: HSPICE nochange, CKG ---
     TemplateFamily(
         key="nochange/ckg/fall_fall",
-        template_path="templates/v2/nochange/template__ckg__hold__fall__en__fall__pushout__negative__0.sp",
-        backend=Backend.HSPICE,
+        hspice_template_path="templates/v2/nochange/template__ckg__hold__fall__en__fall__pushout__negative__0.sp",
         tran_style=TranStyle.MONTE_CARLO,
         init_style=InitStyle.NONE,
         param_schema=["REL_PIN", "CONSTR_PIN", "VDD_VALUE",
@@ -144,8 +141,7 @@ _BOOTSTRAP_FAMILIES: list = [
     # --- MVP family 7: HSPICE delay, common ---
     TemplateFamily(
         key="delay/common/rise",
-        template_path="templates/v2/delay/template__common__rise__1.sp",
-        backend=Backend.HSPICE,
+        hspice_template_path="templates/v2/delay/template__common__rise__1.sp",
         tran_style=TranStyle.OPTIMIZE,
         init_style=InitStyle.IC,
         ic_count=4,
@@ -156,8 +152,7 @@ _BOOTSTRAP_FAMILIES: list = [
     ),
     TemplateFamily(
         key="delay/common/fall",
-        template_path="templates/v2/delay/template__common__fall__1.sp",
-        backend=Backend.HSPICE,
+        hspice_template_path="templates/v2/delay/template__common__fall__1.sp",
         tran_style=TranStyle.OPTIMIZE,
         init_style=InitStyle.IC,
         ic_count=4,
@@ -166,30 +161,60 @@ _BOOTSTRAP_FAMILIES: list = [
         measurement="standard",
         description="HSPICE delay, common topology fall, OPTIMIZE .tran, IC init",
     ),
-    # --- MVP family 8: Spectre delay, AO22 ---
+    # --- MVP family 8: Dual-backend delay, latch (Patch 6a) ---
+    # E.3 sampling: latch=25 is the largest Spectre cell family, making latch
+    # the best representative for the dual-backend pattern.  Both HSPICE and
+    # Spectre paths are set; validates assert_backend_available() for both.
     TemplateFamily(
-        key="delay/ao22/rise",
-        template_path="templates/v2/delay/template__ao22__rise__1.thanos.sp",
-        backend=Backend.SPECTRE,
-        tran_style=TranStyle.SPECTRE_TRAN_ITER,
+        key="delay/latch/rise",
+        hspice_template_path="templates/v2/delay/template__latch__rise__1.sp",
+        spectre_template_path="templates/v2/delay/template__latch__rise__1.thanos.sp",
+        tran_style=TranStyle.OPTIMIZE,
         init_style=InitStyle.IC,
         ic_count=2,
         param_schema=["REL_PIN", "PROBE_PIN_1", "VDD_VALUE",
                       "INDEX_1_VALUE", "OUTPUT_LOAD"],
         measurement="standard",
-        description="Spectre delay, AO22 compound gate, tranIter, IC init",
+        description="Delay latch, dual-backend (HSPICE OPTIMIZE + Spectre tranIter), IC init",
+    ),
+    TemplateFamily(
+        key="delay/latch/fall",
+        hspice_template_path="templates/v2/delay/template__latch__fall__1.sp",
+        spectre_template_path="templates/v2/delay/template__latch__fall__1.thanos.sp",
+        tran_style=TranStyle.OPTIMIZE,
+        init_style=InitStyle.IC,
+        ic_count=2,
+        param_schema=["REL_PIN", "PROBE_PIN_1", "VDD_VALUE",
+                      "INDEX_1_VALUE", "OUTPUT_LOAD"],
+        measurement="standard",
+        description="Delay latch fall, dual-backend (HSPICE OPTIMIZE + Spectre tranIter), IC init",
+    ),
+    # --- AO22 delay: Spectre-only (FMC has not shipped HSPICE AO22 delay templates) ---
+    # Architectural note: these are NOT a separate "AO22 backend variant" --
+    # they are the same AO22 family with only spectre_template_path set.
+    # If FMC ships HSPICE AO22 templates in future, hspice_template_path is
+    # populated here and assert_backend_available(HSPICE) will start passing.
+    TemplateFamily(
+        key="delay/ao22/rise",
+        spectre_template_path="templates/v2/delay/template__ao22__rise__1.thanos.sp",
+        tran_style=TranStyle.OPTIMIZE,   # HSPICE tran style if/when HSPICE ships
+        init_style=InitStyle.IC,
+        ic_count=2,
+        param_schema=["REL_PIN", "PROBE_PIN_1", "VDD_VALUE",
+                      "INDEX_1_VALUE", "OUTPUT_LOAD"],
+        measurement="standard",
+        description="AO22 compound gate delay, Spectre-only (FMC rollout incomplete)",
     ),
     TemplateFamily(
         key="delay/ao22/fall",
-        template_path="templates/v2/delay/template__ao22__fall__1.thanos.sp",
-        backend=Backend.SPECTRE,
-        tran_style=TranStyle.SPECTRE_TRAN_ITER,
+        spectre_template_path="templates/v2/delay/template__ao22__fall__1.thanos.sp",
+        tran_style=TranStyle.OPTIMIZE,   # HSPICE tran style if/when HSPICE ships
         init_style=InitStyle.IC,
         ic_count=2,
         param_schema=["REL_PIN", "PROBE_PIN_1", "VDD_VALUE",
                       "INDEX_1_VALUE", "OUTPUT_LOAD"],
         measurement="standard",
-        description="Spectre delay, AO22 compound gate fall, tranIter, IC init",
+        description="AO22 compound gate delay fall, Spectre-only (FMC rollout incomplete)",
     ),
 ]
 
@@ -212,12 +237,7 @@ _registry: Optional[Dict[str, TemplateFamily]] = None
 
 
 def get_registry() -> Dict[str, TemplateFamily]:
-    """Return the loaded template family registry.
-
-    On first call, loads from the bootstrap set (Phase 2A).
-    Future Phase 2B will extend this to load additional families from
-    config/families.yaml or templates/v2/ directory scan.
-    """
+    """Return the loaded template family registry (lazy-initialized singleton)."""
     global _registry
     if _registry is None:
         _registry = _build_index(_BOOTSTRAP_FAMILIES)
@@ -229,12 +249,6 @@ def load_families(families_dir: str = None) -> Dict[str, TemplateFamily]:
 
     Phase 2A: returns bootstrap hardcoded families regardless of families_dir.
     Phase 2B: will load from YAML config or templates/v2/ directory scan.
-
-    Args:
-        families_dir: Path to templates/v2/ or config dir. Ignored in Phase 2A.
-
-    Returns:
-        Dict mapping family key -> TemplateFamily.
     """
     return get_registry()
 

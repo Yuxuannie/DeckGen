@@ -19,6 +19,7 @@ from core.principle_engine.family_types import (
     SelectionError,
     TemplateFamily,
     TranStyle,
+    UnsupportedBackendError,
 )
 from core.principle_engine.selector import select_template_family
 
@@ -31,6 +32,7 @@ __all__ = [
     "ProbeInfo",
     "TemplateFamily",
     "SelectionError",
+    "UnsupportedBackendError",
     "classify_cell",
     "select_template_family",
 ]
