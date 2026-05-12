@@ -101,8 +101,9 @@ class TestDirPair:
     def test_case_insensitive(self):
         assert _dir_pair("Rise", "Fall") == "rise_fall"
 
-    def test_defaults(self):
-        assert _dir_pair(None, None) == "rise_fall"
+    def test_raises_on_none(self):
+        with pytest.raises(ValueError, match="requires both directions"):
+            _dir_pair(None, None)
 
 
 # ---------------------------------------------------------------------------

@@ -43,9 +43,12 @@ from core.principle_engine.family_types import (
 
 def _dir_pair(rel_pin_dir: str, constr_pin_dir: str) -> str:
     """Normalize direction pair to string fragment used in family keys."""
-    r = (rel_pin_dir or "rise").lower()
-    c = (constr_pin_dir or "fall").lower()
-    return f"{r}_{c}"
+    if not rel_pin_dir or not constr_pin_dir:
+        raise ValueError(
+            f"_dir_pair requires both directions: "
+            f"got rel_pin_dir={rel_pin_dir!r}, constr_pin_dir={constr_pin_dir!r}"
+        )
+    return f"{rel_pin_dir.lower()}_{constr_pin_dir.lower()}"
 
 
 def _infer_tran_style(arc_type: str, backend: Backend) -> TranStyle:
