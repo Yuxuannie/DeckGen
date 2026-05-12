@@ -1,5 +1,8 @@
 # Phase 2 Spec Draft: Principle-Driven Deck Generation
 
+N2P collateral inventory (cell names, sub-library layout, corners, naming regex):
+docs/phase2/n2p_collateral_inventory.md
+
 ## 1. Architecture Decision Record
 
 ### Decision: Select + Parameterize (Architecture A)
