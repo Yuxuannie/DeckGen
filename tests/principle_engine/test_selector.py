@@ -221,6 +221,17 @@ class TestMvpFamilySelection:
         assert fam.hspice_template_path is not None
         assert fam.spectre_template_path is not None
 
+    def test_setup_common_rise_fall(self):
+        fam = sel("DFFQ1BWP", "setup", "rise", "fall")
+        assert fam.key == "setup/common/rise_fall"
+        assert fam.hspice_template_path is not None
+        assert fam.tran_style == TranStyle.MONTE_CARLO
+
+    def test_setup_common_fall_rise(self):
+        fam = sel("DFFQ1BWP", "setup", "fall", "rise")
+        assert fam.key == "setup/common/fall_rise"
+        assert fam.hspice_template_path is not None
+
     def test_ao22_delay_rise(self):
         # AO22 delay: Spectre-only (HSPICE not shipped by FMC for this family)
         fam = sel("AO22D1BWP", "delay", "rise", "fall")
@@ -397,8 +408,8 @@ class TestRegistryConsistency:
                 )
 
     def test_registry_entry_count(self):
-        # 14 entries: 12 original MVP + 2 latch delay dual-backend (Patch 6a)
-        assert len(get_registry()) == 14
+        # 16 entries: 14 from Phase 2A + 2 setup/common (Phase 2B.1)
+        assert len(get_registry()) == 16
 
     def test_latch_delay_is_dual_backend(self):
         registry = get_registry()
