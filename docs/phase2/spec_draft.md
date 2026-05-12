@@ -555,13 +555,22 @@ path. MPW validates against the 63 shipped templates.
 
 ### Cell families in scope (MVP)
 
+> **N2P_v1.0 note (2026-05-11):** Tier-1 fixture matrix maps these families
+> to N2P-specific anchor cells (see `docs/phase2/n2p_collateral_inventory.md`
+> section 4). Two deviations from the MCQC library apply: (1) N2P ships zero
+> SLH/SDLH/SCAN*LAT cells; the fixture "sync" slot uses
+> `SDFSYNC1QSXGMZD1BWP130HPNPN3P48CPD` instead, covering the same axes
+> (scan-init, SE pin constraints, Q polarity, recovery/removal arcs). (2) N2P
+> ships zero CKG cells; Family 5 (clock gater) is deferred from Tier-1 to
+> Tier-2.
+
 | # | Cell family | Topology class | Init style (E.2 verified) | Measurement | Why |
 |---|-------------|---------------|---------------------------|-------------|-----|
 | 1 | Standard FF (DFFQ1, SDFQ1) | COMMON | NONE for hold; NODESET for mpw | pushout | Baseline: simplest hold arc |
 | 2 | Latch (LHQD1) | LATCH | IC (ic_count=2) for hold; NONE for setup | glitch (maxq/minq) | Tests glitch polarity + IC init |
 | 3 | Multi-bank (MB*SRLSDF*) | MB | IC (ic_count=8) for hold | glitch | Tests multi-input expansion (AO22) + deep IC init |
-| 4 | Synchronizer (SYNC2-6) | SYNC | NODESET for mpw (verified: 16 lines) | pushout | Tests depth parameterization + waveform scaling |
-| 5 | Clock gater (CKGAN2*, CKGND2*) | CKG | NONE for hold; IC (ic_count=2) for hold/nx variants | pushout | Tests gate-type sub-classification (AND vs NAND) |
+| 4 | Synchronizer (SYNC2-6) | SYNC | NODESET for mpw (verified: 16 lines) | pushout | Tests depth parameterization + waveform scaling. N2P: SYNC2-6 absent; `SDFSYNC1QSXGMZD1BWP130HPNPN3P48CPD` used as N2P sync-slot anchor (scan-init / SE coverage) |
+| 5 | Clock gater (CKGAN2*, CKGND2*) | CKG | NONE for hold; IC (ic_count=2) for hold/nx variants | pushout | Tests gate-type sub-classification (AND vs NAND). N2P: zero CKG cells in N2P_v1.0; Family 5 deferred to Tier-2 |
 | 6 | Retention flop (*RETN* + *RSSDF*) | RETN | IC (ic_count=4) for non_seq_hold; NONE for base retn | glitch (maxq/minq) | Smoke-tests deep IC init; same cell as regression suite #18 |
 | 7 | Delay inverter / FF (HSPICE) | COMMON/EDF | IC (ic_count=1-4) for delay; OPTIMIZE .tran; HSPICE-only | delay (cp2q) | Validates delay ecosystem: OPTIMIZE .tran, .ic init, different measurement paradigm |
 | 8 | Latch delay (dual-backend) | LATCH | IC (ic_count=2); both HSPICE and Spectre templates available | delay (cp2q) | Validates dual-backend path: assert_backend_available(HSPICE) and (SPECTRE) both pass; E.3: latch=25 is largest Spectre cell family |
@@ -598,6 +607,27 @@ These 8 families exercise:
 > Spectre files) are still scoped to Phase 2C/2D.
 > Family 6 uses non_seq_hold arcs only; family 8 covers one Spectre
 > cell pattern only.
+
+### Track / VT / sub-library scope (N2P_v1.0)
+
+N2P_v1.0 ships four cell tracks (`NPPN`, `PNNP`, `PNPN`, `PPNN`) and three
+VT flavors (`svt`, `elvt`, `lvt`). Cell-name regex (anchored, extension
+stripped before match):
+
+```
+^([A-Z][A-Z0-9]+?)(M[A-Z0-9]+)?MZD(\d+P?\d*)BWP130H(NPPN|PNNP|PNPN|PPNN)3P48CPD(ELVT|LVT)?$
+```
+
+| Tier | Track | VT | Notes |
+|------|-------|----|-------|
+| Tier-1 (byte-equal, frozen) | PNPN | SVT | Only track with full sub-library set (`base`, `mb`, `pm`, `psw`) |
+| Tier-2 (planned) | NPPN, PNNP, PPNN | SVT | `base` sub-library only for these tracks |
+| Tier-3 (deferred) | PNPN | ELVT | Higher-VT variant of PNPN track |
+| (deferred) | PNPN | LVT | `psw_lvt` sub-library only |
+
+Sub-library discovery must walk `mb_*`, `pm_*`, `psw_*` siblings of
+`base_*` (PNPN track only). See `docs/phase2/n2p_collateral_inventory.md`
+section 1 for the full directory listing.
 
 ### Explicit out-of-scope for MVP
 
@@ -645,13 +675,13 @@ strategies, and both measurement types. Cells chosen from names observed in
 | 7 | MB*SRLSDF* | Multi-bank | nodeset_latch | glitch | hold |
 | 8 | MB2SRLSDFAO22* | Multi-bank + AO22 expansion | nodeset_latch | glitch | hold |
 | 9 | *EDF*D* | Edge-detect FF | nodeset | glitch | hold |
-| 10 | *SLH*QSO* | Scan latch hold | nodeset_latch | pushout | hold |
+| 10 | *SLH*QSO* [N2P: no SLH cells; SDFSYNC1Q used as sync anchor] | Scan latch hold | nodeset_latch | pushout | hold |
 | 11 | DCCKDIV4* | Divider | nodeset | pushout | hold |
 | 12 | *DRDF* | Dual-rail dual-flop | nodeset | pushout | mpw |
 | 13 | *DET* | Detector | nodeset | pushout | mpw |
-| 14 | CKGAN2* | Clock gater (AND) | nodeset | pushout | hold, nochange |
-| 15 | *CKG*ND2* | Clock gater (NAND) | nodeset | pushout | hold, nochange |
-| 16 | *CKGMUX2* | Clock gater (MUX2) | nodeset | pushout | nochange |
+| 14 | CKGAN2* [N2P: no CKG cells] | Clock gater (AND) | nodeset | pushout | hold, nochange |
+| 15 | *CKG*ND2* [N2P: no CKG cells] | Clock gater (NAND) | nodeset | pushout | hold, nochange |
+| 16 | *CKGMUX2* [N2P: no CKG cells] | Clock gater (MUX2) | nodeset | pushout | nochange |
 | 17 | DCCKSDIV2* | GCLK divider (scan variants) | nodeset | pushout | hold |
 | 18 | *RETN* + *RSSDF* | Retention flop (= MVP family 6) | ic_retention | glitch | non_seq_hold |
 | 19 | *RCB* | Register-controlled buffer | nodeset | pushout | hold |
