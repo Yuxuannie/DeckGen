@@ -1778,9 +1778,15 @@
       "CKG*",
       "PTCKG*ISO*"
     ],
-    "constr_pin": "EN",
+    "constr_pin": [
+      "EN",
+      "ISO"
+    ],
     "constr_pin_dir": "fall",
-    "rel_pin": "CP",
+    "rel_pin": [
+      "CP",
+      "I"
+    ],
     "rel_pin_dir": "rise",
     "when": null,
     "probe": {
@@ -6790,7 +6796,10 @@
     ],
     "constr_pin": "SE",
     "constr_pin_dir": "rise",
-    "rel_pin": "E",
+    "rel_pin": [
+      "E",
+      "CLK"
+    ],
     "rel_pin_dir": "rise",
     "when": "\"D\" in when",
     "probe": {
