@@ -287,6 +287,23 @@ class TestDualBackendFamily:
 
 
 # ---------------------------------------------------------------------------
+# Topology fallback warning
+# ---------------------------------------------------------------------------
+
+class TestTopologyFallback:
+    def test_topology_fallback_emits_warning(self, caplog):
+        """When the classifier returns a non-common topology that doesn't
+        have a registry entry, selector falls back to common AND logs a
+        warning. The fallback is intentional Phase 2A scaffolding but must
+        be observable for debug."""
+        import logging
+        with caplog.at_level(logging.WARNING, logger="core.principle_engine.selector"):
+            fam = sel("DFFQ1BWP", "delay", "rise", "fall")  # FLOP -> common
+            assert fam.key == "delay/common/rise"
+            assert any("Topology fallback" in rec.message for rec in caplog.records)
+
+
+# ---------------------------------------------------------------------------
 # SelectionError diagnostics
 # ---------------------------------------------------------------------------
 

@@ -23,9 +23,12 @@ Source: spec_draft.md SS2 (selector.py section), SS3 (v1/v2 coexistence),
         Yuxuan clarification 2026-05-11 (Spectre as parallel output format).
 """
 
+import logging
 from typing import Optional
 
 from core.principle_engine.classifier import ClassifierResult
+
+log = logging.getLogger(__name__)
 from core.principle_engine.families import get_registry
 from core.principle_engine.family_types import (
     Backend,
@@ -205,6 +208,11 @@ def select_template_family(
     for key in ordered_keys:
         fam = registry.get(key)
         if fam is not None:
+            if topology != "common" and "/common/" in key:
+                log.warning(
+                    "Topology fallback to common: requested %s, used %s",
+                    topology, "common",
+                )
             return fam
 
     # No match -- build diagnostic
