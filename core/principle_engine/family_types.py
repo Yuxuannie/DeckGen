@@ -28,7 +28,9 @@ from typing import List, Optional, Set
 
 
 class CellClass(Enum):
-    """Cell topology class. 15 classes derived from Task B discrimination analysis.
+    """Cell topology class. 16 enum values: 15 production topology classes
+    derived from Task B discrimination analysis, plus UNKNOWN for unclassified
+    cells (triggers v1 fallback).
 
     Each class maps to a distinct set of template families in the reduced
     library. The classifier assigns one of these values based on cell name
