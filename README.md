@@ -207,3 +207,12 @@ Cannot generate deck for MYCELL / hold / CLK->D:
 
 Templates under `templates/min_pulse_width/` are derived from TSMC ADC Timing
 Team source material. Use accordingly.
+
+## Project milestones
+
+| Tag | What it marks | Purpose |
+|-----|---------------|---------|
+| v0.1-mcqc-parity | Working DeckGen reproducing MCQC v3.5.5 with UI + Collaterals | Regression baseline for Phase 2 byte-equal target |
+| v0.2-phase2a-complete | Phase 2A: classifier + selector + backend abstraction | Architecture foundation for principle engine |
+
+See docs/phase2/spec_draft.md for the Phase 2 roadmap.
