@@ -233,7 +233,7 @@
   },
   {
     "line": 393,
-    "arc_type": "unknown",
+    "arc_type": "nochange_high_high",
     "cell_pattern": [],
     "constr_pin": [],
     "constr_pin_dir": null,
@@ -251,7 +251,7 @@
   },
   {
     "line": 399,
-    "arc_type": "unknown",
+    "arc_type": "nochange_high_high",
     "cell_pattern": [],
     "constr_pin": [],
     "constr_pin_dir": null,
@@ -269,7 +269,7 @@
   },
   {
     "line": 417,
-    "arc_type": "unknown",
+    "arc_type": "nochange_high_high",
     "cell_pattern": [],
     "constr_pin": [],
     "constr_pin_dir": null,
@@ -287,7 +287,7 @@
   },
   {
     "line": 423,
-    "arc_type": "unknown",
+    "arc_type": "nochange_high_high",
     "cell_pattern": [],
     "constr_pin": [],
     "constr_pin_dir": null,
@@ -305,7 +305,7 @@
   },
   {
     "line": 441,
-    "arc_type": "unknown",
+    "arc_type": "nochange_low_high",
     "cell_pattern": [],
     "constr_pin": [],
     "constr_pin_dir": null,
@@ -323,7 +323,7 @@
   },
   {
     "line": 447,
-    "arc_type": "unknown",
+    "arc_type": "nochange_low_high",
     "cell_pattern": [],
     "constr_pin": [],
     "constr_pin_dir": null,
@@ -341,7 +341,7 @@
   },
   {
     "line": 465,
-    "arc_type": "unknown",
+    "arc_type": "nochange_low_high",
     "cell_pattern": [],
     "constr_pin": [],
     "constr_pin_dir": null,
@@ -359,7 +359,7 @@
   },
   {
     "line": 471,
-    "arc_type": "unknown",
+    "arc_type": "nochange_low_high",
     "cell_pattern": [],
     "constr_pin": [],
     "constr_pin_dir": null,
