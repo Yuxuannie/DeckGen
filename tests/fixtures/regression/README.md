@@ -3,6 +3,16 @@
 This directory holds the v1 baseline SPICE decks used to verify that the
 Phase 2 principle engine produces byte-equal output to the frozen v1 engine.
 
+## Tier-1 cell/corner matrix
+
+The fixture matrix is defined in `generate_baselines.sh` and statically
+verified by `tests/test_generate_baselines_config.py`. The cell names and
+corner are sourced from the N2P collateral inspection:
+
+- Cells: see `docs/phase2/n2p_collateral_inventory.md` section 4
+- Corner: `ffgnp_cbest_CCbest_T_125c` (only LPE corner in N2P_v1.0)
+- Track: PNPN, VT: SVT (Tier-1 scope)
+
 ## How baselines are generated
 
 Baselines are captured at tag `v0.1-mcqc-parity`, which is the frozen v1
