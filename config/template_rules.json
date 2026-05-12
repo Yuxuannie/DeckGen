@@ -201,7 +201,7 @@
   },
   {
     "line": 369,
-    "arc_type": "unknown",
+    "arc_type": "hold",
     "cell_pattern": [],
     "constr_pin": [],
     "constr_pin_dir": "rise",
@@ -217,7 +217,7 @@
   },
   {
     "line": 375,
-    "arc_type": "unknown",
+    "arc_type": "hold",
     "cell_pattern": [],
     "constr_pin": [],
     "constr_pin_dir": "fall",
@@ -595,7 +595,7 @@
   },
   {
     "line": 723,
-    "arc_type": "unknown",
+    "arc_type": "hold",
     "cell_pattern": [],
     "constr_pin": [],
     "constr_pin_dir": null,
@@ -611,7 +611,7 @@
   },
   {
     "line": 751,
-    "arc_type": "unknown",
+    "arc_type": "hold",
     "cell_pattern": [],
     "constr_pin": [],
     "constr_pin_dir": null,
@@ -11320,7 +11320,7 @@
   },
   {
     "line": 12331,
-    "arc_type": "unknown",
+    "arc_type": "nochange_low_low",
     "cell_pattern": [],
     "constr_pin": [],
     "constr_pin_dir": null,
@@ -11339,7 +11339,7 @@
   },
   {
     "line": 12339,
-    "arc_type": "unknown",
+    "arc_type": "nochange_low_low",
     "cell_pattern": [],
     "constr_pin": [],
     "constr_pin_dir": null,
@@ -11359,7 +11359,7 @@
   },
   {
     "line": 12347,
-    "arc_type": "unknown",
+    "arc_type": "nochange_low_low",
     "cell_pattern": [
       "*RSSDFSYNC*"
     ],
@@ -11379,7 +11379,7 @@
   },
   {
     "line": 12373,
-    "arc_type": "unknown",
+    "arc_type": "nochange_high_low",
     "cell_pattern": [],
     "constr_pin": [],
     "constr_pin_dir": null,
@@ -11398,7 +11398,7 @@
   },
   {
     "line": 12379,
-    "arc_type": "unknown",
+    "arc_type": "nochange_high_low",
     "cell_pattern": [],
     "constr_pin": [],
     "constr_pin_dir": null,
@@ -11418,7 +11418,7 @@
   },
   {
     "line": 12401,
-    "arc_type": "unknown",
+    "arc_type": "removal",
     "cell_pattern": [],
     "constr_pin": [],
     "constr_pin_dir": null,
@@ -11437,7 +11437,7 @@
   },
   {
     "line": 12409,
-    "arc_type": "unknown",
+    "arc_type": "removal",
     "cell_pattern": [],
     "constr_pin": [],
     "constr_pin_dir": null,
@@ -11559,7 +11559,7 @@
   },
   {
     "line": 12555,
-    "arc_type": "unknown",
+    "arc_type": "hold",
     "cell_pattern": [
       "*CKLH*"
     ],
@@ -12417,7 +12417,7 @@
   },
   {
     "line": 13677,
-    "arc_type": "unknown",
+    "arc_type": "min_pulse_width",
     "cell_pattern": [
       "*SYNC2*"
     ],
@@ -12435,7 +12435,7 @@
   },
   {
     "line": 13683,
-    "arc_type": "unknown",
+    "arc_type": "min_pulse_width",
     "cell_pattern": [
       "*SYNC3*"
     ],
@@ -12453,7 +12453,7 @@
   },
   {
     "line": 13689,
-    "arc_type": "unknown",
+    "arc_type": "min_pulse_width",
     "cell_pattern": [
       "*SYNC4*"
     ],
@@ -12471,7 +12471,7 @@
   },
   {
     "line": 13695,
-    "arc_type": "unknown",
+    "arc_type": "min_pulse_width",
     "cell_pattern": [
       "*SYNC5*"
     ],
@@ -12489,7 +12489,7 @@
   },
   {
     "line": 13701,
-    "arc_type": "unknown",
+    "arc_type": "min_pulse_width",
     "cell_pattern": [
       "*SYNC6*"
     ],
@@ -12507,7 +12507,7 @@
   },
   {
     "line": 13713,
-    "arc_type": "unknown",
+    "arc_type": "min_pulse_width",
     "cell_pattern": [],
     "constr_pin": "CP",
     "constr_pin_dir": "rise",
@@ -12523,7 +12523,7 @@
   },
   {
     "line": 13719,
-    "arc_type": "unknown",
+    "arc_type": "min_pulse_width",
     "cell_pattern": [
       "*SDF*"
     ],
@@ -12541,7 +12541,7 @@
   },
   {
     "line": 13733,
-    "arc_type": "unknown",
+    "arc_type": "min_pulse_width",
     "cell_pattern": [
       "*SDF*"
     ],
@@ -12559,7 +12559,7 @@
   },
   {
     "line": 13747,
-    "arc_type": "unknown",
+    "arc_type": "min_pulse_width",
     "cell_pattern": [],
     "constr_pin": "CPN",
     "constr_pin_dir": "fall",
@@ -12575,7 +12575,7 @@
   },
   {
     "line": 13763,
-    "arc_type": "unknown",
+    "arc_type": "min_pulse_width",
     "cell_pattern": [
       "*SYNC2*"
     ],
@@ -12593,7 +12593,7 @@
   },
   {
     "line": 13769,
-    "arc_type": "unknown",
+    "arc_type": "min_pulse_width",
     "cell_pattern": [
       "*SYNC3*"
     ],
@@ -12611,7 +12611,7 @@
   },
   {
     "line": 13775,
-    "arc_type": "unknown",
+    "arc_type": "min_pulse_width",
     "cell_pattern": [
       "*SYNC4*"
     ],
@@ -12629,7 +12629,7 @@
   },
   {
     "line": 13781,
-    "arc_type": "unknown",
+    "arc_type": "min_pulse_width",
     "cell_pattern": [
       "*SYNC5*"
     ],
@@ -12647,7 +12647,7 @@
   },
   {
     "line": 13787,
-    "arc_type": "unknown",
+    "arc_type": "min_pulse_width",
     "cell_pattern": [
       "*SYNC6*"
     ],
@@ -13137,7 +13137,7 @@
   },
   {
     "line": 14197,
-    "arc_type": "unknown",
+    "arc_type": "min_pulse_width",
     "cell_pattern": [
       "*DRDF*"
     ],
@@ -13155,7 +13155,7 @@
   },
   {
     "line": 14223,
-    "arc_type": "unknown",
+    "arc_type": "min_pulse_width",
     "cell_pattern": [
       "*DRDF*"
     ],
@@ -13349,7 +13349,7 @@
   },
   {
     "line": 14407,
-    "arc_type": "unknown",
+    "arc_type": "min_pulse_width",
     "cell_pattern": [
       "*DET*"
     ],
