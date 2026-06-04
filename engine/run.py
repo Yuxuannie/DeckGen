@@ -57,6 +57,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--viz", action="store_true", help="print the ASCII sensitization/init map")
     ap.add_argument("--topo", action="store_true", help="print parsed schematic + CCC channels")
     ap.add_argument("--topo-full", action="store_true", help="--topo plus the anonymous series nodes")
+    ap.add_argument("--dot", default=None, metavar="PATH", help="write a Graphviz .dot of the topology")
+    ap.add_argument("--svg", default=None, metavar="PATH", help="write a self-contained SVG (open in a browser)")
     ap.add_argument("--deck", action="store_true", help="also print the assembled deck")
     args = ap.parse_args(argv)
 
@@ -74,6 +76,16 @@ def main(argv: list[str] | None = None) -> int:
         from engine.topo_viz import render as render_topo
         print("\n" + render_topo(result.graph, result.ccc, result.arc,
                                  full=args.topo_full))
+    if args.dot:
+        from engine.draw import render_dot
+        with open(args.dot, "w", encoding="ascii") as fh:
+            fh.write(render_dot(result.graph, result.ccc, result.sens, result.arc))
+        print(f"wrote {args.dot}  (render: dot -Tpng {args.dot} -o out.png)")
+    if args.svg:
+        from engine.draw import render_svg
+        with open(args.svg, "w", encoding="ascii") as fh:
+            fh.write(render_svg(result.graph, result.ccc, result.sens, result.arc))
+        print(f"wrote {args.svg}  (open in a browser: firefox {args.svg})")
     if args.viz:
         from engine.viz import render as render_viz
         print("\n" + render_viz(result))
