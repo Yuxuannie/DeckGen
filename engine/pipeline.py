@@ -41,8 +41,10 @@ def _run(record, src, meas, model, backend_name) -> PipelineResult:
     log.append(f"S2 sensitize: biases {{{', '.join(f'{k}={v.value}' for k, v in sens.side_biases.items())}}} "
                f"P1={'PASS' if sens.proven else 'FAIL'} [switch-level Boolean-diff]")
 
-    init = stage3_initialize.derive(ccc, arc)
-    log.append(f"S3 init     : probes {init.probes}, precycle={init.precycle_count.value} [STUB]")
+    init = stage3_initialize.derive(graph, ccc, arc, sens)
+    req = {n: d.value for n, d in init.required_state.items()}
+    log.append(f"S3 init     : required {req}, precycle={init.precycle_count.value} "
+               f"[derived; P2 measured PENDING SIM]")
 
     deck = stage4_deckgen.assemble(graph, arc, sens, init, meas, model)
     log.append(f"S4 deckgen  : {deck.line_count()} lines, measurement passed-through [WIRED]")

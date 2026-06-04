@@ -55,11 +55,11 @@ def render(r: PipelineResult) -> str:
     p2 = r.verdict.p2.status.value
     L.append(f" INITIALIZATION (P2: {p2})")
     L.append(_bar("-"))
-    for sn in ccc.state_nodes:
+    for i, sn in enumerate(ccc.state_nodes):
         d = init.required_state.get(sn.net)
         val = d.value if d else "?"
-        probe = "yes" if sn.net in init.probes else "no"
-        L.append(f"  [{sn.role:<6} {sn.net:<14}] required pre-edge: {val!s:<6} probe: {probe}")
+        probe = init.probes[i] if i < len(init.probes) else "?"
+        L.append(f"  [{sn.role:<6} {sn.net:<10}] required pre-edge: {val!s:<5} probe: {probe}")
     L.append(f"  pre-cycle (drive-and-settle): {init.precycle_count.value}  "
              f"then capturing {rel} edge, then {constr} change (hold bisect)")
     L.append(_bar())
