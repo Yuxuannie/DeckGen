@@ -68,7 +68,16 @@ class _FileBackend(DataAccess):
             return fh.read()
 
     def read_netlist(self, cell: str) -> str:
-        return self._read(f"{cell}.subckt")
+        # Accept common netlist extensions so the real .spi need not be renamed.
+        for ext in (".subckt", ".spi", ".sp", ".cdl"):
+            path = os.path.join(self.root, f"{cell}{ext}")
+            if os.path.isfile(path):
+                with open(path, "r", encoding="ascii") as fh:
+                    return fh.read()
+        raise FileNotFoundError(
+            f"[{self.name}] no netlist for cell {cell!r} in {self.root} "
+            f"(tried .subckt/.spi/.sp/.cdl)"
+        )
 
     def read_arc(self, arc_id: str) -> Dict[str, Any]:
         return json.loads(self._read("arcs", f"{arc_id}.json"))

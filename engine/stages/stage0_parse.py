@@ -65,15 +65,61 @@ def _base(node: str) -> str:
     return _TERM_SUFFIX.sub("", node)
 
 
+def _is_model_tok(t: str) -> bool:
+    tl = t.lower()
+    return "mac" in tl or tl.startswith(("nch", "pch", "nmos", "pmos"))
+
+
+def _logical_lines(source: str) -> List[str]:
+    """Join HSPICE `+` continuation lines into single logical lines."""
+    out: List[str] = []
+    for raw in source.splitlines():
+        st = raw.strip()
+        if not st:
+            continue
+        if st.startswith("+"):
+            if out:
+                out[-1] = out[-1] + " " + st[1:].strip()
+            continue
+        out.append(st)
+    return out
+
+
+def _split_device(toks: List[str]):
+    """Return (terminals, model) for an X-device line, or None if unparseable.
+
+    Finds the model token (first non-param token that looks like a model);
+    terminals are the node tokens between the name and the model. Robust to
+    3- or 4-terminal macro devices and to long param columns.
+    """
+    midx = None
+    for i in range(1, len(toks)):
+        if "=" in toks[i]:
+            break                       # reached params; model is before here
+        if _is_model_tok(toks[i]):
+            midx = i
+            break
+    if midx is None:                    # fallback: last non-param token = model
+        j = 1
+        while j < len(toks) and "=" not in toks[j]:
+            j += 1
+        midx = j - 1
+    if midx <= 0:
+        return None
+    terms = toks[1:midx]
+    if len(terms) < 3:                  # need at least d g s to be a transistor
+        return None
+    return terms, toks[midx]
+
+
 def parse(source: str, cell: str) -> DeviceGraph:
     ports: List[str] = []
     raw_devices: List[tuple] = []          # (name, kind, model, [d,g,s,b])
     device_names: set = set()
     uf = _UF()
 
-    for raw in source.splitlines():
-        line = raw.strip()
-        if not line or line.startswith("*"):
+    for line in _logical_lines(source):
+        if line.startswith("*"):
             continue
         low = line.lower()
         if low.startswith(".subckt"):
@@ -81,17 +127,21 @@ def parse(source: str, cell: str) -> DeviceGraph:
             for p in ports:
                 uf.add(p)
             continue
-        if low.startswith(".ends"):
+        if low.startswith("."):            # .ends / .param / other directives
             continue
         head = line[0].upper()
         toks = line.split()
         if head == "X":
-            # X<name> d g s b <model> <params...>
-            name, terms, model = toks[0], toks[1:5], toks[5]
-            kind = _kind(model)
-            raw_devices.append((name, kind, model, terms))
-            device_names.add(name)
-            for t in terms:
+            parsed = _split_device(toks)
+            if parsed is None:
+                continue                   # not a transistor (e.g. subckt call)
+            terms, model = parsed
+            d, g, s = terms[0], terms[1], terms[2]
+            b = terms[3] if len(terms) > 3 else terms[2]
+            terms4 = [d, g, s, b]
+            raw_devices.append((toks[0], _kind(model), model, terms4))
+            device_names.add(toks[0])
+            for t in terms4:
                 uf.add(t)
         elif head == "R":
             # R<name> n1 n2 value [$active]   -> short it (intra-net interconnect)
