@@ -21,18 +21,23 @@ from engine.pipeline import run_pipeline, run_pipeline_src
 from engine.verdict import render, render_status
 
 
-def _direct(netlist_path: str, cell: str | None, constr="D", rel="CP", when=""):
+def _direct(netlist_path: str, cell: str | None, constr="D", rel="CP", when="",
+            arc_id: str | None = None):
     """Run on a netlist file directly. Used to validate on real data with no
-    config/arc ceremony. S0/S1 use only the netlist; pass --when to let Stage 2
-    cross-check the derived bias against the arc's asserted condition."""
+    config/arc ceremony. S0/S1 use only the netlist; pass --when (or --arc-id) so
+    Stage 2 can cross-check the derived bias against the arc's asserted condition."""
     with open(netlist_path, "r", encoding="ascii") as fh:
         src = fh.read()
     cell = cell or os.path.splitext(os.path.basename(netlist_path))[0]
-    record = {
-        "cell": cell, "arc_type": "hold", "rel_pin": rel, "rel_dir": "rise",
-        "constr_pin": constr, "constr_dir": "fall", "when": when,
-        "measurement": "(direct mode)",
-    }
+    if arc_id:
+        from engine.arc_id import parse_arc_id
+        record = parse_arc_id(arc_id, cell)
+    else:
+        record = {
+            "cell": cell, "arc_type": "hold", "rel_pin": rel, "rel_dir": "rise",
+            "constr_pin": constr, "constr_dir": "fall", "when": when,
+            "measurement": "(direct mode)",
+        }
     fx = FixtureBackend(os.path.join(ENGINE_DIR, "fixtures"))   # pass-through meas/model
     meas, model = fx.read_measurement_block(record), fx.read_model()
     return run_pipeline_src(record, src, meas, model,
@@ -48,12 +53,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--when", default="", help="arc when-condition, e.g. notSE_SI (cross-check)")
     ap.add_argument("--constr-pin", default="D", help="constraint pin (direct mode, default D)")
     ap.add_argument("--rel-pin", default="CP", help="related/clock pin (direct mode, default CP)")
+    ap.add_argument("--arc-id", default=None, help="full arc identifier (overrides when/pins)")
     ap.add_argument("--viz", action="store_true", help="print the ASCII sensitization/init map")
+    ap.add_argument("--topo", action="store_true", help="print parsed schematic + CCC channels")
     ap.add_argument("--deck", action="store_true", help="also print the assembled deck")
     args = ap.parse_args(argv)
 
     if args.netlist:
-        result = _direct(args.netlist, args.cell, args.constr_pin, args.rel_pin, args.when)
+        result = _direct(args.netlist, args.cell, args.constr_pin, args.rel_pin,
+                         args.when, args.arc_id)
     else:
         config = load_config(args.config)
         da = make_data_access(config, base_dir=ENGINE_DIR)
@@ -61,6 +69,9 @@ def main(argv: list[str] | None = None) -> int:
 
     print(render_status(result))
     print(render(result))
+    if args.topo:
+        from engine.topo_viz import render as render_topo
+        print("\n" + render_topo(result.graph, result.ccc))
     if args.viz:
         from engine.viz import render as render_viz
         print("\n" + render_viz(result))
