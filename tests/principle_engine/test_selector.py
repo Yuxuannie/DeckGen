@@ -101,8 +101,9 @@ class TestDirPair:
     def test_case_insensitive(self):
         assert _dir_pair("Rise", "Fall") == "rise_fall"
 
-    def test_defaults(self):
-        assert _dir_pair(None, None) == "rise_fall"
+    def test_raises_on_none(self):
+        with pytest.raises(ValueError, match="requires both directions"):
+            _dir_pair(None, None)
 
 
 # ---------------------------------------------------------------------------
@@ -220,6 +221,17 @@ class TestMvpFamilySelection:
         assert fam.hspice_template_path is not None
         assert fam.spectre_template_path is not None
 
+    def test_setup_common_rise_fall(self):
+        fam = sel("DFFQ1BWP", "setup", "rise", "fall")
+        assert fam.key == "setup/common/rise_fall"
+        assert fam.hspice_template_path is not None
+        assert fam.tran_style == TranStyle.MONTE_CARLO
+
+    def test_setup_common_fall_rise(self):
+        fam = sel("DFFQ1BWP", "setup", "fall", "rise")
+        assert fam.key == "setup/common/fall_rise"
+        assert fam.hspice_template_path is not None
+
     def test_ao22_delay_rise(self):
         # AO22 delay: Spectre-only (HSPICE not shipped by FMC for this family)
         fam = sel("AO22D1BWP", "delay", "rise", "fall")
@@ -284,6 +296,23 @@ class TestDualBackendFamily:
         # TemplateFamily without any template path must raise at construction.
         with pytest.raises(ValueError, match="at least one of"):
             TemplateFamily(key="test/empty/rise")
+
+
+# ---------------------------------------------------------------------------
+# Topology fallback warning
+# ---------------------------------------------------------------------------
+
+class TestTopologyFallback:
+    def test_topology_fallback_emits_warning(self, caplog):
+        """When the classifier returns a non-common topology that doesn't
+        have a registry entry, selector falls back to common AND logs a
+        warning. The fallback is intentional Phase 2A scaffolding but must
+        be observable for debug."""
+        import logging
+        with caplog.at_level(logging.WARNING, logger="core.principle_engine.selector"):
+            fam = sel("DFFQ1BWP", "delay", "rise", "fall")  # FLOP -> common
+            assert fam.key == "delay/common/rise"
+            assert any("Topology fallback" in rec.message for rec in caplog.records)
 
 
 # ---------------------------------------------------------------------------
@@ -379,8 +408,8 @@ class TestRegistryConsistency:
                 )
 
     def test_registry_entry_count(self):
-        # 14 entries: 12 original MVP + 2 latch delay dual-backend (Patch 6a)
-        assert len(get_registry()) == 14
+        # 16 entries: 14 from Phase 2A + 2 setup/common (Phase 2B.1)
+        assert len(get_registry()) == 16
 
     def test_latch_delay_is_dual_backend(self):
         registry = get_registry()

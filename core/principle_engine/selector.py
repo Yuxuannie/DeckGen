@@ -23,9 +23,12 @@ Source: spec_draft.md SS2 (selector.py section), SS3 (v1/v2 coexistence),
         Yuxuan clarification 2026-05-11 (Spectre as parallel output format).
 """
 
+import logging
 from typing import Optional
 
 from core.principle_engine.classifier import ClassifierResult
+
+log = logging.getLogger(__name__)
 from core.principle_engine.families import get_registry
 from core.principle_engine.family_types import (
     Backend,
@@ -40,9 +43,12 @@ from core.principle_engine.family_types import (
 
 def _dir_pair(rel_pin_dir: str, constr_pin_dir: str) -> str:
     """Normalize direction pair to string fragment used in family keys."""
-    r = (rel_pin_dir or "rise").lower()
-    c = (constr_pin_dir or "fall").lower()
-    return f"{r}_{c}"
+    if not rel_pin_dir or not constr_pin_dir:
+        raise ValueError(
+            f"_dir_pair requires both directions: "
+            f"got rel_pin_dir={rel_pin_dir!r}, constr_pin_dir={constr_pin_dir!r}"
+        )
+    return f"{rel_pin_dir.lower()}_{constr_pin_dir.lower()}"
 
 
 def _infer_tran_style(arc_type: str, backend: Backend) -> TranStyle:
@@ -205,6 +211,11 @@ def select_template_family(
     for key in ordered_keys:
         fam = registry.get(key)
         if fam is not None:
+            if topology != "common" and "/common/" in key:
+                log.warning(
+                    "Topology fallback to common: requested %s, used %s",
+                    topology, "common",
+                )
             return fam
 
     # No match -- build diagnostic

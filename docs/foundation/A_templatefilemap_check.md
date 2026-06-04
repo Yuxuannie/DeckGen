@@ -1,120 +1,628 @@
-# Task A: templateFileMap Reality Check
+# N2P_v1.0 Collateral Inventory
 
-## File Location Confirmation
+Reference for Phase 2 development. Captured from a server-side
+inspection of `N2P_v1.0/` on 2026-05-11. Source: second-pass scan
+script output, sections A through F (raw output appended below).
 
-| Item | Path |
-|------|------|
-| Source module | `/Users/nieyuxuan/Downloads/Work/4-MCQC/mcqc_flow/2-flow/funcs.py` |
-| Extracted rules | `my-work-scripts/deckgen/config/template_rules.json` |
+This document is the source of truth for:
+- N2P cell naming convention
+- Sub-library layout (which families live in which directory)
+- MVP cell x sub-library x corner matrix for Tier-1 byte-equal fixtures
+- Track / VT / drive-strength axes
 
-Phase 1 stated templateFileMap was "not available locally." This was incorrect.
-The file exists at `mcqc_flow/2-flow/funcs.py` (18,624 lines). It is the same
-module imported at runtime as `templateFileMap.funcs` via `sys.path.insert(0,
-TEMPLATE_LUT_PATH)` in `scld__mcqc.py`.
+If the spec (`docs/phase2/spec_draft.md`) and this doc disagree on
+collateral facts, this doc wins (it reflects what the server actually
+ships). Spec wins for architectural decisions.
 
-## File Statistics
+---
 
-| Metric | Value |
-|--------|-------|
-| funcs.py total lines | 18,624 |
-| `mapCharacteristicsToTemplate` | line 21 |
-| `getHspiceTemplateName` | line 67 (HSPICE if-chain) |
-| `getThanosTemplateName` | line 14,753 |
-| Total extracted rules | 854 |
-| HSPICE rules | 688 |
+## 1. Sub-library layout
 
-## Sampling Method
+`N2P_v1.0/` ships 4 standard-cell tracks (NPPN, PNNP, PNPN, PPNN).
+Only the **PNPN** track has the full sub-library family set. The
+other three tracks are base-only.
 
-30 HSPICE rules selected at uniform intervals from the 688-rule set
-(step ~22.9). Each rule verified by reading the corresponding line range in
-`funcs.py` and comparing arc_type, cell_pattern, constr_pin, constr_pin_dir,
-rel_pin, rel_pin_dir, when, probe, and template path.
+```
+N2P_v1.0/
++-- tcbn02p_bwph130nppnl3p48cpd_base_{elvt,svt}_c221227_400i/
++-- tcbn02p_bwph130pnnpl3p48cpd_base_{elvt,svt}_c221227_400i/
++-- tcbn02p_bwph130pnpnl3p48cpd_base_{elvt,svt}_c221227_400i/
++-- tcbn02p_bwph130pnpnl3p48cpd_mb_{elvt,svt}_c221227_400i/   <- multi-bank
++-- tcbn02p_bwph130pnpnl3p48cpd_pm_{elvt,svt}_c221227_400i/   <- power-mgmt (ISO, PT)
++-- tcbn02p_bwph130pnpnl3p48cpd_psw_{lvt,svt}_c221227_400i/   <- power-switch (HDR)
++-- tcbn02p_bwph130ppnnl3p48cpd_base_{elvt,svt}_c221227_400i/
+```
 
-## 30-Rule Verification Table
+Notes:
+- `mb_*`, `pm_*`, `psw_*` sub-libraries exist **only** for PNPN.
+- `psw` uses LVT (not ELVT). The other sub-libs use SVT (no suffix) or ELVT.
+- Library config marker in every cell name: `BWP130H<TRACK>3P48CPD`.
 
-| # | Rule IDX | Source Line | arc_type | cell_pattern | rel_pin/dir | constr_pin/dir | template | Result |
-|---|----------|-------------|----------|--------------|-------------|----------------|----------|--------|
-| 1 | 0 | 117 | hold | `*SYNC2*Q*` | CP/rise | D/fall | `hold/template__sync2__q1__rise__fall__1.sp` | MATCH |
-| 2 | 22 | 525 | hold | `DCCKSDIV2MX*` +3 | nx/rise | `F*_CLKEN`/rise | `hold/template__gclk__nx__rise__clken__rise__glitch__maxq__ml_b.sp` | MATCH |
-| 3 | 45 | 1079 | hold | `DCCKSDIV2O4*` | CLKIN/rise | DIVS/fall | `hold/template__gclk__rise__divs__fall__pushout__1.sp` | **DIFF** |
-| 4 | 68 | 1583 | nochange_high_high | `CKGAN2CCHD1BWP...` +1 | CP/fall | EN/fall | `nochange/template__ckg__hold__fall__en__fall__pushout__negative__0.sp` | MATCH |
-| 5 | 91 | 2101 | nochange_low_high | `DC*CKG*` +2 | CP/rise | EN/fall | `nochange/template__ckg__setup__rise__en__fall__20__percent__glitch__minq__1.sp` | **DIFF** |
-| 6 | 114 | 2591 | nochange_high_low | `CK*MUX2GF*` | CLK1/rise | S1/fall | `nochange/template__ckg__hold__rise__en__fall__20__percent__glitch__maxq__1.sp` | MATCH |
-| 7 | 137 | 3125 | nochange_low_low | `DC*CKG*MUX2*` +2 | I1/fall | S/fall | `nochange/template__ckgmux2__setup__fall__s__fall__20__percent__glitch__maxq__1.sp` | MATCH |
-| 8 | 160 | 3673 | nochange_high_high | `DC*CKG*MUX2*` +2 | I1/fall | S/fall | `nochange/template__ckgmux2__hold__fall__s__fall__pushout__1.sp` | MATCH |
-| 9 | 183 | 4179 | nochange_low_low | `DC*CKG*MUX2*` +2 | I1/fall | S/fall | `nochange/template__ckgmux2__setup__fall__s__fall__20__percent__glitch__minq__1.sp` | MATCH |
-| 10 | 206 | 4649 | nochange_low_low | `DC*CKPGMUX2*` +1 | CP2/rise | S/rise | `nochange/template__ckgmux2__hold__rise__s__rise__20__percent__glitch__maxq__1.sp` | MATCH |
-| 11 | 229 | 5111 | nochange_low_high | `*CKGIAN*` | CP/rise | ENB/fall | `nochange/template__ckgian__setup__rise__enb__fall__pushout__1.sp` | MATCH |
-| 12 | 252 | 5573 | nochange_low_low | `CK*AOI21*` | CLK/rise | EN1/rise | `nochange/template__ck__hold__EN2__rise__EN1__rise__pushout__negative__1.sp` | MATCH |
-| 13 | 275 | 6051 | non_seq_hold | `RLH*` +1 | SLEEP/fall | SDN/fall | `non_seq_hold/template__latch__fall__fall__pushout__minq__1.sp` | MATCH |
-| 14 | 298 | 6543 | nochange_low_high | `RS*NBSP*` | CP/fall | SLEEP/rise | `nochange/template__retn__flop__hold__notD__CDN__SDN__fall__sleep__rise__glitch__minq__1.sp` | MATCH |
-| 15 | 321 | 7077 | hold | (none) | `CP`/rise | `SI`/fall | `hold/template__common__rise__fall__2.sp` | MATCH |
-| 16 | 344 | 7605 | hold | `SLH*QSO*` | E/rise | SE/rise | `hold/template__SLH__rise__SE__rise__pushout__2.sp` | **DIFF** |
-| 17 | 366 | 8111 | hold | `MB2SRLSDFAO22*` | `CP`/rise | `DB2`/fall | `hold/template__AO22__rise__DB2__fall__1.sp` | MATCH |
-| 18 | 389 | 8621 | hold | `MB*SRLSDF*` | `CP`/rise | `D*`/fall | `hold/template__MB__rise__fall__20__percent__glitch__maxq__1.sp` | MATCH |
-| 19 | 412 | 9145 | hold | `DFNSYNC1P5*Q*` | CPN/fall | D/fall | `hold/template__latch__fall__fall__glitch__minq__1.sp` | MATCH |
-| 20 | 435 | 9587 | hold | (none) | E/fall | `A*`/rise | `hold/template__basemeg__E__fall__A__rise__glitch__maxq__1.sp` | MATCH |
-| 21 | 458 | 10053 | hold | (none) | CPN/fall | TE/fall | `hold/template__latch__fall__fall__pushout__1.sp` | MATCH |
-| 22 | 481 | 10519 | hold | `PTISOLHRP*` | E/fall | `D*`+3/fall | `hold/template__latch__fall__fall__glitch__minq__1.sp` | **DIFF** |
-| 23 | 504 | 11001 | hold | (none) | `CP`,`CLK*`/rise | `E`,`S`,`OV`/fall | `hold/template__latch__rise__fall__pushout__1.sp` | MATCH |
-| 24 | 527 | 11475 | non_seq_hold | `*SDRPQ*` | SDN/rise | CD/fall | `non_seq_hold/template__latch__rise__fall__pushout__2.sp` | MATCH |
-| 25 | 550 | 11997 | nochange_low_low | `*RSSDFSYNC5*` +1 | RETN/rise | CD/rise | `nochange_low_low/template__syn5_retn__nonseqhold__RETN__rise__CD__rise__pushout__4.sp` | MATCH |
-| 26 | 573 | 12469 | removal | `*MB*` | CP/fall | RETN/rise | `hold/template__retn__removal__fall__rise__glitch__minq__2.sp` | MATCH |
-| 27 | 596 | 13029 | removal | (none) | CP/rise | SDN/rise | `hold/template__latch__rise__rise__glitch__minq__maxsl_ax__2.sp` | MATCH |
-| 28 | 619 | 13565 | removal | (none) | E/fall | SDN/rise | `hold/template__latch__fall__rise__glitch__minq__1.sp` | MATCH |
-| 29 | 642 | 13867 | min_pulse_width | (none) | `WWL0_N`/None | `WWL0_N`/fall | `min_pulse_width/template__WWL0N__fall__rise__1.sp` | MATCH |
-| 30 | 665 | 14297 | min_pulse_width | `*DETQNRESO*` | `CP`/None | `CP`/rise | `min_pulse_width/template__DET__RE__notD__CP__rise__fall__1.sp` | MATCH |
+---
 
-## Diff Details
+## 2. Cell naming convention
 
-### Rule 3 (IDX=45, line 1079) -- when condition incomplete
+```
+<FUNC><DRIVE_OPT>MZD<STRENGTH>BWP130H<TRACK>3P48CPD[<VT>]
+```
 
-- **JSON:** `when = "!CLKDIVRST&CLKEN&!SCANCLK" in when`
-- **Source:** `(("!CLKDIVRST&CLKEN&!SCANCLK" in when) or ("!CLKDIVRST&CLKEN&SCANCLK" in when))`
-- **Issue:** Extraction captured only the first of two OR-ed when alternatives.
+| Field | Values observed | Meaning |
+|---|---|---|
+| `FUNC` | AIOI21, AOI21, AN2, NR, ND, OAI, MUX, INV, DFQ, MB2SRL..., LH..., SDFSYNC..., ISOCH..., HDR27..., PTBUFF..., RSDF..., ... | Cell function. Combinational families dominate (OAI 997, AOI 989, NR 677, ND 658). |
+| `DRIVE_OPT` | `M1`, `MD`, `MDL`, `MDLI`, `MDLILLKG`, `M1LIDH`, `M1LIDV`, ... | Optional drive-option qualifier; appears between `FUNC` and `MZD`. |
+| `MZD<n>` | `0P7`, `0P8`, `1`, `2`, `3`, `4`, `6`, `9`, `12`, `15`, `21`, ... | Drive strength. PNPN uses sub-unit (`0P7`, `0P8`) and low (`1`-`4`); other tracks use higher (`3`-`21`). |
+| `TRACK` | `NPPN`, `PNNP`, `PNPN`, `PPNN` | Standard-cell track. |
+| `VT` | (empty) = SVT, `ELVT`, `LVT` | Threshold-voltage flavor. |
 
-### Rule 5 (IDX=91, line 2101) -- constr_pin and rel_pin missing alternatives
+**Filename suffix is `.spi`** (not bare cell name -- the first-pass regex
+broke on this).
 
-- **JSON:** `constr_pin = "EN"`, `rel_pin = "CP"`
-- **Source:** `(constr_pin == "EN" or constr_pin == "ISO")`, `(rel_pin == "CP" or rel_pin == "I")`
-- **Issue:** Missing `constr_pin` alternative `"ISO"` and `rel_pin` alternative `"I"`.
+**Cell-name boundary regex** (use this everywhere a cell name needs to
+be parsed or matched):
 
-### Rule 16 (IDX=344, line 7605) -- rel_pin + when guard incomplete
+```python
+r"^(?P<func>[A-Z][A-Z0-9]+?)"
+r"(?P<drive_opt>M[A-Z0-9]*?)?"
+r"MZD(?P<strength>\d+P?\d*)"
+r"BWP130H(?P<track>NPPN|PNNP|PNPN|PPNN)"
+r"3P48CPD"
+r"(?P<vt>ELVT|LVT)?$"
+```
 
-- **JSON:** `rel_pin = "E"`, `when = '"D" in when'`
-- **Source:** `(rel_pin == "E" or rel_pin == "CLK")`, `"D" in when and not "!D" in when`
-- **Issue:** (a) Missing `rel_pin` alternative `"CLK"`. (b) When condition
-  negation guard (`not "!D" in when`) not captured.
+---
 
-### Rule 22 (IDX=481, line 10519) -- rel_pin missing alternatives
+## 3. Prefix frequency (top entries, across all Netlist `.spi` files)
 
-- **JSON:** `rel_pin = "E"`
-- **Source:** `(rel_pin == "E" or fnmatch.fnmatch(rel_pin, "CLK*") or rel_pin == "ISO")`
-- **Issue:** Missing alternatives `"CLK*"` (glob) and `"ISO"`.
+| Count | Prefix | Family meaning |
+|---:|---|---|
+| 997 | OAI | OR-AND-Invert combinational |
+| 989 | AOI | AND-OR-Invert combinational |
+| 677 | NR | NOR |
+| 658 | ND | NAND |
+| 385 | AN | AND |
+| 373 | INR | Inverting NOR variant |
+| 354 | IND | Inverting NAND variant |
+| 350 | FILL | Filler |
+| 337 | BUFFSR | Slew-rate buffer |
+| 297 | OR | OR |
+| 207 | MUX | Multiplexer |
+| 192 | CKNM | Clock NAND (mesh) |
+| 192 | CKBM | Clock buffer (mesh) |
+| 168 | DCCKNM | Duty-cycle clock NAND mesh |
+| 150 | INVM | Inverter (mesh) |
+| 124 | XOR | XOR |
+| 120 | DCCKBM | Duty-cycle clock buffer mesh |
+| 114 | OA | OR-AND |
+| 114 | MB | Multi-bank (sequential) |
+| 114 | AO | AND-OR |
+| 109 | XNR | XNOR |
+| 99 | IOA | Inverting OR-AND |
+| 94 | BUFFSKRM | Skew buffer (mesh) |
+| 88 | BUFFM | Buffer (mesh) |
+| 78 | IAO | Inverting AND-OR |
 
-## Summary
+**Implication**: combinational cells dominate by ~20:1. Sequential
+totals: DFF/DFQ 150, latch 42, MB 114, sync 24, retention 24, clock
+gater 0.
 
-| Category | Count |
-|----------|-------|
-| Exact match | **26/30** |
-| With diffs | **4/30** |
-| Not found in source | **0/30** |
+---
 
-All 30 sampled rules were found at the declared line numbers. Template paths
-matched in all 30 cases. Arc types matched in all 30 cases. Cell patterns
-matched in all 30 cases.
+## 4. Sequential family unique counts (relaxed regex)
 
-The 4 diffs are all of the same class: **incomplete extraction of OR-ed
-alternatives** in `rel_pin`, `constr_pin`, or `when` conditions. No template
-paths, arc types, or cell patterns were wrong. The extraction correctly
-captured the primary/first value in each case but missed secondary
-alternatives joined by `or` in the Python source.
+| Family | Regex used | Unique cells | Status |
+|---|---|---:|---|
+| FF / DFF / D-flop | `DFF|DFQ|FDQ` | 150 | OK |
+| Latch | `LATCH|LAT|^L[HQ]` | 42 | OK |
+| Scan latch / SLH | `SLH|SDLH|SCAN.*LAT` | **0** | **Not present in N2P** |
+| Multi-bank | `MB|MULTI|BANK` | 114 | OK (lives in `mb_*`) |
+| Clock gater | `CKG|GATE|CLKG` | **0** | **Not present** |
+| Retention | `RETN|RET|RSDF` | 24 | OK |
+| Sync | `SYNC|SYN[0-9]` | 24 | OK |
+| Combinational AIOI | `AIOI|AOI` | 888 | OK |
+| AO22 / OA22 | `AO22|OA22` | 102 | OK |
 
-### Estimated Extrapolation
+**Spec consequence**: Phase 2A's MVP family list includes SLH and CKG.
+Neither exists in N2P_v1.0. SLH is replaced by **SDFSYNC** (synchronizer
+DFF) for MVP-family-set parity; CKG is dropped from Tier-1.
 
-At a 4/30 (13.3%) diff rate on uniformly sampled rules, approximately 90 of
-the 688 HSPICE rules may have similar incomplete `or`-alternative extractions.
-None of these diffs would cause incorrect template selection -- they would
-cause **missed matches** (false negatives) where a valid arc fails to match
-a rule it should match because a secondary pin name or when variant was not
-recorded.
+---
+
+## 5. MVP cell x sub-library x corner matrix (Tier-1)
+
+All cells: **PNPN track, SVT, smallest available drive strength**.
+
+| Slot | Cell name | Sub-library | Notes |
+|---|---|---|---|
+| common | `AIOI21MDLIMZD0P7BWP130HPNPN3P48CPD` | `tcbn02p_bwph130pnpnl3p48cpd_base_svt_c221227_400i` | MZD0P7 is the confirmed minimum drive for AIOI21MDLI (Yuxuan, 2026-05-11). |
+| latch | `LHCNQMZD1BWP130HPNPN3P48CPD` | `tcbn02p_bwph130pnpnl3p48cpd_base_svt_c221227_400i` | LH family minimum is MZD1; no MZD0P7 variant observed. |
+| mb | `MB2SRLSDFQSXGZ1111MZD1BWP130HPNPN3P48CPD` | `tcbn02p_bwph130pnpnl3p48cpd_mb_svt_c221227_400i` | Cross-sub-library; MZD1 is smallest in `mb_svt`. |
+| sync (was SLH) | `SDFSYNC1QSXGMZD1BWP130HPNPN3P48CPD` | `tcbn02p_bwph130pnpnl3p48cpd_base_svt_c221227_400i` | Replaces SLH (which has zero cells in N2P). 1-stage variant. |
+| mpw | `DFQSXG0MZD1BWP130HPNPN3P48CPD` | `tcbn02p_bwph130pnpnl3p48cpd_base_svt_c221227_400i` | mpw arc anchor. |
+
+**Why SDFSYNC replaces SLH** (architectural-axis cross-check):
+- Init strategy: [YES] scan-init via SE+SI (was: scan-init via SE on transparent latch)
+- Output polarity: [YES] Q variant available; RPQ also exists
+- Setup/hold measurement: [YES] on D, SI, SE vs CK
+- MPW arc: [YES] on CK
+- Recovery/removal arc: [YES] on SE
+- Transparent vs opaque state: [NO] lost (DFF, not latch) -- already covered by LATCH slot (LHCNQ)
+
+Net coverage of architectural axes: preserved.
+
+**Corner matrix (Tier-1)**:
+
+Initial confirmed corner: `ffgnp_cbest_CCbest_T_125c` (only LPE
+directory currently present; additional corners will appear as Yuxuan
+provisions them on the server). Pre-spotted future corners:
+- `ssgnp_cworst_CCworst_T_0c`
+- `ssgnp_0p450v_m40c_cworst_CCworst_T` (low-V SS, -40C)
+
+The Tier-1 manifest format should accept additional corners without
+schema change.
+
+---
+
+## 6. Track / VT / drive-strength scope
+
+| Tier | Tracks | VTs | Sub-libs | Cells | Corners |
+|---|---|---|---|---:|---:|
+| **Tier-1** | PNPN only | SVT only | base, mb | 5 | 1+ (incremental) |
+| Tier-2 (deferred) | NPPN, PNNP, PPNN | SVT | base | TBD | matched set |
+| Tier-3 (deferred) | PNPN | ELVT, LVT | base, mb, pm, psw | TBD | matched set |
+
+---
+
+## 7. Corner discovery raw findings
+
+From `LPE_*` subdirectories under `Netlist/`:
+- `LPE_cbest_CCbest_T_125c` (only entry currently present)
+
+From `char.tcl` filenames (corner names referenced by characterization,
+which may exceed what is LPE-extracted):
+```
+ccs_ffgnp_1p155v_125c_cbest_CCbest_T
+ccs_ffgnp_1p155v_125c_cbest_CCbest_T_ccsp
+ccs_ssgnp_0p475v_0c_cworst_CCworst_T
+ccs_ssgnp_0p475v_0c_cworst_CCworst_T_ccsp
+ccs_ssgnp_0p515v_0c_cworst_CCworst_T
+ccs_ssgnp_0p515v_0c_cworst_CCworst_T_ccsp
+char_ssgnp_0p450v_m40c_cworst_CCworst_T.cons
+char_ssgnp_0p450v_m40c_cworst_CCworst_T.non_cons
+char_ssgnp_0p465v_m40c_cworst_CCworst_T.cons
+char_ssgnp_0p465v_m40c_cworst_CCworst_T.non_cons
+char_ssgnp_0p480v_m40c_cworst_CCworst_T.cons
+char_ssgnp_0p480v_m40c_cworst_CCworst_T.non_cons
+char_ssgnp_0p495v_m40c_cworst_CCworst_T.cons
+char_ssgnp_0p495v_m40c_cworst_CCworst_T.non_cons
+ffgnp_cbest_CCbest_T_125c
+nldm_ffgnp_1p155v_125c_cbest_CCbest_T
+nldm_ssgnp_0p475v_0c_cworst_CCworst_T
+nldm_ssgnp_0p515v_0c_cworst_CCworst_T
+ssgnp_cworst_CCworst_T_0c
+```
+
+These define the **eventual** corner space. Tier-1 baseline generation
+uses only the LPE-backed subset.
+
+---
+
+## 8. Raw inspection script output (verbatim)
+
+The full Section A-F output from the second-pass inspection script is
+preserved for reference. Reproduced as-is, including spacing and
+section delimiters.
+
+### Section A -- Sub-library directories (`tcbn02p_bwph130*`)
+
+```
+tcbn02p_bwph130nppnl3p48cpd_base_elvt_c221227_400i
+tcbn02p_bwph130nppnl3p48cpd_base_svt_c221227_400i
+tcbn02p_bwph130pnnpl3p48cpd_base_elvt_c221227_400i
+tcbn02p_bwph130pnnpl3p48cpd_base_svt_c221227_400i
+tcbn02p_bwph130pnpnl3p48cpd_base_elvt_c221227_400i
+tcbn02p_bwph130pnpnl3p48cpd_base_svt
+tcbn02p_bwph130pnpnl3p48cpd_base_svt_c221227_400i
+tcbn02p_bwph130pnpnl3p48cpd_mb_elvt_c221227_400i
+tcbn02p_bwph130pnpnl3p48cpd_mb_svt_c221227_400i
+tcbn02p_bwph130pnpnl3p48cpd_pm_elvt_c221227_400i
+tcbn02p_bwph130pnpnl3p48cpd_pm_svt_c221227_400i
+tcbn02p_bwph130pnpnl3p48cpd_psw_lvt_c221227_400i
+tcbn02p_bwph130pnpnl3p48cpd_psw_svt_c221227_400i
+tcbn02p_bwph130ppnnl3p48cpd_base_elvt_c221227_400i
+tcbn02p_bwph130ppnnl3p48cpd_base_svt_c221227_400i
+```
+
+### Section B -- Sample cell filenames per sub-library (top 15 each)
+
+```
+[tcbn02p_bwph130nppnl3p48cpd_base_elvt_c221227_400i]
+   AIOI21M1LIMZD3BWP130HNPPN3P48CPDELVT.spi
+   AIOI21M1LIMZD6BWP130HNPPN3P48CPDELVT.spi
+   AN2M1LILLKGMZD9BWP130HNPPN3P48CPDELVT.spi
+   AN2M1LIMZD12BWP130HNPPN3P48CPDELVT.spi
+   AN2M1LIMZD15BWP130HNPPN3P48CPDELVT.spi
+   AN2M1LIMZD21BWP130HNPPN3P48CPDELVT.spi
+   AN2M1LIMZD6BWP130HNPPN3P48CPDELVT.spi
+   AN2M1LIMZD9BWP130HNPPN3P48CPDELVT.spi
+   AN2MDLIDVGMZD3BWP130HNPPN3P48CPDELVT.spi
+   AN2MDLIMZD3BWP130HNPPN3P48CPDELVT.spi
+   AN2RFSMDLIMZD3BWP130HNPPN3P48CPDELVT.spi
+   AN2SR2M1LIBFYDVGMZD12BWP130HNPPN3P48CPDELVT.spi
+   AN2SR2M1LIBFYDVGMZD15BWP130HNPPN3P48CPDELVT.spi
+   AN2SR2M1LIBFYDVGMZD9BWP130HNPPN3P48CPDELVT.spi
+   AN2SR2M1LIDVGMZD6BWP130HNPPN3P48CPDELVT.spi
+
+[tcbn02p_bwph130nppnl3p48cpd_base_svt_c221227_400i]
+   AIOI21M1LIMZD3BWP130HNPPN3P48CPD.spi
+   AIOI21M1LIMZD6BWP130HNPPN3P48CPD.spi
+   AN2M1LILLKGMZD9BWP130HNPPN3P48CPD.spi
+   AN2M1LIMZD12BWP130HNPPN3P48CPD.spi
+   AN2M1LIMZD15BWP130HNPPN3P48CPD.spi
+   AN2M1LIMZD21BWP130HNPPN3P48CPD.spi
+   AN2M1LIMZD6BWP130HNPPN3P48CPD.spi
+   AN2M1LIMZD9BWP130HNPPN3P48CPD.spi
+   AN2MDLIDVGMZD3BWP130HNPPN3P48CPD.spi
+   AN2MDLIMZD3BWP130HNPPN3P48CPD.spi
+   AN2RFSMDLIMZD3BWP130HNPPN3P48CPD.spi
+   AN2SR2M1LIBFYDVGMZD12BWP130HNPPN3P48CPD.spi
+   AN2SR2M1LIBFYDVGMZD15BWP130HNPPN3P48CPD.spi
+   AN2SR2M1LIBFYDVGMZD9BWP130HNPPN3P48CPD.spi
+   AN2SR2M1LIDVGMZD6BWP130HNPPN3P48CPD.spi
+
+[tcbn02p_bwph130pnnpl3p48cpd_base_elvt_c221227_400i]
+   AIOI21M1LIMZD6BWP130HPNNP3P48CPDELVT.spi
+   AIOI21MDLIMZD3BWP130HPNNP3P48CPDELVT.spi
+   AN2M1LIDVGMZD3BWP130HPNNP3P48CPDELVT.spi
+   AN2M1LIMZD12BWP130HPNNP3P48CPDELVT.spi
+   AN2M1LIMZD15BWP130HPNNP3P48CPDELVT.spi
+   AN2M1LIMZD21BWP130HPNNP3P48CPDELVT.spi
+   AN2M1LIMZD6BWP130HPNNP3P48CPDELVT.spi
+   AN2M1LIMZD9BWP130HPNNP3P48CPDELVT.spi
+   AN2MDLIMZD3BWP130HPNNP3P48CPDELVT.spi
+   AN2RFSMDLIMZD3BWP130HPNNP3P48CPDELVT.spi
+   AN2SR2M1LIBFYDVGMZD12BWP130HPNNP3P48CPDELVT.spi
+   AN2SR2M1LIBFYDVGMZD15BWP130HPNNP3P48CPDELVT.spi
+   AN2SR2M1LIBFYDVGMZD9BWP130HPNNP3P48CPDELVT.spi
+   AN2SR2M1LIDVGMZD6BWP130HPNNP3P48CPDELVT.spi
+   AN2SR2M1LIMZD15BWP130HPNNP3P48CPDELVT.spi
+
+[tcbn02p_bwph130pnnpl3p48cpd_base_svt_c221227_400i]
+   AIOI21M1LIMZD6BWP130HPNNP3P48CPD.spi
+   AIOI21MDLIMZD3BWP130HPNNP3P48CPD.spi
+   AN2M1LIDVGMZD3BWP130HPNNP3P48CPD.spi
+   AN2M1LIMZD12BWP130HPNNP3P48CPD.spi
+   AN2M1LIMZD15BWP130HPNNP3P48CPD.spi
+   AN2M1LIMZD21BWP130HPNNP3P48CPD.spi
+   AN2M1LIMZD6BWP130HPNNP3P48CPD.spi
+   AN2M1LIMZD9BWP130HPNNP3P48CPD.spi
+   AN2MDLIMZD3BWP130HPNNP3P48CPD.spi
+   AN2RFSMDLIMZD3BWP130HPNNP3P48CPD.spi
+   AN2SR2M1LIBFYDVGMZD12BWP130HPNNP3P48CPD.spi
+   AN2SR2M1LIBFYDVGMZD15BWP130HPNNP3P48CPD.spi
+   AN2SR2M1LIBFYDVGMZD9BWP130HPNNP3P48CPD.spi
+   AN2SR2M1LIDVGMZD6BWP130HPNNP3P48CPD.spi
+   AN2SR2M1LIMZD15BWP130HPNNP3P48CPD.spi
+
+[tcbn02p_bwph130pnpnl3p48cpd_base_elvt_c221227_400i]
+   AIOI21M1LIDHMZD4BWP130HPNPN3P48CPDELVT.spi
+   AIOI21MDLILLKGMZD0P7BWP130HPNPN3P48CPDELVT.spi
+   AIOI21MDLILLKGMZD0P8BWP130HPNPN3P48CPDELVT.spi
+   AIOI21MDLILLKGMZD1BWP130HPNPN3P48CPDELVT.spi
+   AIOI21MDLIMZD0P7BWP130HPNPN3P48CPDELVT.spi
+   AIOI21MDLIMZD0P8BWP130HPNPN3P48CPDELVT.spi
+   AIOI21MDLIMZD1BWP130HPNPN3P48CPDELVT.spi
+   AIOI21MDLIMZD2BWP130HPNPN3P48CPDELVT.spi
+   AIOI21MDLIMZD4BWP130HPNPN3P48CPDELVT.spi
+   AN2M1LIDHMZD16BWP130HPNPN3P48CPDELVT.spi
+   AN2MDLILLKGMZD0P7BWP130HPNPN3P48CPDELVT.spi
+   AN2MDLILLKGMZD0P8BWP130HPNPN3P48CPDELVT.spi
+   AN2MDLILLKGMZD1BWP130HPNPN3P48CPDELVT.spi
+   AN2MDLIMZD0P7BWP130HPNPN3P48CPDELVT.spi
+   AN2MDLIMZD0P8BWP130HPNPN3P48CPDELVT.spi
+
+[tcbn02p_bwph130pnpnl3p48cpd_base_svt]
+   AIOI21M1LIDHMZD4BWP130HPNPN3P48CPD.spi
+   AIOI21MDLILLKGMZD0P7BWP130HPNPN3P48CPD.spi
+   AIOI21MDLILLKGMZD0P8BWP130HPNPN3P48CPD.spi
+   AIOI21MDLILLKGMZD1BWP130HPNPN3P48CPD.spi
+   AIOI21MDLIMZD0P7BWP130HPNPN3P48CPD.spi
+   AIOI21MDLIMZD0P8BWP130HPNPN3P48CPD.spi
+   AIOI21MDLIMZD1BWP130HPNPN3P48CPD.spi
+   AIOI21MDLIMZD2BWP130HPNPN3P48CPD.spi
+   AIOI21MDLIMZD4BWP130HPNPN3P48CPD.spi
+   AN2M1LIDHMZD16BWP130HPNPN3P48CPD.spi
+
+[tcbn02p_bwph130pnpnl3p48cpd_base_svt_c221227_400i]
+   AIOI21M1LIDHMZD4BWP130HPNPN3P48CPD.spi
+   AIOI21MDLILLKGMZD0P7BWP130HPNPN3P48CPD.spi
+   AIOI21MDLILLKGMZD0P8BWP130HPNPN3P48CPD.spi
+   AIOI21MDLILLKGMZD1BWP130HPNPN3P48CPD.spi
+   AIOI21MDLIMZD0P7BWP130HPNPN3P48CPD.spi
+   AIOI21MDLIMZD0P8BWP130HPNPN3P48CPD.spi
+   AIOI21MDLIMZD1BWP130HPNPN3P48CPD.spi
+   AIOI21MDLIMZD2BWP130HPNPN3P48CPD.spi
+   AIOI21MDLIMZD4BWP130HPNPN3P48CPD.spi
+   AN2M1LIDHMZD16BWP130HPNPN3P48CPD.spi
+   AN2MDLILLKGMZD0P7BWP130HPNPN3P48CPD.spi
+   AN2MDLILLKGMZD0P8BWP130HPNPN3P48CPD.spi
+   AN2MDLILLKGMZD1BWP130HPNPN3P48CPD.spi
+   AN2MDLIMZD0P7BWP130HPNPN3P48CPD.spi
+   AN2MDLIMZD0P8BWP130HPNPN3P48CPD.spi
+
+[tcbn02p_bwph130pnpnl3p48cpd_mb_elvt_c221227_400i]
+   MB2SRLSDFQSXGZ1111MZD1BWP130HPNPN3P48CPDELVT.spi
+   MB2SRLSDFQSXGZ1111MZD2BWP130HPNPN3P48CPDELVT.spi
+   MB2SRLSDFQSXGZ0PPE1111MZD0P7BWP130HPNPN3P48CPDELVT.spi
+   MB2SRLSDFQSXGZ0PPU1111MZD1BWP130HPNPN3P48CPDELVT.spi
+   MB2SRLSDFQSXGZ0PPU1111MZD2BWP130HPNPN3P48CPDELVT.spi
+   MB2SRLSDFRPQSXGZ1111MZD1BWP130HPNPN3P48CPDELVT.spi
+   MB2SRLSDFRPQSXGZ1111MZD2BWP130HPNPN3P48CPDELVT.spi
+   MB2SRLSDFRPQSXGZ0PPE1111MZD0P7BWP130HPNPN3P48CPDELVT.spi
+   MB2SRLSDFRPQSXGZ0PPU1111MZD1BWP130HPNPN3P48CPDELVT.spi
+   MB2SRLSDFRPQSXGZ0PPU1111MZD2BWP130HPNPN3P48CPDELVT.spi
+   MB2SRLSDFSNQSXGZ1111MZD1BWP130HPNPN3P48CPDELVT.spi
+   MB2SRLSDFSNQSXGZ1111MZD2BWP130HPNPN3P48CPDELVT.spi
+   MB2SRLSDFSNQSXGZ0PPE1111MZD0P7BWP130HPNPN3P48CPDELVT.spi
+   MB2SRLSDFSNQSXGZ0PPU1111MZD1BWP130HPNPN3P48CPDELVT.spi
+   MB2SRLSDFSNQSXGZ0PPU1111MZD2BWP130HPNPN3P48CPDELVT.spi
+
+[tcbn02p_bwph130pnpnl3p48cpd_mb_svt_c221227_400i]
+   MB2SRLSDFQSXGZ1111MZD1BWP130HPNPN3P48CPD.spi
+   MB2SRLSDFQSXGZ1111MZD2BWP130HPNPN3P48CPD.spi
+   MB2SRLSDFQSXGZ0PPE1111MZD0P7BWP130HPNPN3P48CPD.spi
+   MB2SRLSDFQSXGZ0PPU1111MZD1BWP130HPNPN3P48CPD.spi
+   MB2SRLSDFQSXGZ0PPU1111MZD2BWP130HPNPN3P48CPD.spi
+   MB2SRLSDFRPQSXGZ1111MZD1BWP130HPNPN3P48CPD.spi
+   MB2SRLSDFRPQSXGZ1111MZD2BWP130HPNPN3P48CPD.spi
+   MB2SRLSDFRPQSXGZ0PPE1111MZD0P7BWP130HPNPN3P48CPD.spi
+   MB2SRLSDFRPQSXGZ0PPU1111MZD1BWP130HPNPN3P48CPD.spi
+   MB2SRLSDFRPQSXGZ0PPU1111MZD2BWP130HPNPN3P48CPD.spi
+   MB2SRLSDFSNQSXGZ1111MZD1BWP130HPNPN3P48CPD.spi
+   MB2SRLSDFSNQSXGZ1111MZD2BWP130HPNPN3P48CPD.spi
+   MB2SRLSDFSNQSXGZ0PPE1111MZD0P7BWP130HPNPN3P48CPD.spi
+   MB2SRLSDFSNQSXGZ0PPU1111MZD1BWP130HPNPN3P48CPD.spi
+   MB4SRLSDFQSXGZ1211MZD1BWP130HPNPN3P48CPD.spi
+
+[tcbn02p_bwph130pnpnl3p48cpd_pm_elvt_c221227_400i]
+   ISOCHSNKCWMDLIMZD1BWP130HPNPN3P48CPDELVT.spi
+   ISOCHSNKCWMDLIMZD2BWP130HPNPN3P48CPDELVT.spi
+   ISOCHSNKCWMDLIMZD4BWP130HPNPN3P48CPDELVT.spi
+   ISOCHSRCIWMDLICPP7MZD1BWP130HPNPN3P48CPDELVT.spi
+   ISOCHSRCIWMDLICPP7MZD2BWP130HPNPN3P48CPDELVT.spi
+   ISOCHSRCIWMDLICPP7MZD4BWP130HPNPN3P48CPDELVT.spi
+   ISOCLSNKCWMDLIMZD1BWP130HPNPN3P48CPDELVT.spi
+   ISOCLSNKCWMDLIMZD2BWP130HPNPN3P48CPDELVT.spi
+   ISOCLSNKCWMDLIMZD4BWP130HPNPN3P48CPDELVT.spi
+   ISOCLSRCIWMDLICPP7MZD1BWP130HPNPN3P48CPDELVT.spi
+   ISOCLSRCIWMDLICPP7MZD2BWP130HPNPN3P48CPDELVT.spi
+   ISOCLSRCIWMDLICPP7MZD4BWP130HPNPN3P48CPDELVT.spi
+   PTBUFFHDCWMDLIMZD10BWP130HPNPN3P48CPDELVT.spi
+   PTBUFFHDCWMDLIMZD12BWP130HPNPN3P48CPDELVT.spi
+   PTBUFFHDCWMDLIMZD14BWP130HPNPN3P48CPDELVT.spi
+
+[tcbn02p_bwph130pnpnl3p48cpd_pm_svt_c221227_400i]
+   ISOCHSNKCWMDLIMZD1BWP130HPNPN3P48CPD.spi
+   ISOCHSNKCWMDLIMZD2BWP130HPNPN3P48CPD.spi
+   ISOCHSNKCWMDLIMZD4BWP130HPNPN3P48CPD.spi
+   ISOCHSRCIWMDLICPP7MZD1BWP130HPNPN3P48CPD.spi
+   ISOCHSRCIWMDLICPP7MZD2BWP130HPNPN3P48CPD.spi
+   ISOCHSRCIWMDLICPP7MZD4BWP130HPNPN3P48CPD.spi
+   ISOCLSNKCWMDLIMZD1BWP130HPNPN3P48CPD.spi
+   ISOCLSNKCWMDLIMZD2BWP130HPNPN3P48CPD.spi
+   ISOCLSNKCWMDLIMZD4BWP130HPNPN3P48CPD.spi
+   ISOCLSRCIWMDLICPP7MZD1BWP130HPNPN3P48CPD.spi
+   ISOCLSRCIWMDLICPP7MZD2BWP130HPNPN3P48CPD.spi
+   ISOCLSRCIWMDLICPP7MZD4BWP130HPNPN3P48CPD.spi
+   PTBUFFHDCWMDLIMZD10BWP130HPNPN3P48CPD.spi
+   PTBUFFHDCWMDLIMZD12BWP130HPNPN3P48CPD.spi
+   PTBUFFHDCWMDLIMZD14BWP130HPNPN3P48CPD.spi
+
+[tcbn02p_bwph130pnpnl3p48cpd_psw_lvt_c221227_400i]
+   HDR27XSINTCWCPP8MZD1BWP130HPNPN3P48CPDLVT.spi
+   HDR27XSINTCWCPP8MZD2BWP130HPNPN3P48CPDLVT.spi
+   HDR39XSINTCWCPP8MZD1BWP130HPNPN3P48CPDLVT.spi
+   HDR39XSINTCWCPP8MZD2BWP130HPNPN3P48CPDLVT.spi
+
+[tcbn02p_bwph130pnpnl3p48cpd_psw_svt_c221227_400i]
+   HDR27XSINTCWCPP8MZD1BWP130HPNPN3P48CPD.spi
+   HDR27XSINTCWCPP8MZD2BWP130HPNPN3P48CPD.spi
+   HDR39XSINTCWCPP8MZD1BWP130HPNPN3P48CPD.spi
+   HDR39XSINTCWCPP8MZD2BWP130HPNPN3P48CPD.spi
+
+[tcbn02p_bwph130ppnnl3p48cpd_base_elvt_c221227_400i]
+   AIOI21M1LIMZD6BWP130HPPNN3P48CPDELVT.spi
+   AIOI21MDLIMZD3BWP130HPPNN3P48CPDELVT.spi
+   AN2M1LIDVGMZD3BWP130HPPNN3P48CPDELVT.spi
+   AN2M1LIMZD12BWP130HPPNN3P48CPDELVT.spi
+   AN2M1LIMZD15BWP130HPPNN3P48CPDELVT.spi
+   AN2M1LIMZD21BWP130HPPNN3P48CPDELVT.spi
+   AN2M1LIMZD6BWP130HPPNN3P48CPDELVT.spi
+   AN2M1LIMZD9BWP130HPPNN3P48CPDELVT.spi
+   AN2MDLIMZD3BWP130HPPNN3P48CPDELVT.spi
+   AN2SR2M1LIBFYDVGMZD12BWP130HPPNN3P48CPDELVT.spi
+   AN2SR2M1LIBFYDVGMZD15BWP130HPPNN3P48CPDELVT.spi
+   AN2SR2M1LIBFYDVGMZD9BWP130HPPNN3P48CPDELVT.spi
+   AN2SR2M1LIDVGMZD6BWP130HPPNN3P48CPDELVT.spi
+   AN2SR2M1LIMZD15BWP130HPPNN3P48CPDELVT.spi
+   AN2SR2M1LIMZD9BWP130HPPNN3P48CPDELVT.spi
+
+[tcbn02p_bwph130ppnnl3p48cpd_base_svt_c221227_400i]
+   AIOI21M1LIMZD6BWP130HPPNN3P48CPD.spi
+   AIOI21MDLIMZD3BWP130HPPNN3P48CPD.spi
+   AN2M1LIDVGMZD3BWP130HPPNN3P48CPD.spi
+   AN2M1LIMZD12BWP130HPPNN3P48CPD.spi
+   AN2M1LIMZD15BWP130HPPNN3P48CPD.spi
+   AN2M1LIMZD21BWP130HPPNN3P48CPD.spi
+   AN2M1LIMZD6BWP130HPPNN3P48CPD.spi
+   AN2M1LIMZD9BWP130HPPNN3P48CPD.spi
+   AN2MDLIMZD3BWP130HPPNN3P48CPD.spi
+   AN2SR2M1LIBFYDVGMZD12BWP130HPPNN3P48CPD.spi
+   AN2SR2M1LIBFYDVGMZD15BWP130HPPNN3P48CPD.spi
+   AN2SR2M1LIBFYDVGMZD9BWP130HPPNN3P48CPD.spi
+   AN2SR2M1LIDVGMZD6BWP130HPPNN3P48CPD.spi
+   AN2SR2M1LIMZD15BWP130HPPNN3P48CPD.spi
+   AN2SR2M1LIMZD9BWP130HPPNN3P48CPD.spi
+```
+
+### Section C -- Top 30 prefix frequencies
+
+```
+Top 30 distinct cell name prefixes (everything before first digit):
+   997 OAI
+   989 AOI
+   677 NR
+   658 ND
+   385 AN
+   373 INR
+   354 IND
+   350 FILL
+   337 BUFFSR
+   297 OR
+   207 MUX
+   192 CKNM
+   192 CKBM
+   168 DCCKNM
+   150 INVM
+   124 XOR
+   120 DCCKBM
+   114 OA
+   114 MB
+   114 AO
+   109 XNR
+    99 IOA
+    94 BUFFSKRM
+    88 BUFFM
+    78 IAO
+    64 INVSKRM
+    64 INVSKFM
+    64 BUFFSKFM
+    61 FA
+    59 IIND
+```
+
+### Section D -- MVP family candidates (relaxed match)
+
+```
+[FF / DFF / D-flop]  regex: DFF|DFQ|FDQ
+   total unique: 150
+   first 10:
+     DFQNSXG0MZD1BWP130HPNPN3P48CPD
+     DFQNSXG0MZD1BWP130HPNPN3P48CPDELVT
+     DFQNSXG0MZD2BWP130HPNPN3P48CPD
+     DFQNSXG0MZD2BWP130HPNPN3P48CPDELVT
+     DFQSXG0MZD1BWP130HPNPN3P48CPD
+     DFQSXG0MZD1BWP130HPNPN3P48CPDELVT
+     DFQSXG0MZD2BWP130HPNPN3P48CPD
+     DFQSXG0MZD2BWP130HPNPN3P48CPDELVT
+     DFQSXG0MZD4BWP130HPNPN3P48CPD
+     DFQSXG0MZD4BWP130HPNPN3P48CPDELVT
+   shortest 5 (likely base variants):
+     DFQSXG0MZD1BWP130HPNPN3P48CPD
+     DFQSXG0MZD2BWP130HPNPN3P48CPD
+     DFQSXG0MZD4BWP130HPNPN3P48CPD
+     SDFQTXGMZD1BWP130HPNPN3P48CPD
+     SDFQTXGMZD2BWP130HPNPN3P48CPD
+
+[Latch]  regex: LATCH|LAT|^L[HQ]
+   total unique: 42
+   first 10:
+     FILLCPWWALLATM0FBWP130HPNPN3P48CPD
+     FILLCPWWALLATM0FBWP130HPNPN3P48CPDELVT
+     FILLCPWWALLATM1RBWP130HPNPN3P48CPD
+     FILLCPWWALLATM1RBWP130HPNPN3P48CPDELVT
+     FILLCPWWALLATMZBWP130HPNPN3P48CPD
+     FILLCPWWALLATMZBWP130HPNPN3P48CPDELVT
+     FILLWALLATM0FBWP130HPNPN3P48CPD
+     FILLWALLATM0FBWP130HPNPN3P48CPDELVT
+     FILLWALLATM1RBWP130HPNPN3P48CPD
+     FILLWALLATM1RBWP130HPNPN3P48CPDELVT
+   shortest 5 (likely base variants):
+     LHCNQMZD1BWP130HPNPN3P48CPD
+     LHCNQMZD2BWP130HPNPN3P48CPD
+     LHCNQMZD4BWP130HPNPN3P48CPD
+     LHSNQMZD1BWP130HPNPN3P48CPD
+     LHSNQMZD2BWP130HPNPN3P48CPD
+
+[Scan latch / SLH]  regex: SLH|SDLH|SCAN.*LAT
+   no matches
+
+[Multi-bank]  regex: MB|MULTI|BANK
+   total unique: 114
+   shortest 5 (likely base variants):
+     MB2SRLSDFQSXGZ1111MZD1BWP130HPNPN3P48CPD
+     MB2SRLSDFQSXGZ1111MZD2BWP130HPNPN3P48CPD
+     MB4SRLSDFQSXGZ1211MZD1BWP130HPNPN3P48CPD
+     MB4SRLSDFQSXGZ1211MZD2BWP130HPNPN3P48CPD
+     MB6SRLSDFQSXGZ2322MZD1BWP130HPNPN3P48CPD
+
+[Clock gater]  regex: CKG|GATE|CLKG
+   no matches
+
+[Retention]  regex: RETN|RET|RSDF
+   total unique: 24
+   shortest 5 (likely base variants):
+     RSDFQHDCWSXG0LKGMZD1BWP130HPNPN3P48CPD
+     RSDFQHDCWSXG0LKGMZD2BWP130HPNPN3P48CPD
+     RSDFQHDCWSXG0LKGMZD4BWP130HPNPN3P48CPD
+     RSDFRPQHDCWSXG0LKGMZD1BWP130HPNPN3P48CPD
+     RSDFRPQHDCWSXG0LKGMZD2BWP130HPNPN3P48CPD
+
+[Sync]  regex: SYNC|SYN[0-9]
+   total unique: 24
+   shortest 5 (likely base variants):
+     SDFSYNC1QSXGMZD1BWP130HPNPN3P48CPD
+     SDFSYNC2QSXGMZD1BWP130HPNPN3P48CPD
+     SDFSYNC3QSXGMZD1BWP130HPNPN3P48CPD
+     SDFSYNC4QSXGMZD1BWP130HPNPN3P48CPD
+     SDFSYNC1RPQSXGMZD1BWP130HPNPN3P48CPD
+
+[Combinational AIOI]  regex: AIOI|AOI
+   total unique: 888
+   shortest 5 (likely base variants):
+     GAOI21MZD2BWP130HPNPN3P48CPD
+     GAOI22MZD1BWP130HPNPN3P48CPD
+     GAOI22MZD2BWP130HPNPN3P48CPD
+     AOI21M1LIMZD6BWP130HNPPN3P48CPD
+     AOI21M1LIMZD6BWP130HPNNP3P48CPD
+
+[AO22 / OA22]  regex: AO22|OA22
+   total unique: 102
+   shortest 5 (likely base variants):
+     GAO22MZD1BWP130HPNPN3P48CPD
+     GOA22MZD2BWP130HPNPN3P48CPD
+     AO22M1LIMZD6BWP130HPNPN3P48CPD
+     AO22M1LIMZD6BWP130HPPNN3P48CPD
+     AO22MDLIMZD1BWP130HPNPN3P48CPD
+```
+
+### Section E -- Corner discovery (LPE subdirs)
+
+```
+LPE_cbest_CCbest_T_125c
+```
+
+### Section F -- Corner names from `char.tcl` filenames
+
+```
+add_to_liberate
+Bolt
+ccs_ffgnp_1p155v_125c_cbest_CCbest_T
+ccs_ffgnp_1p155v_125c_cbest_CCbest_T_ccsp
+ccs_ssgnp_0p475v_0c_cworst_CCworst_T
+ccs_ssgnp_0p475v_0c_cworst_CCworst_T_ccsp
+ccs_ssgnp_0p515v_0c_cworst_CCworst_T
+ccs_ssgnp_0p515v_0c_cworst_CCworst_T_ccsp
+char_ssgnp_0p450v_m40c_cworst_CCworst_T.cons
+char_ssgnp_0p450v_m40c_cworst_CCworst_T.non_cons
+char_ssgnp_0p465v_m40c_cworst_CCworst_T.cons
+char_ssgnp_0p465v_m40c_cworst_CCworst_T.non_cons
+char_ssgnp_0p480v_m40c_cworst_CCworst_T.cons
+char_ssgnp_0p480v_m40c_cworst_CCworst_T.non_cons
+char_ssgnp_0p495v_m40c_cworst_CCworst_T.cons
+char_ssgnp_0p495v_m40c_cworst_CCworst_T.non_cons
+ffgnp_cbest_CCbest_T_125c
+nldm_ffgnp_1p155v_125c_cbest_CCbest_T
+nldm_ssgnp_0p475v_0c_cworst_CCworst_T
+nldm_ssgnp_0p515v_0c_cworst_CCworst_T
+ssgnp_cworst_CCworst_T_0c
+```

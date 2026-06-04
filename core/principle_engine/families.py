@@ -127,6 +127,29 @@ _BOOTSTRAP_FAMILIES: list = [
         measurement="standard",
         description="HSPICE min_pulse_width, CP-based fall-rise, nodeset init",
     ),
+    # --- Setup arc families (Phase 2B.1 addition) ---
+    # Setup uses same monte=1 .tran style and NONE init style as hold/common.
+    # Source: spec_draft.md §4 (setup in MVP scope), E2_sampling_results.md SS A.
+    TemplateFamily(
+        key="setup/common/rise_fall",
+        hspice_template_path="templates/v2/setup/template__common__rise__fall__1.sp",
+        tran_style=TranStyle.MONTE_CARLO,
+        init_style=InitStyle.NONE,
+        param_schema=["REL_PIN", "CONSTR_PIN", "PROBE_PIN_1", "VDD_VALUE",
+                      "INDEX_1_VALUE", "OUTPUT_LOAD"],
+        measurement="standard",
+        description="HSPICE setup, common FF topology, rel=rise constr=fall",
+    ),
+    TemplateFamily(
+        key="setup/common/fall_rise",
+        hspice_template_path="templates/v2/setup/template__common__fall__rise__1.sp",
+        tran_style=TranStyle.MONTE_CARLO,
+        init_style=InitStyle.NONE,
+        param_schema=["REL_PIN", "CONSTR_PIN", "PROBE_PIN_1", "VDD_VALUE",
+                      "INDEX_1_VALUE", "OUTPUT_LOAD"],
+        measurement="standard",
+        description="HSPICE setup, common FF topology, rel=fall constr=rise",
+    ),
     # --- MVP family 6: HSPICE nochange, CKG ---
     TemplateFamily(
         key="nochange/ckg/fall_fall",
