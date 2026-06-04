@@ -24,7 +24,7 @@ from typing import Dict, List
 
 from engine.types import Device, DeviceGraph
 
-RAILS = {"VDD", "VSS", "VPP", "VBB"}
+RAILS = {"VDD", "VSS", "VPP", "VBB", "0"}   # "0" = SPICE global ground
 _TERM_SUFFIX = re.compile(r"#.*$")
 
 

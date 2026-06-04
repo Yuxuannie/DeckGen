@@ -21,7 +21,7 @@ from typing import Dict, List, Set
 from engine.types import CCCResult, DeviceGraph, Derivation, StateNode
 
 STAGE = "S1.ccc"
-RAILS = {"VDD", "VSS", "VPP", "VBB"}
+RAILS = {"VDD", "VSS", "VPP", "VBB", "0"}   # "0" = SPICE global ground
 
 
 def _components(nets: List[str], edges: List[tuple], boundaries: Set[str]) -> List[List[str]]:
