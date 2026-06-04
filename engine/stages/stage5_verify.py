@@ -34,15 +34,16 @@ def verify(
     sens: SensitizationResult,
     init: InitializationResult,
 ) -> Verdict:
-    # P1 -- Sensitization correct (Boolean/SAT over the device graph).
+    # P1 -- Sensitization correct (Boolean difference over the switch-level model).
     p1 = Property(
-        "P1", "Sensitization", PStatus.STUB,
+        "P1", "Sensitization", PStatus.PASS if sens.proven else PStatus.FAIL,
         detail=(
             [f"obligation : {sens.p1_obligation}"]
             + [f"bias {pin:<3}: {d.value}  <= {d.reason}"
                for pin, d in sens.side_biases.items()]
-            + [f"masked     : {', '.join(sens.masked_paths)}"]
-            + ["check      : SAT(z3) over device graph -- NOT RUN (skeleton)"]
+            + [f"masked     : {', '.join(sens.masked_paths) or '(none)'}"]
+            + [f"check      : switch-level Boolean difference, {sens.clock_phase or 'n/a'} "
+               f"-- {'PROVEN' if sens.proven else 'NOT PROVEN'}"]
         ),
     )
 

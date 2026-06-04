@@ -72,3 +72,14 @@ COSMOS/ANAMOS; [TRANALYZE / symbolic FSM extraction](https://www.cs.cmu.edu/~bry
 
 The sim deck still `.inc`s the original LPE netlist for HSPICE (as the golden
 deck does); the R-merged graph is internal-only for derivation.
+
+### Dependency reversal on S2 (z3 -> stdlib)
+The survey's ADOPT-z3 decision is **overridden by a binding environment
+constraint**: the air-gapped server forbids pip-from-internet (confirmed
+2026-06-04). The whole engine therefore stays stdlib-only / pip-free. Stage 2
+sensitization uses a **stdlib switch-level Boolean evaluator + Boolean-difference
+enumeration** over the cell's few primary inputs (e.g. D/SI/SE/CP). At this size
+exhaustive enumeration is exact, deterministic, and more inspectable than a SAT
+call -- not a quality compromise. z3 remains a documented future option (via an
+offline-staged wheel, if policy permits) should a cell's side-pin space ever
+exceed enumeration.

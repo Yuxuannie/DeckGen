@@ -37,9 +37,9 @@ def _run(record, src, meas, model, backend_name) -> PipelineResult:
     log.append(f"S1 ccc      : {len(ccc.components)} CCC(s); storage "
                f"{ {r: v for r, v in sorted(roles.items())} } [Bryant, structural]")
 
-    sens = stage2_sensitize.derive(graph, arc)
+    sens = stage2_sensitize.derive(graph, arc, ccc)
     log.append(f"S2 sensitize: biases {{{', '.join(f'{k}={v.value}' for k, v in sens.side_biases.items())}}} "
-               f"[STUB -> SAT]")
+               f"P1={'PASS' if sens.proven else 'FAIL'} [switch-level Boolean-diff]")
 
     init = stage3_initialize.derive(ccc, arc)
     log.append(f"S3 init     : probes {init.probes}, precycle={init.precycle_count.value} [STUB]")

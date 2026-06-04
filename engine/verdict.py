@@ -27,7 +27,7 @@ def render(result: PipelineResult) -> str:
     arc = result.arc
     lines: list[str] = []
     lines.append(_bar())
-    lines.append(" DeckGen v2 -- P1/P2/P3 Verdict  (S0-1 real: LPE+CCC | S2-5 stub)")
+    lines.append(" DeckGen v2 -- P1/P2/P3 Verdict  (S0-2 real: LPE+CCC+sens | S3-5 stub)")
     lines.append(_bar("-"))
     lines.append(f" arc     : {arc.label()}   cell={arc.cell}")
     lines.append(f" backend : {result.backend_name:<8} deck: {result.deck.line_count()} lines"

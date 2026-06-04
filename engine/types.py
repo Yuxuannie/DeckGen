@@ -116,6 +116,8 @@ class SensitizationResult:
     side_biases: Dict[str, Derivation]   # side pin -> required static value
     masked_paths: List[str]
     p1_obligation: str                   # textual obligation handed to the P1 check
+    proven: bool = False                 # P1 discharged (measured path live, scan masked)
+    clock_phase: str = ""                # transparent clock phase used in the proof
 
 
 # ---------------------------------------------------------------------------
