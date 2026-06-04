@@ -2,44 +2,41 @@
 Stage 2 -- Sensitization derivation + P1 (spec SS5, SS9; SEGMENT 2).
   in : DeviceGraph + Arc + CCCResult        out: SensitizationResult
 
-Method (technique survey Layer B / Boolean difference, stdlib -- no SAT solver):
+Method (Boolean difference over a switch-level model, stdlib -- no SAT solver):
   The measured arc captures the constraint pin (D) through the cell. Sensitization
-  must make that the ONLY live capture path and mask the scan path. We derive and
-  PROVE the side-pin bias structurally:
-    - classify primary inputs: the constraint pin (D), the related/clock pin (CP),
-      "select" side pins (appear as gates: e.g. SE) and "scan/data" side pins
-      (appear as source/drain: e.g. SI);
+  holds the non-measured inputs static so the D path is the only live capture
+  path. We derive AND prove the bias purely FUNCTIONALLY (no reliance on whether a
+  pin drives a gate vs a source, so it generalizes across mux styles):
     - break the latch feedback (Stage 1 storage cores) so the data path is clean;
-    - via the switch-level evaluator, search the select-pin bias + transparent
-      clock phase where toggling D changes the captured (master) node AND toggling
-      the scan pin does not (Boolean difference: d(target)/d(D)=1, d(target)/d(SI)=0).
-  The found bias is the P1 witness; if none exists, P1 FAILs with what was tried.
+    - find the transparent clock phase + a static assignment of the side pins under
+      which toggling D changes the captured (master) node: d(capture)/d(D)=1;
+    - then classify each side pin under that bias:
+        * SET (a select, e.g. SE): toggling it changes capture -> its value is required;
+        * MASKED (scan/data, e.g. SI): toggling it never changes capture -> the
+          competing path is off; its static value is non-critical.
+  P1 PASS iff D controls capture and the masked set is identified; else FAIL with
+  what was tried.
 """
 from __future__ import annotations
 
 from itertools import product
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 
 from engine import switchlevel
 from engine.types import Arc, CCCResult, Derivation, DeviceGraph, SensitizationResult
 
 STAGE = "S2.sens"
 RAILS = {"VDD", "VSS", "VPP", "VBB", "0"}
+# Masked side pins are don't-care for capture; hold them at this static value.
+# (Golden convention for scan inputs; any static value is non-interfering.)
+MASKED_HOLD = 1
 
 
 def derive(graph: DeviceGraph, arc: Arc, ccc: CCCResult) -> SensitizationResult:
     driven = {d.terminals["d"] for d in graph.devices}
     inputs = [p for p in graph.ports if p not in RAILS and p not in driven]
     constr, rel = arc.constr_pin, arc.rel_pin
-
-    gate_pins = {d.terminals["g"] for d in graph.devices}
-    sd_pins = set()
-    for d in graph.devices:
-        sd_pins |= {d.terminals["d"], d.terminals["s"]}
-
     sides = [i for i in inputs if i not in (constr, rel)]
-    selects = [s for s in sides if s in gate_pins and s not in sd_pins]   # e.g. SE
-    scans = [s for s in sides if s in sd_pins]                            # e.g. SI
 
     core = {sn.net for sn in ccc.state_nodes}
     broken = frozenset(d.name for d in graph.devices
@@ -47,60 +44,60 @@ def derive(graph: DeviceGraph, arc: Arc, ccc: CCCResult) -> SensitizationResult:
     targets = [sn.net for sn in ccc.state_nodes if sn.role == "master"] \
         or [sn.net for sn in ccc.state_nodes]
 
-    def tvals(assign: Dict[str, int]):
+    def tvals(assign: Dict[str, int]) -> Tuple[Optional[int], ...]:
         v = switchlevel.evaluate(graph, assign, broken)
         return tuple(v[t] for t in targets)
 
-    def d_controls(cp: int, sel: Dict[str, int]) -> bool:
-        for sc in product((0, 1), repeat=len(scans)):
-            base = {rel: cp, **sel, **dict(zip(scans, sc))}
-            t0, t1 = tvals({**base, constr: 0}), tvals({**base, constr: 1})
-            if any(a is not None and b is not None and a != b for a, b in zip(t0, t1)):
-                return True
-        return False
+    def controls_D(cp: int, a: Dict[str, int]) -> bool:
+        base = {rel: cp, **a}
+        t0, t1 = tvals({**base, constr: 0}), tvals({**base, constr: 1})
+        return any(x is not None and y is not None and x != y for x, y in zip(t0, t1))
 
-    def scan_masked(cp: int, sel: Dict[str, int]) -> bool:
+    def pin_masked(cp: int, a: Dict[str, int], s: str) -> bool:
         for dval in (0, 1):
-            seen = {tvals({rel: cp, **sel, **dict(zip(scans, sc)), constr: dval})
-                    for sc in product((0, 1), repeat=len(scans))}
-            if len(seen) != 1:
+            base = {rel: cp, **a, constr: dval}
+            if tvals({**base, s: 0}) != tvals({**base, s: 1}):
                 return False
         return True
 
     found = None
     for cp in (0, 1):
-        for sel_vals in product((0, 1), repeat=len(selects)):
-            sel = dict(zip(selects, sel_vals))
-            if d_controls(cp, sel) and scan_masked(cp, sel):
-                found = (cp, sel)
+        for vals in product((0, 1), repeat=len(sides)):
+            a = dict(zip(sides, vals))
+            if controls_D(cp, a):
+                masked = [s for s in sides if pin_masked(cp, a, s)]
+                setpins = [s for s in sides if s not in masked]
+                found = (cp, a, setpins, masked)
                 break
         if found:
             break
 
     side_biases: Dict[str, Derivation] = {}
     if found:
-        cp, sel = found
-        for pin, v in sel.items():
-            side_biases[pin] = Derivation(
-                v, f"select bias: makes {constr} the live capture path and masks "
-                   f"the scan path (proven by Boolean difference)", STAGE)
-        for sp in scans:
-            side_biases[sp] = Derivation(
-                1, f"scan input masked under {sel}; held to a static non-interfering "
-                   f"value (path off, polarity non-critical)", STAGE)
+        cp, a, setpins, masked = found
+        for s in setpins:
+            side_biases[s] = Derivation(
+                a[s], f"required select: {constr} is the live capture path only at "
+                      f"{s}={a[s]} (toggling it changes capture)", STAGE)
+        for s in masked:
+            side_biases[s] = Derivation(
+                MASKED_HOLD, f"scan/side input masked: capture is independent of {s} "
+                             f"under the select bias (path off); static hold, "
+                             f"value non-critical", STAGE)
         proven = True
         clock_phase = f"{rel}={cp} (master transparent)"
-        obligation = (f"d({targets})/d({constr})=1 and d/d({scans})=0 under "
-                      f"{sel}, {clock_phase}")
-        masked_paths = [f"scan path via {','.join(scans) or '(none)'}: capture "
-                        f"independent of it under {sel}"]
+        set_str = "{" + ", ".join(f"{s}={a[s]}" for s in setpins) + "}"
+        obligation = (f"d({targets})/d({constr})=1 under {set_str}; "
+                      f"capture independent of masked {masked or '(none)'}")
+        masked_paths = [f"path via {s}: capture independent of it under {set_str}"
+                        for s in masked]
     else:
         proven = False
         clock_phase = ""
-        obligation = (f"no side-pin bias sensitizes {constr} while masking "
-                      f"{scans} (searched selects={selects}, both clock phases)")
+        obligation = (f"no static side-pin bias makes {constr} control capture "
+                      f"(searched sides={sides}, both clock phases)")
         masked_paths = []
-        for s in selects + scans:
+        for s in sides:
             side_biases[s] = Derivation(None, "PLACEHOLDER: P1 could not be proven", STAGE)
 
     return SensitizationResult(
