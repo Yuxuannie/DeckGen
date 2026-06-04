@@ -154,6 +154,7 @@ def render_svg(graph, ccc, sens=None, arc=None) -> str:
 
     S = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
          f'font-family="monospace" font-size="12">']
+    S.append(f'<rect width="{width}" height="{height}" fill="white"/>')   # opaque bg
     S.append(f'<text x="10" y="20" font-size="14">{graph.cell}  '
              f'{arc.label() if arc else ""}  '
              f'{"P1=" + ("PASS" if sens and sens.proven else "") if sens else ""}</text>')
