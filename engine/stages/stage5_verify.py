@@ -42,6 +42,7 @@ def verify(
             + [f"bias {pin:<3}: {d.value}  <= {d.reason}"
                for pin, d in sens.side_biases.items()]
             + [f"masked     : {', '.join(sens.masked_paths) or '(none)'}"]
+            + [f"arc-check  : {sens.arc_check}"]
             + [f"check      : switch-level Boolean difference, {sens.clock_phase or 'n/a'} "
                f"-- {'PROVEN' if sens.proven else 'NOT PROVEN'}"]
         ),

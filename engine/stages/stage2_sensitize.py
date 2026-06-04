@@ -24,11 +24,11 @@ from typing import Dict, List, Optional, Tuple
 
 from engine import switchlevel
 from engine.types import Arc, CCCResult, Derivation, DeviceGraph, SensitizationResult
+from engine.whencond import parse_when
 
 STAGE = "S2.sens"
 RAILS = {"VDD", "VSS", "VPP", "VBB", "0"}
-# Masked side pins are don't-care for capture; hold them at this static value.
-# (Golden convention for scan inputs; any static value is non-interfering.)
+# Default static hold for a masked side pin when the arc's when-string is silent.
 MASKED_HOLD = 1
 
 
@@ -72,18 +72,23 @@ def derive(graph: DeviceGraph, arc: Arc, ccc: CCCResult) -> SensitizationResult:
         if found:
             break
 
+    when_bias = parse_when(arc.when)        # what the arc ASSERTS (for cross-check)
     side_biases: Dict[str, Derivation] = {}
+    set_pins: List[str] = []
+    masked_pins: List[str] = []
     if found:
         cp, a, setpins, masked = found
+        set_pins, masked_pins = setpins, masked
         for s in setpins:
             side_biases[s] = Derivation(
                 a[s], f"required select: {constr} is the live capture path only at "
                       f"{s}={a[s]} (toggling it changes capture)", STAGE)
         for s in masked:
+            hold = when_bias.get(s, MASKED_HOLD)   # respect arc's value if given
             side_biases[s] = Derivation(
-                MASKED_HOLD, f"scan/side input masked: capture is independent of {s} "
-                             f"under the select bias (path off); static hold, "
-                             f"value non-critical", STAGE)
+                hold, f"scan/side input masked: capture is independent of {s} under "
+                      f"the select bias (path off); static hold {hold} "
+                      f"(value non-critical)", STAGE)
         proven = True
         clock_phase = f"{rel}={cp} (master transparent)"
         set_str = "{" + ", ".join(f"{s}={a[s]}" for s in setpins) + "}"
@@ -91,16 +96,27 @@ def derive(graph: DeviceGraph, arc: Arc, ccc: CCCResult) -> SensitizationResult:
                       f"capture independent of masked {masked or '(none)'}")
         masked_paths = [f"path via {s}: capture independent of it under {set_str}"
                         for s in masked]
+        # cross-check derived-vs-arc.when (set pins must match; masked = non-critical)
+        if when_bias:
+            mism = [f"{s}: arc={when_bias[s]} derived={a[s]}"
+                    for s in setpins if s in when_bias and when_bias[s] != a[s]]
+            arc_check = (f"arc.when {dict(when_bias)} vs derived {set_str}: "
+                         + ("AGREE [set pins match]" if not mism
+                            else "DISAGREE " + "; ".join(mism)))
+        else:
+            arc_check = "arc.when: (none supplied) -- derived independently"
     else:
         proven = False
         clock_phase = ""
         obligation = (f"no static side-pin bias makes {constr} control capture "
                       f"(searched sides={sides}, both clock phases)")
         masked_paths = []
+        arc_check = "arc.when: not checked (P1 not proven)"
         for s in sides:
             side_biases[s] = Derivation(None, "PLACEHOLDER: P1 could not be proven", STAGE)
 
     return SensitizationResult(
         side_biases=side_biases, masked_paths=masked_paths,
         p1_obligation=obligation, proven=proven, clock_phase=clock_phase,
+        set_pins=set_pins, masked_pins=masked_pins, arc_check=arc_check,
     )

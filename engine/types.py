@@ -118,6 +118,9 @@ class SensitizationResult:
     p1_obligation: str                   # textual obligation handed to the P1 check
     proven: bool = False                 # P1 discharged (measured path live, scan masked)
     clock_phase: str = ""                # transparent clock phase used in the proof
+    set_pins: List[str] = field(default_factory=list)     # required selects (e.g. SE)
+    masked_pins: List[str] = field(default_factory=list)  # masked data inputs (e.g. SI)
+    arc_check: str = ""                  # derived-vs-arc.when agreement summary
 
 
 # ---------------------------------------------------------------------------
