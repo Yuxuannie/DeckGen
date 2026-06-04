@@ -56,6 +56,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--arc-id", default=None, help="full arc identifier (overrides when/pins)")
     ap.add_argument("--viz", action="store_true", help="print the ASCII sensitization/init map")
     ap.add_argument("--topo", action="store_true", help="print parsed schematic + CCC channels")
+    ap.add_argument("--topo-full", action="store_true", help="--topo plus the anonymous series nodes")
     ap.add_argument("--deck", action="store_true", help="also print the assembled deck")
     args = ap.parse_args(argv)
 
@@ -69,9 +70,10 @@ def main(argv: list[str] | None = None) -> int:
 
     print(render_status(result))
     print(render(result))
-    if args.topo:
+    if args.topo or args.topo_full:
         from engine.topo_viz import render as render_topo
-        print("\n" + render_topo(result.graph, result.ccc))
+        print("\n" + render_topo(result.graph, result.ccc, result.arc,
+                                 full=args.topo_full))
     if args.viz:
         from engine.viz import render as render_viz
         print("\n" + render_viz(result))
