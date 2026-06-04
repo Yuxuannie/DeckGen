@@ -1,0 +1,6 @@
+{
+  "_comment": "SEGMENT 2 / server run. Same engine code, real collateral. Edit real_root and arc.",
+  "backend": "real",
+  "real_root": "/REPLACE/WITH/SERVER/COLLATERAL/ROOT",
+  "arc": "REPLACE_WITH_REAL_ARC_ID"
+}

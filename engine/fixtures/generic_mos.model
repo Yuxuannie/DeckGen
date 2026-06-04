@@ -1,0 +1,4 @@
+* PLACEHOLDER generic MOS models -- no PDK anywhere (spec SS7.2, SS8).
+* Level-1 toy parameters; sufficient for skeleton wiring, not for real silicon.
+.model nmos_generic nmos level=1 vto=0.4 kp=120u
+.model pmos_generic pmos level=1 vto=-0.4 kp=60u

@@ -1,0 +1,6 @@
+{
+  "_comment": "SEGMENT 1 default. Local synthetic data, no PDK. Selects the fixture backend.",
+  "backend": "fixture",
+  "fixture_root": "fixtures",
+  "arc": "hold_cp_d_placeholder"
+}

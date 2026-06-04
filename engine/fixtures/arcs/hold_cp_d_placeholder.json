@@ -1,0 +1,11 @@
+{
+  "_placeholder": "THROWAWAY hold(CP,D) arc on the synthetic LPE fixture. Real define_arc replaces this on the server. Mirrors real when=notSE_SI (SE=0 selects functional D, SI held).",
+  "cell": "SDFX_LPE_PLACEHOLDER",
+  "arc_type": "hold",
+  "rel_pin": "CP",
+  "rel_dir": "rise",
+  "constr_pin": "D",
+  "constr_dir": "fall",
+  "when": "notSE_SI",
+  "measurement": "hold_constraint_bisection"
+}
