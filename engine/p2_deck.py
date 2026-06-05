@@ -25,10 +25,12 @@ from engine.types import Arc, InitializationResult, SensitizationResult
 
 STAGE = "S4.p2deck"
 
-# Prototype cycle timing (ns). Edges spaced well beyond the golden slews so the
-# flop settles between transitions.
-_CYC = 2.0          # clock period (ns)
-_TR = 0.05          # edge transition (ns)
+# Drive-and-settle timing (ns). The first real run was at ss/0.45V/-40C (a SLOW
+# corner: golden max_slew ~8ns), where a 2ns cycle / 0.35ns settle left storage
+# nodes mid-transition. Scale to the golden slews: ~0.5ns edges (golden rel/constr
+# slew) and a generous multi-ns settle window so nodes fully settle before probing.
+_TR = 0.5           # edge transition (ns) ~ golden rel/constr slew
+_SET = 20.0         # settle window (ns) >> a few * golden max_slew
 
 
 def _v(value) -> str:
@@ -49,16 +51,19 @@ def build(arc: Arc, sens: SensitizationResult, init: InitializationResult,
     d_settle = cap if final_d is None else final_d   # D driven at the settle point
     rel = arc.rel_pin
 
-    # Timeline (ns):
-    #   pre-cycle: D=prev, one full CP cycle loads prior into the latch
-    #   capture  : D=cap before the capturing CP edge
-    #   t_settle : just before the capturing edge, after the master is transparent
-    t_pre_clk_r = 1.0
-    t_pre_clk_f = t_pre_clk_r + _CYC / 2
-    t_dchange = t_pre_clk_f + 0.5            # set D=cap after prior is stored
-    t_settle = t_dchange + 0.4               # probe here (master transparent, settled)
-    t_cap_edge = t_settle + 0.2              # the capturing CP edge
-    t_end = t_cap_edge + _CYC
+    # Timeline (ns), slow-corner spaced (each event gets _SET to settle):
+    #   0..t_load_r : CP=0 (master transparent), D=prev -> master tracks prev
+    #   t_load_r    : CP rises  -> slave captures prev (Q=prev)
+    #   t_load_f    : CP falls  -> master transparent again, slave holds prev
+    #   t_dchange   : D -> d_settle while master is transparent
+    #   t_settle    : PROBE -- master settled to d_settle, slave still holds prev
+    #   t_cap_edge  : CP rises  -> would capture d_settle (after the probe)
+    t_load_r = 5.0
+    t_load_f = t_load_r + _SET
+    t_dchange = t_load_f + 5.0
+    t_settle = t_dchange + _SET
+    t_cap_edge = t_settle + 5.0
+    t_end = t_cap_edge + _SET
 
     def pwl(name, node, seq):
         pts = " ".join(f"{t}n {_v(v)}" for t, v in seq)
@@ -89,8 +94,8 @@ def build(arc: Arc, sens: SensitizationResult, init: InitializationResult,
         lines.append(f"V{pin} {pin} 0 '{_v(d.value)}'   $ {pin}={d.value}")
     lines.append("")
     lines.append("* ===== drive-and-settle (prototype PWL) =====")
-    lines.append(pwl("CP", rel, [(0, 0), (t_pre_clk_r, 0), (t_pre_clk_r + _TR, 1),
-                                 (t_pre_clk_f, 1), (t_pre_clk_f + _TR, 0),
+    lines.append(pwl("CP", rel, [(0, 0), (t_load_r, 0), (t_load_r + _TR, 1),
+                                 (t_load_f, 1), (t_load_f + _TR, 0),
                                  (t_cap_edge, 0), (t_cap_edge + _TR, 1), (t_end, 1)]))
     lines.append(pwl("Ddata", arc.constr_pin, [(0, prev), (t_dchange, prev),
                                                (t_dchange + _TR, d_settle), (t_end, d_settle)]))
