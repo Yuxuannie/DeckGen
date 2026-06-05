@@ -36,7 +36,8 @@ def _v(value) -> str:
 
 
 def build(arc: Arc, sens: SensitizationResult, init: InitializationResult,
-          probe_nodes: List[str], final_d: int = None) -> tuple[str, dict]:
+          probe_nodes: List[str], final_d: int = None,
+          wave: bool = False) -> tuple[str, dict]:
     """Return (deck_text, meas_name_map) where meas_name_map: probe_node -> meas name.
 
     final_d overrides the value driven on the constraint pin at the settle point
@@ -102,6 +103,14 @@ def build(arc: Arc, sens: SensitizationResult, init: InitializationResult,
         lines.append(f".meas tran {nm} find v({node}) at='{t_settle}n'")
     lines.append("")
     lines.append(f".tran 1p {t_end}n")
-    lines.append(".option nomod")          # no waveform dump (.meas/.mt0 only; avoids viewer launch)
+    if wave:
+        # ASCII CSDF transient of the probe nodes + stimulus, for an eog waveform.
+        lines.append(f".print tran {rel} {arc.constr_pin} "
+                     + " ".join(f"v({n})" for n in probe_nodes))
+        lines.append(".option post=1 csdf=1")
+    else:
+        lines.append(".option nomod")       # .meas/.mt0 only; no waveform dump
     lines.append(".end")
-    return "\n".join(lines) + "\n", meas_map
+    info = {"meas_map": meas_map, "t_settle": t_settle * 1e-9,
+            "t_cap_edge": t_cap_edge * 1e-9}
+    return "\n".join(lines) + "\n", (info if wave else meas_map)

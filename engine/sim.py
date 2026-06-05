@@ -87,6 +87,38 @@ def _run_once(arc, sens, init, probe_nodes, final_d, workdir, tag,
         return parse_mt0(fh.read()), meas_map, ""
 
 
+def run_wave(arc: Arc, sens: SensitizationResult, init: InitializationResult,
+             workdir: str, out_svg: str, hspice_cmd: str = "hspice",
+             tr0_path: Optional[str] = None) -> str:
+    """Run the P2 wave deck and render its transient to an SVG (open with eog).
+    tr0_path lets you render an existing CSDF .tr0 without re-running hspice."""
+    from engine.wave import parse_csdf, render_svg
+    os.makedirs(workdir, exist_ok=True)
+    probe_nodes = list(init.probes)
+    deck, info = build_p2(arc, sens, init, probe_nodes, wave=True)
+    with open(os.path.join(workdir, "p2_wave.sp"), "w", encoding="ascii") as fh:
+        fh.write(deck)
+    if tr0_path is None:
+        tr0_path = os.path.join(workdir, "p2_wave.tr0")
+        try:
+            subprocess.run([hspice_cmd, "p2_wave.sp"], cwd=workdir,
+                           capture_output=True, text=True, timeout=1800, check=False)
+        except FileNotFoundError:
+            return f"hspice not found ({hspice_cmd!r})"
+        except subprocess.TimeoutExpired:
+            return "hspice timed out"
+    if not os.path.isfile(tr0_path):
+        return f"no .tr0 produced ({tr0_path}); check the wave deck ran"
+    with open(tr0_path, "r", encoding="ascii", errors="replace") as fh:
+        times, traces = parse_csdf(fh.read())
+    marks = [(info["t_settle"], "settle"), (info["t_cap_edge"], "cap-edge")]
+    svg = render_svg(times, traces, float(G.VDD_VALUE), marks,
+                     title=f"{arc.cell} {arc.label()} P2 transient")
+    with open(out_svg, "w", encoding="ascii") as fh:
+        fh.write(svg)
+    return f"wrote {out_svg} ({len(times)} points); open: eog {out_svg}"
+
+
 def run_p2(arc: Arc, ccc: CCCResult, sens: SensitizationResult,
            init: InitializationResult, workdir: str,
            hspice_cmd: str = "hspice",

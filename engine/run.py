@@ -60,6 +60,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--mt0-inv", default=None, help="existing .mt0 for the inverted-D run (offline differential)")
     ap.add_argument("--simdir", default="/tmp/deckgen_p2", help="work dir for the P2 deck/run")
     ap.add_argument("--gen-p2-deck", default=None, metavar="PATH", help="just write the P2 deck and exit")
+    ap.add_argument("--wave", default=None, metavar="PATH.svg", help="run P2 wave deck, render transient SVG (eog)")
+    ap.add_argument("--tr0", default=None, help="render this existing CSDF .tr0 instead of running hspice")
     ap.add_argument("--viz", action="store_true", help="print the ASCII sensitization/init map")
     ap.add_argument("--topo", action="store_true", help="print parsed schematic + CCC channels")
     ap.add_argument("--topo-full", action="store_true", help="--topo plus the anonymous series nodes")
@@ -82,6 +84,14 @@ def main(argv: list[str] | None = None) -> int:
         with open(args.gen_p2_deck, "w", encoding="ascii") as fh:
             fh.write(text)
         print(f"wrote {args.gen_p2_deck}  (run: hspice {args.gen_p2_deck})")
+        return 0
+
+    if args.wave or args.tr0:
+        from engine.sim import run_wave
+        out = args.wave or "p2_wave.svg"
+        msg = run_wave(result.arc, result.sens, result.init, args.simdir, out,
+                       hspice_cmd=args.hspice, tr0_path=args.tr0)
+        print(msg)
         return 0
 
     if args.sim or args.mt0:
