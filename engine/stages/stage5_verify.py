@@ -27,18 +27,20 @@ STAGE = "S5.verify"
 
 
 def p2_property(p2res) -> Property:
-    """Build the real P2 Property from a sim.P2Result (replaces the STUB P2)."""
+    """Build the real P2 Property from a sim.P2Result (differential)."""
     if not p2res.ran:
         return Property("P2", "Initial state", PStatus.STUB,
                         detail=[f"sim not run: {p2res.note}"])
     status = PStatus.PASS if p2res.passed else PStatus.FAIL
     detail = []
     for n in p2res.nodes:
-        mv = f"{n.measured_v:.4f}V" if n.measured_v is not None else "n/a"
-        verd = "ok" if n.ok else "MISMATCH"
-        detail.append(f"{n.role:<6} {n.node:<8} meas {mv} -> bit {n.measured_bit} "
-                      f"vs expected {n.expected_bit}  [{verd}]")
-    detail.append("check      : probe storage nodes at settle vs derived -- RAN")
+        vc = f"{n.v_cap:.3f}" if n.v_cap is not None else "n/a"
+        vi = f"{n.v_inv:.3f}" if n.v_inv is not None else "n/a"
+        verd = "ok" if n.ok else "FAIL"
+        detail.append(f"{n.role:<6} {n.node:<8} D=cap:{vc}(b{n.bit_cap}) "
+                      f"D=inv:{vi}(b{n.bit_inv})  expect {n.behavior}  [{verd}]")
+    detail.append(f"complementary pairs: {'ok' if p2res.complementary else 'FAIL'}")
+    detail.append("check      : differential D-toggle (master tracks D, slave holds) -- RAN")
     return Property("P2", "Initial state", status, detail=detail)
 
 

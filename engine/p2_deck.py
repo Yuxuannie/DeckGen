@@ -36,10 +36,16 @@ def _v(value) -> str:
 
 
 def build(arc: Arc, sens: SensitizationResult, init: InitializationResult,
-          probe_nodes: List[str]) -> tuple[str, dict]:
-    """Return (deck_text, meas_name_map) where meas_name_map: probe_node -> meas name."""
+          probe_nodes: List[str], final_d: int = None) -> tuple[str, dict]:
+    """Return (deck_text, meas_name_map) where meas_name_map: probe_node -> meas name.
+
+    final_d overrides the value driven on the constraint pin at the settle point
+    (used for the differential P2 check: run with final_d=1 and final_d=0 and
+    compare which storage nodes track D vs hold the prior). Default = captured.
+    """
     cap = 1 if arc.constr_dir == "fall" else 0   # captured value (hold convention)
-    prev = 1 - cap                               # prior value loaded in pre-cycle
+    prev = 1 - cap                               # prior loaded in pre-cycle (FIXED)
+    d_settle = cap if final_d is None else final_d   # D driven at the settle point
     rel = arc.rel_pin
 
     # Timeline (ns):
@@ -59,7 +65,7 @@ def build(arc: Arc, sens: SensitizationResult, init: InitializationResult,
 
     lines: List[str] = []
     lines.append("** DeckGen v2 -- P2 (initial state) check deck **")
-    lines.append(f"* cell {arc.cell} | arc {arc.label()} | captured={cap} prior={prev}")
+    lines.append(f"* cell {arc.cell} | arc {arc.label()} | prior={prev} D@settle={d_settle}")
     lines.append("")
     lines.append("* ===== COLLATERAL (golden, reused) =====")
     lines.append(f".inc '{G.INC_WAVEFORM}'")
@@ -86,7 +92,7 @@ def build(arc: Arc, sens: SensitizationResult, init: InitializationResult,
                                  (t_pre_clk_f, 1), (t_pre_clk_f + _TR, 0),
                                  (t_cap_edge, 0), (t_cap_edge + _TR, 1), (t_end, 1)]))
     lines.append(pwl("Ddata", arc.constr_pin, [(0, prev), (t_dchange, prev),
-                                               (t_dchange + _TR, cap), (t_end, cap)]))
+                                               (t_dchange + _TR, d_settle), (t_end, d_settle)]))
     lines.append("")
     lines.append(f"* ===== P2 probes @ settle t={t_settle}n =====")
     meas_map = {}
@@ -96,6 +102,6 @@ def build(arc: Arc, sens: SensitizationResult, init: InitializationResult,
         lines.append(f".meas tran {nm} find v({node}) at='{t_settle}n'")
     lines.append("")
     lines.append(f".tran 1p {t_end}n")
-    lines.append(".option post")
+    lines.append(".option nomod")          # no waveform dump (.meas/.mt0 only; avoids viewer launch)
     lines.append(".end")
     return "\n".join(lines) + "\n", meas_map

@@ -56,7 +56,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--arc-id", default=None, help="full arc identifier (overrides when/pins)")
     ap.add_argument("--sim", action="store_true", help="run hspice to evaluate P2 (real PASS/FAIL)")
     ap.add_argument("--hspice", default="hspice", help="hspice command (default: hspice)")
-    ap.add_argument("--mt0", default=None, help="evaluate this existing .mt0 instead of running hspice")
+    ap.add_argument("--mt0", default=None, help="evaluate existing .mt0 (captured-D run) instead of running hspice")
+    ap.add_argument("--mt0-inv", default=None, help="existing .mt0 for the inverted-D run (offline differential)")
     ap.add_argument("--simdir", default="/tmp/deckgen_p2", help="work dir for the P2 deck/run")
     ap.add_argument("--gen-p2-deck", default=None, metavar="PATH", help="just write the P2 deck and exit")
     ap.add_argument("--viz", action="store_true", help="print the ASCII sensitization/init map")
@@ -87,7 +88,8 @@ def main(argv: list[str] | None = None) -> int:
         from engine.sim import run_p2
         from engine.stages.stage5_verify import p2_property
         p2res = run_p2(result.arc, result.ccc, result.sens, result.init,
-                       args.simdir, hspice_cmd=args.hspice, mt0_path=args.mt0)
+                       args.simdir, hspice_cmd=args.hspice,
+                       mt0_path=args.mt0, mt0_inv_path=args.mt0_inv)
         result.verdict.p2 = p2_property(p2res)
         result.stage_log[-1] = (f"S5 verify   : P2 {'PASS' if p2res.passed else 'FAIL/n-a'} "
                                 f"({'ran' if p2res.ran else p2res.note})")

@@ -1,6 +1,7 @@
 """
-P2 simulation path: .mt0 parsing, deck generation, and the measured-vs-derived
-verdict (run via an existing .mt0 so no hspice is needed in CI).
+P2 differential simulation path: .mt0 parsing, deck generation, and the
+master-tracks-D / slave-holds-prior verdict (evaluated via existing .mt0 pairs so
+no hspice is needed in CI).
 """
 import os
 
@@ -29,46 +30,52 @@ def test_mt0_skips_title_and_aligns():
            "   p2_ml_a_1   p2_ml_b_1   alter#\n"
            "   4.4000E-01  1.0000E-02  1.0000E+00\n")
     d = parse_mt0(txt)
-    assert abs(d["p2_ml_a_1"] - 0.44) < 1e-6
-    assert abs(d["p2_ml_b_1"] - 0.01) < 1e-6
+    assert abs(d["p2_ml_a_1"] - 0.44) < 1e-6 and abs(d["p2_ml_b_1"] - 0.01) < 1e-6
 
 
 def test_mt0_failed_measure_is_none():
-    txt = "  p2_x  alter#\n  failed  1.0\n"
-    assert parse_mt0(txt)["p2_x"] is None
+    assert parse_mt0("  p2_x  alter#\n  failed  1.0\n")["p2_x"] is None
 
 
 # ---- deck ----
-def test_p2_deck_reuses_golden_inc_and_probes():
+def test_p2_deck_reuses_golden_and_varies_d():
     g, ccc, arc, sens, init = _setup()
-    text, mmap = build_p2(arc, sens, init, init.probes)
-    assert ".hold.inc" in text and "std_wv_c651.spi" in text   # golden collateral
-    assert "VSE SE 0" in text and "VSI SI 0" in text            # sensitization
-    assert all(f".meas tran {nm}" in text for nm in mmap.values())
+    cap_text, mmap = build_p2(arc, sens, init, init.probes, final_d=1)
+    inv_text, _ = build_p2(arc, sens, init, init.probes, final_d=0)
+    assert ".hold.inc" in cap_text and "VSE SE 0" in cap_text
+    assert cap_text != inv_text                       # D@settle differs
+    assert all(f".meas tran {nm}" in cap_text for nm in mmap.values())
 
 
-# ---- verdict via existing mt0 ----
-def _write_mt0(tmp, vals):
-    names = " ".join(v.split("=")[0] for v in vals) + " alter#"
-    row = " ".join(v.split("=")[1] for v in vals) + " 1.0"
-    p = os.path.join(tmp, "x.mt0")
+# ---- differential verdict via existing mt0 pairs ----
+def _mt0(tmp, name, vals):
+    p = os.path.join(tmp, name)
+    hdr = " ".join(k for k, _ in vals) + " alter#"
+    row = " ".join(str(v) for _, v in vals) + " 1.0"
     with open(p, "w") as fh:
-        fh.write(f"$DATA1\n  {names}\n  {row}\n")
+        fh.write(f"$DATA1\n  {hdr}\n  {row}\n")
     return p
 
 
-def test_p2_pass(tmp_path):
+def test_p2_pass_master_tracks_slave_holds(tmp_path):
     g, ccc, arc, sens, init = _setup()
-    # required: ml_a=1, ml_b=0, sl_a=0, sl_b=1 -> voltages above/below 0.225
-    mt0 = _write_mt0(str(tmp_path), ["p2_ml_a_1=0.44", "p2_ml_b_1=0.01",
-                                     "p2_sl_a_1=0.01", "p2_sl_b_1=0.44"])
-    res = run_p2(arc, ccc, sens, init, str(tmp_path), mt0_path=mt0)
+    t = str(tmp_path)
+    # cap run: ml tracks (a=1,b=0), sl holds (a=0,b=1)
+    cap = _mt0(t, "c.mt0", [("p2_ml_a_1", 0.44), ("p2_ml_b_1", 0.01),
+                            ("p2_sl_a_1", 0.01), ("p2_sl_b_1", 0.44)])
+    # inv run: master FLIPS, slave SAME
+    inv = _mt0(t, "i.mt0", [("p2_ml_a_1", 0.01), ("p2_ml_b_1", 0.44),
+                            ("p2_sl_a_1", 0.01), ("p2_sl_b_1", 0.44)])
+    res = run_p2(arc, ccc, sens, init, t, mt0_path=cap, mt0_inv_path=inv)
     assert res.ran and res.passed
 
 
-def test_p2_fail_on_wrong_node(tmp_path):
+def test_p2_fail_when_master_does_not_track(tmp_path):
     g, ccc, arc, sens, init = _setup()
-    mt0 = _write_mt0(str(tmp_path), ["p2_ml_a_1=0.01", "p2_ml_b_1=0.01",  # ml_a wrong
-                                     "p2_sl_a_1=0.01", "p2_sl_b_1=0.44"])
-    res = run_p2(arc, ccc, sens, init, str(tmp_path), mt0_path=mt0)
+    t = str(tmp_path)
+    same = [("p2_ml_a_1", 0.44), ("p2_ml_b_1", 0.01),
+            ("p2_sl_a_1", 0.01), ("p2_sl_b_1", 0.44)]
+    cap = _mt0(t, "c.mt0", same)
+    inv = _mt0(t, "i.mt0", same)        # master did NOT flip with D
+    res = run_p2(arc, ccc, sens, init, t, mt0_path=cap, mt0_inv_path=inv)
     assert res.ran and not res.passed
