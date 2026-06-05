@@ -54,6 +54,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--constr-pin", default="D", help="constraint pin (direct mode, default D)")
     ap.add_argument("--rel-pin", default="CP", help="related/clock pin (direct mode, default CP)")
     ap.add_argument("--arc-id", default=None, help="full arc identifier (overrides when/pins)")
+    ap.add_argument("--sim", action="store_true", help="run hspice to evaluate P2 (real PASS/FAIL)")
+    ap.add_argument("--hspice", default="hspice", help="hspice command (default: hspice)")
+    ap.add_argument("--mt0", default=None, help="evaluate this existing .mt0 instead of running hspice")
+    ap.add_argument("--simdir", default="/tmp/deckgen_p2", help="work dir for the P2 deck/run")
+    ap.add_argument("--gen-p2-deck", default=None, metavar="PATH", help="just write the P2 deck and exit")
     ap.add_argument("--viz", action="store_true", help="print the ASCII sensitization/init map")
     ap.add_argument("--topo", action="store_true", help="print parsed schematic + CCC channels")
     ap.add_argument("--topo-full", action="store_true", help="--topo plus the anonymous series nodes")
@@ -69,6 +74,23 @@ def main(argv: list[str] | None = None) -> int:
         config = load_config(args.config)
         da = make_data_access(config, base_dir=ENGINE_DIR)
         result = run_pipeline(args.arc or config["arc"], da)
+
+    if args.gen_p2_deck:
+        from engine.p2_deck import build as build_p2
+        text, _ = build_p2(result.arc, result.sens, result.init, result.init.probes)
+        with open(args.gen_p2_deck, "w", encoding="ascii") as fh:
+            fh.write(text)
+        print(f"wrote {args.gen_p2_deck}  (run: hspice {args.gen_p2_deck})")
+        return 0
+
+    if args.sim or args.mt0:
+        from engine.sim import run_p2
+        from engine.stages.stage5_verify import p2_property
+        p2res = run_p2(result.arc, result.ccc, result.sens, result.init,
+                       args.simdir, hspice_cmd=args.hspice, mt0_path=args.mt0)
+        result.verdict.p2 = p2_property(p2res)
+        result.stage_log[-1] = (f"S5 verify   : P2 {'PASS' if p2res.passed else 'FAIL/n-a'} "
+                                f"({'ran' if p2res.ran else p2res.note})")
 
     print(render_status(result))
     print(render(result))

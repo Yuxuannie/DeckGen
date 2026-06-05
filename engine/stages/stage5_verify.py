@@ -26,6 +26,22 @@ from engine.types import (
 STAGE = "S5.verify"
 
 
+def p2_property(p2res) -> Property:
+    """Build the real P2 Property from a sim.P2Result (replaces the STUB P2)."""
+    if not p2res.ran:
+        return Property("P2", "Initial state", PStatus.STUB,
+                        detail=[f"sim not run: {p2res.note}"])
+    status = PStatus.PASS if p2res.passed else PStatus.FAIL
+    detail = []
+    for n in p2res.nodes:
+        mv = f"{n.measured_v:.4f}V" if n.measured_v is not None else "n/a"
+        verd = "ok" if n.ok else "MISMATCH"
+        detail.append(f"{n.role:<6} {n.node:<8} meas {mv} -> bit {n.measured_bit} "
+                      f"vs expected {n.expected_bit}  [{verd}]")
+    detail.append("check      : probe storage nodes at settle vs derived -- RAN")
+    return Property("P2", "Initial state", status, detail=detail)
+
+
 def verify(
     deck: Deck,
     sim_result: Optional[dict],
