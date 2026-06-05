@@ -51,6 +51,8 @@ class P2Result:
     passed: bool
     nodes: List[P2NodeResult] = field(default_factory=list)
     complementary: bool = True
+    d_cap: int = 1          # literal D value for the captured run
+    d_inv: int = 0          # literal D value for the inverted run
     note: str = ""
 
 
@@ -92,7 +94,7 @@ def run_wave(arc: Arc, sens: SensitizationResult, init: InitializationResult,
              tr0_path: Optional[str] = None) -> str:
     """Run the P2 wave deck and render its transient to an SVG (open with eog).
     tr0_path lets you render an existing CSDF .tr0 without re-running hspice."""
-    from engine.wave import parse_csdf, render_svg
+    from engine.wave import parse_csdf, render_svg, select
     os.makedirs(workdir, exist_ok=True)
     probe_nodes = list(init.probes)
     deck, info = build_p2(arc, sens, init, probe_nodes, wave=True)
@@ -111,6 +113,9 @@ def run_wave(arc: Arc, sens: SensitizationResult, init: InitializationResult,
         return f"no .tr0 produced ({tr0_path}); check the wave deck ran"
     with open(tr0_path, "r", encoding="ascii", errors="replace") as fh:
         times, traces = parse_csdf(fh.read())
+    wanted = [arc.rel_pin, arc.constr_pin] + [p for p in probe_nodes]
+    sel = select(traces, wanted)
+    traces = sel or traces           # fall back to all if names didn't match
     marks = [(info["t_settle"], "settle"), (info["t_cap_edge"], "cap-edge")]
     svg = render_svg(times, traces, float(G.VDD_VALUE), marks,
                      title=f"{arc.cell} {arc.label()} P2 transient")
@@ -162,4 +167,4 @@ def run_p2(arc: Arc, ccc: CCCResult, sens: SensitizationResult,
         bits = [n.bit_cap for n in nodes if n.role == role and n.bit_cap is not None]
         if len(bits) >= 2 and len(set(bits)) != 2:
             comp = False
-    return P2Result(True, all_ok and comp, nodes, comp, "")
+    return P2Result(True, all_ok and comp, nodes, comp, d_cap=cap, d_inv=1 - cap)

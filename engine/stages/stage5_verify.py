@@ -37,10 +37,11 @@ def p2_property(p2res) -> Property:
         vc = f"{n.v_cap:.3f}" if n.v_cap is not None else "n/a"
         vi = f"{n.v_inv:.3f}" if n.v_inv is not None else "n/a"
         verd = "ok" if n.ok else "FAIL"
-        detail.append(f"{n.role:<6} {n.node:<8} D=cap:{vc}(b{n.bit_cap}) "
-                      f"D=inv:{vi}(b{n.bit_inv})  expect {n.behavior}  [{verd}]")
+        detail.append(f"{n.role:<6} {n.node:<8} D={p2res.d_cap}:{vc}(={n.bit_cap}) "
+                      f"D={p2res.d_inv}:{vi}(={n.bit_inv})  {n.behavior}  [{verd}]")
     detail.append(f"complementary pairs: {'ok' if p2res.complementary else 'FAIL'}")
-    detail.append("check      : differential D-toggle (master tracks D, slave holds) -- RAN")
+    detail.append(f"check : drive D={p2res.d_cap} vs D={p2res.d_inv}; master must follow D, "
+                  f"slave must not -- RAN")
     return Property("P2", "Initial state", status, detail=detail)
 
 

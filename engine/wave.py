@@ -25,6 +25,10 @@ _NUM = re.compile(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?")
 
 
 def parse_csdf(text: str) -> Tuple[List[float], Dict[str, List[float]]]:
+    """Parse PrimeSim/HSPICE CSDF (`.option csdf=1`):
+        #N 'V(cp)' 'V(d)' ...            (names, may span many lines)
+        #C <time> <count> <v1> <v2> ...  (values begin on the #C line, wrap)
+    """
     names: List[str] = []
     in_names = False
     times: List[float] = []
@@ -32,8 +36,16 @@ def parse_csdf(text: str) -> Tuple[List[float], Dict[str, List[float]]]:
     pending = 0
     vals: List[float] = []
 
+    def flush():
+        nonlocal pending, vals
+        if pending and len(vals) >= pending:
+            cols.append(vals[:pending])
+            pending, vals = 0, []
+
     for raw in text.splitlines():
         line = raw.strip()
+        if not line:
+            continue
         if line.startswith("#N"):
             in_names = True
             names += re.findall(r"'([^']*)'", line)
@@ -43,29 +55,46 @@ def parse_csdf(text: str) -> Tuple[List[float], Dict[str, List[float]]]:
             continue
         in_names = False
         if line.startswith("#C"):
+            flush()                                   # close any prior point
             nums = _NUM.findall(line)
-            if nums:
-                times.append(float(nums[0]))
-            pending = int(nums[1]) if len(nums) > 1 else len(names)
-            vals = []
+            if not nums:
+                continue
+            times.append(float(nums[0]))
+            pending = int(float(nums[1])) if len(nums) > 1 else len(names)
+            vals = [float(x) for x in nums[2:]]       # values start on this line
+            flush()
             continue
-        if line.startswith("#") or not line:
+        if line.startswith("#"):
             continue
-        # data values for the current #C point
-        for tok in _NUM.findall(line):
-            vals.append(float(tok))
-        if len(vals) >= pending and pending:
-            cols.append(vals[:pending])
-            pending = 0
+        if pending:                                   # value continuation lines
+            vals += [float(x) for x in _NUM.findall(line)]
+            flush()
+    flush()
 
     traces: Dict[str, List[float]] = {n: [] for n in names}
     for row in cols:
         for i, n in enumerate(names):
             if i < len(row):
                 traces[n].append(row[i])
-    # trim names with no data
-    traces = {n: v for n, v in traces.items() if v}
-    return times, traces
+    return times, {n: v for n, v in traces.items() if v}
+
+
+def select(traces: Dict[str, List[float]], wanted: List[str]) -> Dict[str, List[float]]:
+    """Keep only the wanted signals (by node name inside V(...)/I(...)), ordered."""
+    def key(name: str) -> str:
+        s = name.lower().strip()
+        for p in ("v(", "i("):
+            if s.startswith(p):
+                s = s[len(p):]
+        return s.rstrip(")").strip()
+    want = [w.lower() for w in wanted]
+    bykey = {key(n): (n, v) for n, v in traces.items()}
+    out: Dict[str, List[float]] = {}
+    for w in want:
+        if w in bykey:
+            n, v = bykey[w]
+            out[n] = v
+    return out
 
 
 def render_svg(times: List[float], traces: Dict[str, List[float]], vdd: float,

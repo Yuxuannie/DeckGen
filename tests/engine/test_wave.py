@@ -32,3 +32,24 @@ def test_render_svg_valid():
 def test_render_empty_is_safe():
     svg = render_svg([], {}, 0.45)
     minidom.parseString(svg)
+
+
+# real PrimeSim CSDF: values begin on the #C line; many signals to filter down
+REAL = """#H
+SOURCE='PrimeSim HSPICE' VERSION='Y-2026.03'
+TITLE='deck'
+NODES=' 5'
+#N 'V(cp)' 'V(d)' 'V(x1.ml_ax)' 'V(x1.sl_a)' 'i(vdd)'
+#C 0.00000e+00 5  0.0 0.0 0.45 0.0 1e-9
+#C 1.00000e-08 5  0.45 0.0 0.0 0.45 2e-9
+"""
+
+
+def test_parse_primesim_csdf_values_on_c_line():
+    from engine.wave import select
+    t, tr = parse_csdf(REAL)
+    assert t == [0.0, 1.0e-8]
+    assert tr["V(x1.ml_ax)"] == [0.45, 0.0]
+    sel = select(tr, ["CP", "D", "x1.ml_ax", "x1.sl_a"])
+    assert list(sel.keys()) == ["V(cp)", "V(d)", "V(x1.ml_ax)", "V(x1.sl_a)"]
+    assert "i(vdd)" not in sel
