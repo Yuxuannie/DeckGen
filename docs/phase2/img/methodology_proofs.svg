@@ -1,71 +1,55 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="860"><rect width="1180" height="860" fill="white"/>
-<text x="20" y="32" font-family="monospace" font-size="17" text-anchor="start" fill="#111" font-weight="bold">The two 'proofs' -- how P1 and P2 actually decide  (no z3; logic + simulation)</text>
-<rect x="20" y="55" width="560" height="360" rx="6" fill="#fff7ee" stroke="#333"/>
-<text x="36" y="82" font-family="monospace" font-size="14" text-anchor="start" fill="#a55" font-weight="bold">P1  SENSITIZATION  (switch-level Boolean DIFFERENCE)</text>
-<text x="36" y="106" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">Q: which side-pin bias makes D -- and only D -- reach the latch?</text>
-<text x="36" y="126" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">Method: evaluate the circuit logically for every (clock, side-pins),</text>
-<text x="36" y="142" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">        toggle D 0-&gt;1, watch the master node. (feedback broken)</text>
-<text x="50" y="176" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="bold">clock  SE   SI   | master(D=0)  master(D=1) | verdict</text>
-<line x1="50" y1="182" x2="540" y2="182" stroke="#bbb"/>
-<text x="50" y="200" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">CP=0  0    0    |  1          0         |</text>
-<text x="422" y="200" font-family="monospace" font-size="11" text-anchor="start" fill="#070" font-weight="normal">D CONTROLS  &lt;-- d/dD=1</text>
-<text x="50" y="222" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">CP=0  0    1    |  1          0         |</text>
-<text x="422" y="222" font-family="monospace" font-size="11" text-anchor="start" fill="#070" font-weight="normal">D CONTROLS (same: SI masked)</text>
-<text x="50" y="244" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">CP=0  1    0    |  (SI path)             |</text>
-<text x="422" y="244" font-family="monospace" font-size="11" text-anchor="start" fill="#a00" font-weight="normal">D blocked (SE picks scan)</text>
-<text x="50" y="266" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">CP=1  x    x    |  latch opaque             |</text>
-<text x="422" y="266" font-family="monospace" font-size="11" text-anchor="start" fill="#a00" font-weight="normal">D cannot reach master</text>
-<text x="36" y="306" font-family="monospace" font-size="11" text-anchor="start" fill="#060" font-weight="bold">-&gt; SE=0 is REQUIRED (toggling it changes capture) = SELECT</text>
-<text x="36" y="326" font-family="monospace" font-size="11" text-anchor="start" fill="#060" font-weight="bold">-&gt; SI never changes capture = MASKED (hold any static value)</text>
-<text x="36" y="346" font-family="monospace" font-size="11" text-anchor="start" fill="#555" font-weight="normal">matches golden SE=0/SI=1 -- but PROVEN, not looked up by name</text>
-<rect x="20" y="435" width="560" height="400" rx="6" fill="#fff0f3" stroke="#333"/>
-<text x="36" y="462" font-family="monospace" font-size="14" text-anchor="start" fill="#a35" font-weight="bold">P2  INITIAL STATE  (differential toggle, in SIMULATION)</text>
-<text x="36" y="486" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">Q: did the flop really SETTLE into the right state before capture?</text>
-<text x="36" y="502" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">Method: run the SPICE deck twice (same pre-cycle), D=1 and D=0,</text>
-<text x="36" y="518" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">        probe storage nodes at the settle point.</text>
-<text x="50" y="552" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="bold">node        D=1        D=0      | rule          verdict</text>
-<line x1="50" y1="558" x2="540" y2="558" stroke="#bbb"/>
-<text x="50" y="576" font-family="monospace" font-size="11" text-anchor="start" fill="#060" font-weight="normal">master ml_ax 0.000(=0)  0.450(=1) | follows D  OK</text>
-<text x="50" y="598" font-family="monospace" font-size="11" text-anchor="start" fill="#060" font-weight="normal">master ml_b  0.450(=1)  0.000(=0) | follows D  OK</text>
-<text x="50" y="620" font-family="monospace" font-size="11" text-anchor="start" fill="#060" font-weight="normal">slave  sl_a  0.000(=0)  0.000(=0) | HOLDS      OK</text>
-<text x="50" y="642" font-family="monospace" font-size="11" text-anchor="start" fill="#060" font-weight="normal">slave  sl_bx 0.450(=1)  0.450(=1) | HOLDS      OK</text>
-<text x="36" y="678" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">master TRACKS D (the live data path works dynamically),</text>
-<text x="36" y="696" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">slave HOLDS prior (already latched), pairs complementary,</text>
-<text x="36" y="714" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">every value a clean rail (not a mid-rail X = un-settled).</text>
-<text x="36" y="738" font-family="monospace" font-size="11" text-anchor="start" fill="#060" font-weight="bold">=&gt; P2 PASS.  'settled to the RIGHT state', not just 'settled'.</text>
-<rect x="600" y="55" width="560" height="780" rx="6" fill="#eef3ff" stroke="#333"/>
-<text x="616" y="82" font-family="monospace" font-size="14" text-anchor="start" fill="#258" font-weight="bold">The evaluator that replaces z3  (switchlevel.py, ~50 lines)</text>
-<text x="616" y="108" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">Pure stdlib. Models the circuit as switches, not equations:</text>
-<text x="620" y="132" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal"></text>
-<text x="620" y="152" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">GIVEN: a value (0/1) on each primary input</text>
-<text x="620" y="172" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal"></text>
-<text x="620" y="192" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">REPEAT until nothing changes (fixed point):</text>
-<text x="620" y="212" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">  1. a transistor CONDUCTS if:</text>
-<text x="620" y="232" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">        nmos and gate==1, or  pmos and gate==0</text>
-<text x="620" y="252" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">  2. union the drain-source of every conducting</text>
-<text x="620" y="272" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">     transistor  -&gt;  channel-connected groups</text>
-<text x="620" y="292" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">  3. each group takes the value of the unique</text>
-<text x="620" y="312" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">     strong driver (a rail or a primary input)</text>
-<text x="620" y="332" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">        two opposite drivers -&gt; X</text>
-<text x="620" y="352" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">        no driver           -&gt; X (undriven)</text>
-<text x="620" y="372" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal"></text>
-<text x="620" y="392" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">This is the classic Bryant switch-level model.</text>
-<text x="620" y="412" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">Inverters/buffers settle because a net's new value</text>
-<text x="620" y="432" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">feeds the next sweep's gate decisions.</text>
-<text x="620" y="452" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal"></text>
-<text x="620" y="472" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">For a LATCH we 'break' the cross-coupled keeper</text>
-<text x="620" y="492" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">devices so the input can drive the node cleanly</text>
-<text x="620" y="512" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">(models: write path overpowers the keeper while</text>
-<text x="620" y="532" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal"> the latch is transparent).</text>
-<text x="620" y="552" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal"></text>
-<text x="620" y="572" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">WHY not z3:</text>
-<text x="620" y="592" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">  - air-gapped server forbids pip installs</text>
-<text x="620" y="612" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">  - the cell's input space is tiny (D,SI,SE,CP)</text>
-<text x="620" y="632" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">    so we ENUMERATE exhaustively -- exact, and</text>
-<text x="620" y="652" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">    more inspectable than a SAT call.</text>
-<text x="620" y="672" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal"></text>
-<text x="620" y="692" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">Boolean difference  d(out)/d(in):</text>
-<text x="620" y="712" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">  evaluate with in=0 and in=1; if out differs,</text>
-<text x="620" y="732" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">  the input controls the output. That single</text>
-<text x="620" y="752" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">  idea powers BOTH P1 (logic) and P2 (silicon).</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="1320"><rect width="880" height="1320" fill="white"/>
+<text x="24" y="32" font-family="monospace" font-size="16" text-anchor="start" fill="#111" font-weight="bold">The two 'proofs' -- how P1 and P2 decide  (no z3; logic + simulation)</text>
+<rect x="24" y="50" width="832" height="360" rx="6" fill="#fff7ee" stroke="#333"/>
+<text x="40" y="78" font-family="monospace" font-size="14" text-anchor="start" fill="#a55" font-weight="bold">P1  SENSITIZATION  --  switch-level Boolean DIFFERENCE</text>
+<text x="40" y="100" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">Q: which side-pin bias makes D -- and only D -- reach the latch?</text>
+<text x="40" y="116" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">How: evaluate the circuit logically for every (clock, side-pins), toggle D 0-&gt;1,</text>
+<text x="40" y="132" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">     watch the master node (latch feedback broken).</text>
+<text x="56" y="164" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="bold">clock   SE   SI  |  master(D=0)   master(D=1)  |  verdict</text>
+<line x1="56" y1="170" x2="820" y2="170" stroke="#bbb"/>
+<text x="56" y="188" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">CP=0   0    0   |  1            0           |</text>
+<text x="486" y="188" font-family="monospace" font-size="11" text-anchor="start" fill="#070" font-weight="normal">D CONTROLS   &lt;- d/dD = 1</text>
+<text x="56" y="210" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">CP=0   0    1   |  1            0           |</text>
+<text x="486" y="210" font-family="monospace" font-size="11" text-anchor="start" fill="#070" font-weight="normal">D CONTROLS   (SI masked)</text>
+<text x="56" y="232" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">CP=0   1    0   |  via SI path              |</text>
+<text x="486" y="232" font-family="monospace" font-size="11" text-anchor="start" fill="#a00" font-weight="normal">D blocked (SE picks scan)</text>
+<text x="56" y="254" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">CP=1   x    x   |  latch opaque              |</text>
+<text x="486" y="254" font-family="monospace" font-size="11" text-anchor="start" fill="#a00" font-weight="normal">D cannot reach master</text>
+<text x="40" y="282" font-family="monospace" font-size="11" text-anchor="start" fill="#060" font-weight="bold">-&gt; SE=0 REQUIRED (toggling changes capture) = SELECT;  SI never changes = MASKED</text>
+<text x="40" y="302" font-family="monospace" font-size="11" text-anchor="start" fill="#555" font-weight="normal">matches golden SE=0/SI=1 -- but PROVEN, not looked up by name</text>
+<rect x="24" y="430" width="832" height="330" rx="6" fill="#fff0f3" stroke="#333"/>
+<text x="40" y="458" font-family="monospace" font-size="14" text-anchor="start" fill="#a35" font-weight="bold">P2  INITIAL STATE  --  differential toggle, in SIMULATION</text>
+<text x="40" y="480" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">Q: did the flop really SETTLE into the right state before capture?</text>
+<text x="40" y="496" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">How: run the SPICE deck twice (same pre-cycle) with D=1 and D=0; probe @ settle.</text>
+<text x="56" y="528" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="bold">node          D=1          D=0       |  rule        verdict</text>
+<line x1="56" y1="534" x2="820" y2="534" stroke="#bbb"/>
+<text x="56" y="552" font-family="monospace" font-size="11" text-anchor="start" fill="#060" font-weight="normal">master ml_ax  0.000(=0)   0.450(=1)  |  follows D   OK</text>
+<text x="56" y="574" font-family="monospace" font-size="11" text-anchor="start" fill="#060" font-weight="normal">master ml_b   0.450(=1)   0.000(=0)  |  follows D   OK</text>
+<text x="56" y="596" font-family="monospace" font-size="11" text-anchor="start" fill="#060" font-weight="normal">slave  sl_a   0.000(=0)   0.000(=0)  |  HOLDS       OK</text>
+<text x="56" y="618" font-family="monospace" font-size="11" text-anchor="start" fill="#060" font-weight="normal">slave  sl_bx  0.450(=1)   0.450(=1)  |  HOLDS       OK</text>
+<text x="40" y="648" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">master TRACKS D, slave HOLDS prior, pairs complementary, every value a clean rail</text>
+<text x="40" y="668" font-family="monospace" font-size="11" text-anchor="start" fill="#060" font-weight="bold">=&gt; P2 PASS.  'settled to the RIGHT state', not just 'settled'.</text>
+<rect x="24" y="780" width="832" height="520" rx="6" fill="#eef3ff" stroke="#333"/>
+<text x="40" y="808" font-family="monospace" font-size="14" text-anchor="start" fill="#258" font-weight="bold">The evaluator that REPLACES z3   (switchlevel.py, ~50 lines, pure stdlib)</text>
+<text x="44" y="834" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">Models the circuit as switches, not equations (classic Bryant switch-level):</text>
+<text x="44" y="855" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal"></text>
+<text x="44" y="876" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">  GIVEN a value 0/1 on each primary input</text>
+<text x="44" y="897" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">  REPEAT until nothing changes (fixed point):</text>
+<text x="44" y="918" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">    1. a transistor CONDUCTS if  nmos &amp; gate==1  or  pmos &amp; gate==0</text>
+<text x="44" y="939" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">    2. union the drain-source of every conducting transistor</text>
+<text x="44" y="960" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">          -&gt; channel-connected groups</text>
+<text x="44" y="981" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">    3. each group takes its unique strong driver (rail or primary input)</text>
+<text x="44" y="1002" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">          two opposite drivers -&gt; X ;  no driver -&gt; X</text>
+<text x="44" y="1023" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal"></text>
+<text x="44" y="1044" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">Inverters/buffers settle because a net's new value feeds the next sweep.</text>
+<text x="44" y="1065" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">For a LATCH we 'break' the cross-coupled keeper so the input drives cleanly.</text>
+<text x="44" y="1086" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal"></text>
+<text x="44" y="1107" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">WHY not z3:</text>
+<text x="44" y="1128" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">  - the air-gapped server forbids pip installs</text>
+<text x="44" y="1149" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">  - the input space is tiny (D, SI, SE, CP) -&gt; ENUMERATE exhaustively;</text>
+<text x="44" y="1170" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">    exact, and more inspectable than a SAT call.</text>
+<text x="44" y="1191" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal"></text>
+<text x="44" y="1212" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">Boolean difference  d(out)/d(in):  evaluate in=0 and in=1; if out differs,</text>
+<text x="44" y="1233" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">the input controls the output. That ONE idea powers both P1 (logic) and</text>
+<text x="44" y="1254" font-family="monospace" font-size="11" text-anchor="start" fill="#123" font-weight="normal">P2 (silicon).</text>
 </svg>
