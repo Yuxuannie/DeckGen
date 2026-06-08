@@ -144,6 +144,36 @@ golden deck's `SE=0/SI=1`, but **derived and proven**, and `AGREE` with `when`.
 
 ---
 
+## S2 in detail -- proving sensitization by Boolean difference
+
+![p1 detail](img/methodology_p1_detail.png)
+
+The mechanism that "proves" P1, step by step on the real data path:
+
+1. **Break the keeper, fix the transparent clock phase.** A latch fights the input
+   with its feedback, so we break the cross-coupled keeper devices and hold the
+   clock in the phase that makes the master transparent.
+2. **Evaluate `master` for every `(CP, SE, SI)` with `D=0` and `D=1`.** The truth
+   table is the whole proof. `d/dD = 1` (the two D columns differ) means D controls
+   the captured value. It happens only at `CP=0, SE=0`; at `SE=1` the mux routes
+   `SI`, so D stops mattering; at `CP=1` the latch is opaque (X).
+3. **Read off the required selects.** D controls capture *only* when `SE=0` -> `SE`
+   is a select with required value 0. (`CP=0` is the transparent phase.)
+4. **Mask-test the rest.** Holding `SE=0`, toggle `SI` 0->1: the captured value
+   never changes -> `d(capture)/d(SI) = 0` -> the scan path is proven OFF, so `SI`
+   is masked (its static value is non-critical; golden uses `SI=1`).
+
+**The one idea -- Boolean difference `d(out)/d(in)`:** evaluate with `in=0` and
+`in=1`; if `out` differs, `in` controls `out`. Applied to D it proves the measured
+path is live (`want d/dD=1`); applied to SI it proves the competing path is off
+(`want d/dSI=0`). Enumeration is exact here because the side pins are few. This is
+the *same* idea P2 later runs in **silicon** (toggle D, watch the probes) -- P1
+proves it in logic before the deck exists; P2 confirms it in silicon after.
+
+*(Note: the synthetic twin gives `ml_a = D`; the real cell gives `ml_a = NOT D`
+due to one inversion. P1 only asks whether D controls, not the polarity, so the
+conclusion is identical.)*
+
 ## S3 -- Initialization (how the initial state is determined)  (`stage3_initialize.py`)
 
 The initial state is fixed in three parts, each on a different basis:
