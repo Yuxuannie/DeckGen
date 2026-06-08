@@ -144,6 +144,33 @@ golden deck's `SE=0/SI=1`, but **derived and proven**, and `AGREE` with `when`.
 
 ---
 
+## S1 from the ground up -- why a latch is a cycle (and a cycle = memory)
+
+![ccc groundup](img/methodology_ccc_groundup.png)
+
+If the influence-graph picture felt abstract, here it is bottom-up from the real
+transistors:
+
+- **A. Real transistors.** The master latch is 4 transistors = two inverters:
+  `XMLA0/1` (gate `ml_a` -> drain `ml_b`) make `ml_b = NOT ml_a`; `XMFA0/1`
+  (gate `ml_b` -> drain `ml_a`) make `ml_a = NOT ml_b`.
+- **B. The one rule:** edge `gate -> drain`. A CMOS inverter's input is the gate
+  and its output is the drain; change the input, the output changes -- so the gate
+  net *controls* the drain net. (Pass transistors add `source -> drain` too.)
+- **C. Apply it to the master pair:** `ml_a -> ml_b` (inverter 1) and
+  `ml_b -> ml_a` (feedback inverter 2). The two arrows form a closed **loop**.
+- **D. Contrast `clkb`:** `XCKA0/1` give only `CP -> clkb`; nothing drives back to
+  `clkb`, so no loop.
+- **E. Why a loop = memory (the key intuition):** in the loop, `ml_a` is set by
+  `ml_b` and `ml_b` is set by `ml_a` -- right now nothing outside forces either,
+  they hold *each other*, two stable states exist, so it **remembers** a bit.
+  `clkb` is forced by `CP` every instant -- no second stable state, no memory.
+- **F. So the algorithm just finds the loops:** build the `gate->drain` graph for
+  the whole cell, run Tarjan SCC ("find all cycles"). Every size>=2 cycle holds
+  state. `{ml_a,ml_b}` and `{sl_a,sl_b}` are cycles; `clkb,seb,mi,Q` are not.
+- **G. Two clean-ups (recap):** keep only SCC members that are also gates (drops
+  tristate series nodes); label master/slave by hop-distance to Q.
+
 ## S2 in detail -- proving sensitization by Boolean difference
 
 ![p1 detail](img/methodology_p1_detail.png)
