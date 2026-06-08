@@ -98,6 +98,33 @@ name matching, yet landing exactly on the `ml_*`/`sl_*` naming.
 
 ---
 
+## S1 in detail -- how CCC "sees" the latch
+
+![ccc detail](img/methodology_ccc_detail.png)
+
+The question this answers: *with no names, how does the algorithm know `ml_a/ml_b`
+is a latch and `clkb` is not?* Answer in four mechanical steps:
+
+1. **Build the influence graph.** For every transistor add directed edges
+   `gate -> drain` and `source -> drain` (skip rails). Edge = "this net can affect
+   that net". Crucially `ml_a -> ml_b` (ml_a gates the device that drives ml_b)
+   AND `ml_b -> ml_a` (the feedback device) both exist.
+2. **Find cycles (Tarjan SCC).** A strongly-connected component of size >= 2 means
+   every node can reach itself -- a feedback loop. `{ml_a, ml_b}` and `{sl_a, sl_b}`
+   are size-2 SCCs (= latches); `clkb`, `seb`, `mi`, `Q` are size 1 (combinational,
+   no memory).
+3. **Keep gate members only.** A real storage node both *is driven* (a drain) and
+   *controls* (a gate). Tristate series-stack nodes are drains only, so intersecting
+   the SCC with the gate-net set drops them (this is what trimmed the real cell's
+   master/slave from 4 nodes back to a clean 2+2).
+4. **Label by distance to Q.** BFS from each latch to the output: `sl_a -> Q` is 1
+   hop (closest = slave); `ml_a -> ml_b -> sl_a -> Q` is further (master).
+
+**Result (name-blind):** master `{ml_a, ml_b}`, slave `{sl_a, sl_b}` -- derived
+from topology, landing on the `ml_*`/`sl_*` names, which proves it correct. This
+is the structural answer to "which nodes hold state and must be probed for P2";
+MCQC guesses it by name and is silently wrong on any cell that breaks the naming.
+
 ## S2 -- Sensitization + P1 proof  (`stage2_sensitize.py`)
 
 **Reads:** the device graph + the arc.
