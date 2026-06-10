@@ -53,3 +53,13 @@ def test_list_lib_types_unknown_node(tmp_path, monkeypatch):
     _setup_collateral(tmp_path, monkeypatch)
     from gui import _api_list_lib_types
     assert _api_list_lib_types('does_not_exist') == []
+
+
+def test_engine_views_css_tokens_present():
+    import gui_engine_views as v
+    css = v.CSS_TOKENS + v.CSS_COMPONENTS
+    for tok in ("--bg", "--surface", "--accent", "--border", "--text"):
+        assert tok in css
+    for cls in (".chip-pass", ".chip-fail", ".chip-stub", ".chip-error"):
+        assert cls in css
+    css.encode("ascii")
