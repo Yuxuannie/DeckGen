@@ -128,8 +128,16 @@ function engTopology(){
       'components: '+d.ccc.components+'\nroles: '+JSON.stringify(d.ccc.roles);
   });
 }
+function engAuditArcIds(){
+  // The Explore queue holds arc OBJECTS; the audit API wants arc-id STRINGS.
+  if((S.auditArcs||[]).length) return S.auditArcs;
+  return (S.queue||[]).map(function(q){return q.arc_id;}).filter(Boolean);
+}
 function engAudit(){
-  var arcs=(S.auditArcs||[]); if(!arcs.length){ arcs=S.queue||[]; }
+  var arcs=engAuditArcIds();
+  if(!arcs.length){ document.getElementById('eng-audit-summary').innerHTML=
+    '<div class="eng-detail">No arcs queued. Add arcs in the Explore tab first.</div>';
+    document.getElementById('eng-audit-rows').innerHTML=''; return; }
   post('/api/engine/audit',{node:S.node,lib_type:S.libtype,corner:S.corner,
     arcs:arcs}).then(function(d){
     var tb=document.getElementById('eng-audit-rows'); tb.innerHTML='';
@@ -148,7 +156,7 @@ function engAudit(){
   document.getElementById('eng-audit-csv').onclick=function(){
     window.location='/api/engine/audit_csv?node='+encodeURIComponent(S.node)+
       '&lib_type='+encodeURIComponent(S.libtype)+'&corner='+encodeURIComponent(S.corner)+
-      '&arcs='+encodeURIComponent((S.auditArcs||S.queue||[]).join(','));
+      '&arcs='+encodeURIComponent(engAuditArcIds().join(','));
   };
 }
 """
