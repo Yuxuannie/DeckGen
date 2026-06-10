@@ -16,6 +16,11 @@ Method (Boolean difference over a switch-level model, stdlib -- no SAT solver):
           competing path is off; its static value is non-critical.
   P1 PASS iff D controls capture and the masked set is identified; else FAIL with
   what was tried.
+
+`arc.raw["force_bias"]` ({pin: 0|1}, from --force-bias) constrains the side-pin
+enumeration to the forced value(s) -- a FIXED assignment inside the search space,
+never a post-hoc edit -- so a wrong forced bias yields a genuinely derived P1 FAIL
+that names the competing capture path left unmasked.
 """
 from __future__ import annotations
 
@@ -38,6 +43,13 @@ def derive(graph: DeviceGraph, arc: Arc, ccc: CCCResult) -> SensitizationResult:
     constr, rel = arc.constr_pin, arc.rel_pin
     sides = [i for i in inputs if i not in (constr, rel)]
 
+    forced = {p: int(v) for p, v in (arc.raw.get("force_bias") or {}).items()}
+    bad = [p for p in forced if p not in sides]
+    if bad:
+        raise ValueError(
+            f"--force-bias pin(s) {bad} are not side inputs of this arc "
+            f"(rel={rel}, constr={constr}, valid sides={sides})")
+
     core = {sn.net for sn in ccc.state_nodes}
     broken = frozenset(d.name for d in graph.devices
                        if d.terminals["g"] in core and d.terminals["d"] in core)
@@ -48,9 +60,9 @@ def derive(graph: DeviceGraph, arc: Arc, ccc: CCCResult) -> SensitizationResult:
         v = switchlevel.evaluate(graph, assign, broken)
         return tuple(v[t] for t in targets)
 
-    def controls_D(cp: int, a: Dict[str, int]) -> bool:
+    def controls(cp: int, a: Dict[str, int], pin: str) -> bool:
         base = {rel: cp, **a}
-        t0, t1 = tvals({**base, constr: 0}), tvals({**base, constr: 1})
+        t0, t1 = tvals({**base, pin: 0}), tvals({**base, pin: 1})
         return any(x is not None and y is not None and x != y for x, y in zip(t0, t1))
 
     def pin_masked(cp: int, a: Dict[str, int], s: str) -> bool:
@@ -61,10 +73,13 @@ def derive(graph: DeviceGraph, arc: Arc, ccc: CCCResult) -> SensitizationResult:
         return True
 
     found = None
+    # force_bias pins enumerate only their forced value: a FIXED assignment
+    # inside the search space, so the outcome is derived, not edited.
+    choices = [(forced[s],) if s in forced else (0, 1) for s in sides]
     for cp in (0, 1):
-        for vals in product((0, 1), repeat=len(sides)):
+        for vals in product(*choices):
             a = dict(zip(sides, vals))
-            if controls_D(cp, a):
+            if controls(cp, a, constr):
                 masked = [s for s in sides if pin_masked(cp, a, s)]
                 setpins = [s for s in sides if s not in masked]
                 found = (cp, a, setpins, masked)
@@ -89,6 +104,9 @@ def derive(graph: DeviceGraph, arc: Arc, ccc: CCCResult) -> SensitizationResult:
                 hold, f"scan/side input masked: capture is independent of {s} under "
                       f"the select bias (path off); static hold {hold} "
                       f"(value non-critical)", STAGE)
+        for s, v in forced.items():
+            side_biases[s] = Derivation(
+                v, "FORCED by user, overriding derivation", STAGE)
         proven = True
         clock_phase = f"{rel}={cp} (master transparent)"
         set_str = "{" + ", ".join(f"{s}={a[s]}" for s in setpins) + "}"
@@ -109,11 +127,32 @@ def derive(graph: DeviceGraph, arc: Arc, ccc: CCCResult) -> SensitizationResult:
         proven = False
         clock_phase = ""
         obligation = (f"no static side-pin bias makes {constr} control capture "
-                      f"(searched sides={sides}, both clock phases)")
+                      + (f"under FORCED {forced} " if forced else "")
+                      + f"(searched sides={sides}, both clock phases)")
+        if forced:
+            # Diagnostic (same Boolean-difference test, pointed at the other
+            # pins): which capture path is LIVE instead of the constraint pin?
+            competing = set()
+            for cp in (0, 1):
+                for vals in product(*choices):
+                    a = dict(zip(sides, vals))
+                    for s in sides:
+                        if s in forced:
+                            continue
+                        if any(controls(cp, {**a, constr: dv}, s) for dv in (0, 1)):
+                            competing.add(s)
+            if competing:
+                obligation += (f"; competing path LIVE: {sorted(competing)} "
+                               f"control capture instead")
         masked_paths = []
         arc_check = "arc.when: not checked (P1 not proven)"
         for s in sides:
-            side_biases[s] = Derivation(None, "PLACEHOLDER: P1 could not be proven", STAGE)
+            if s in forced:
+                side_biases[s] = Derivation(
+                    forced[s], "FORCED by user, overriding derivation", STAGE)
+            else:
+                side_biases[s] = Derivation(
+                    None, "PLACEHOLDER: P1 could not be proven", STAGE)
 
     return SensitizationResult(
         side_biases=side_biases, masked_paths=masked_paths,

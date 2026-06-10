@@ -21,8 +21,19 @@ from engine.pipeline import run_pipeline, run_pipeline_src
 from engine.verdict import render, render_status
 
 
+def parse_force_bias(items: list[str] | None) -> dict[str, int]:
+    """Parse repeated --force-bias PIN=VAL items into {pin: 0|1}."""
+    out: dict[str, int] = {}
+    for item in items or []:
+        pin, sep, val = item.partition("=")
+        if not sep or not pin or val not in ("0", "1"):
+            raise ValueError(f"--force-bias expects PIN=0 or PIN=1, got {item!r}")
+        out[pin] = int(val)
+    return out
+
+
 def _direct(netlist_path: str, cell: str | None, constr="D", rel="CP", when="",
-            arc_id: str | None = None):
+            arc_id: str | None = None, force_bias: dict | None = None):
     """Run on a netlist file directly. Used to validate on real data with no
     config/arc ceremony. S0/S1 use only the netlist; pass --when (or --arc-id) so
     Stage 2 can cross-check the derived bias against the arc's asserted condition."""
@@ -38,6 +49,8 @@ def _direct(netlist_path: str, cell: str | None, constr="D", rel="CP", when="",
             "constr_pin": constr, "constr_dir": "fall", "when": when,
             "measurement": "(direct mode)",
         }
+    if force_bias:
+        record["force_bias"] = force_bias
     fx = FixtureBackend(os.path.join(ENGINE_DIR, "fixtures"))   # pass-through meas/model
     meas, model = fx.read_measurement_block(record), fx.read_model()
     return run_pipeline_src(record, src, meas, model,
@@ -54,6 +67,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--constr-pin", default="D", help="constraint pin (direct mode, default D)")
     ap.add_argument("--rel-pin", default="CP", help="related/clock pin (direct mode, default CP)")
     ap.add_argument("--arc-id", default=None, help="full arc identifier (overrides when/pins)")
+    ap.add_argument("--force-bias", action="append", default=None, metavar="PIN=VAL",
+                    help="force a side-pin bias into the S2 derivation (repeatable); "
+                         "demo: watch P1 catch a wrong bias")
     ap.add_argument("--sim", action="store_true", help="run hspice to evaluate P2 (real PASS/FAIL)")
     ap.add_argument("--hspice", default="hspice", help="hspice command (default: hspice)")
     ap.add_argument("--mt0", default=None, help="evaluate existing .mt0 (captured-D run) instead of running hspice")
@@ -70,13 +86,29 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--deck", action="store_true", help="also print the assembled deck")
     args = ap.parse_args(argv)
 
+    try:
+        force_bias = parse_force_bias(args.force_bias)
+    except ValueError as e:
+        ap.error(str(e))
+
     if args.netlist:
         result = _direct(args.netlist, args.cell, args.constr_pin, args.rel_pin,
-                         args.when, args.arc_id)
+                         args.when, args.arc_id, force_bias)
     else:
         config = load_config(args.config)
         da = make_data_access(config, base_dir=ENGINE_DIR)
-        result = run_pipeline(args.arc or config["arc"], da)
+        arc_id = args.arc or config["arc"]
+        if force_bias:
+            # Same four reads run_pipeline performs, with the override injected
+            # into the record (pipeline itself stays untouched).
+            record = da.read_arc(arc_id)
+            record["force_bias"] = force_bias
+            src = da.read_netlist(record["cell"])
+            meas = da.read_measurement_block(record)
+            model = da.read_model()
+            result = run_pipeline_src(record, src, meas, model, da.name)
+        else:
+            result = run_pipeline(arc_id, da)
 
     if args.gen_p2_deck:
         from engine.p2_deck import build as build_p2
