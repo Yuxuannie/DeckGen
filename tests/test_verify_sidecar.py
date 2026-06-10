@@ -76,3 +76,40 @@ class TestBuildRecord:
     def test_engine_version_constant_exists(self):
         import engine
         assert engine.__version__ == '2.0-2b'
+
+
+from core.verify_sidecar import extract_meas_block
+
+DECK_LINES = [
+    "* Slew and load information\n",
+    ".param cl = '0.001p'\n",
+    "* Measurements\n",
+    ".meas cp2q_del1 trig v(CP) val='vdd_value/2' cross=3 targ v(Q) val='vdd_value/2' cross=1 td='related_pin_t03'\n",
+    ".meas cp2cp trig v(CP) val='vdd_value/2' cross=3 targ v(D) val='vdd_value/2' cross=4\n",
+    " \n",
+    "* Transient Sim Command\n",
+    ".tran 1p 50u sweep monte=1\n",
+    ".end\n",
+]
+
+
+class TestExtractMeasBlock:
+    def test_marker_block_extracted(self):
+        meas, note = extract_meas_block(DECK_LINES)
+        assert note is None
+        assert meas.count('.meas') == 2
+        assert '.tran' not in meas
+
+    def test_no_marker_falls_back_to_meas_lines(self):
+        lines = [l for l in DECK_LINES if 'Measurements' not in l]
+        meas, note = extract_meas_block(lines)
+        assert note is None
+        assert meas.count('.meas') == 2
+
+    def test_nothing_found_is_loud(self):
+        # Spec 3.3: an empty meas block is NEVER silent.
+        lines = [l for l in DECK_LINES if '.meas' not in l
+                 and 'Measurements' not in l]
+        meas, note = extract_meas_block(lines)
+        assert meas == ''
+        assert note is not None and 'meas extraction failed' in note

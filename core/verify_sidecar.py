@@ -84,3 +84,35 @@ def build_record(arc_info, job=None):
         'arc_id': job.get('arc_id', '') or '',
         'corner': job.get('corner', '') or '',
     }
+
+
+# ---------------------------------------------------------------------------
+# meas extraction (spec section 3.3) -- from v1's substituted deck lines
+# ---------------------------------------------------------------------------
+
+MEAS_MARKER = '* Measurements'
+
+
+def extract_meas_block(deck_lines):
+    """Return (meas_text, note). note is None on success; on failure it is a
+    human-readable reason that MUST surface in the sidecar (never silent)."""
+    lines = [l if isinstance(l, str) else str(l) for l in deck_lines]
+    start = None
+    for i, l in enumerate(lines):
+        if MEAS_MARKER in l:
+            start = i
+            break
+    if start is not None:
+        block = []
+        for l in lines[start:]:
+            if l.lstrip().lower().startswith('.tran'):
+                break
+            block.append(l)
+        text = ''.join(block).strip('\n')
+        if '.meas' in text:
+            return text, None
+    meas_only = [l for l in lines if l.lstrip().startswith('.meas')]
+    if meas_only:
+        return ''.join(meas_only).strip('\n'), None
+    return '', ("meas extraction failed: marker '* Measurements' absent "
+                "and no .meas lines")
