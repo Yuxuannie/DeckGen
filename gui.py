@@ -18,6 +18,7 @@ import sys
 import threading
 import time
 import webbrowser
+import gui_engine_views as _ev
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
@@ -447,7 +448,7 @@ def _parse_table_points(text):
 # HTML page (ASCII-only: no em-dashes, no smart quotes, no emojis)
 # ---------------------------------------------------------------------------
 
-HTML_PAGE = """<!DOCTYPE html>
+_HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -687,6 +688,7 @@ table.vtbl tr:hover td{background:var(--tint);}
 .l1{color:var(--ok);font-weight:600;}.l2{color:var(--warn);font-weight:600;}.l3{color:var(--err);font-weight:600;}
 .view-hidden{display:none!important;}
 </style>
+<!--ENGINE_CSS-->
 </head>
 <body>
 <div class="topbar">
@@ -695,6 +697,12 @@ table.vtbl tr:hover td{background:var(--tint);}
     <div class="tab active" onclick="showTab('explore')">Explore</div>
     <div class="tab" onclick="showTab('direct')">Direct</div>
     <div class="tab" onclick="showTab('validate')">Validate</div>
+    <div class="tab" data-tab="topology" data-face="core" onclick="engShowTab('topology')">Topology</div>
+    <div class="tab" data-tab="audit" data-face="core" onclick="engShowTab('audit')">Audit</div>
+    <span class="face-toggle" style="display:flex;align-items:center;gap:2px;margin-left:8px;">
+      <button data-face="core" class="btn btn-sm on" onclick="engSetFace('core')">Core</button>
+      <button data-face="engine" class="btn btn-sm" onclick="engSetFace('engine')">Engine</button>
+    </span>
   </div>
   <div class="spacer"></div>
   <div class="status-pill" id="statusPill">Loading&#x2026;</div>
@@ -1198,9 +1206,9 @@ function gridCellClick(e,arcType){
     var tbl=document.getElementById('tpGrid_'+arcType);
     if(tbl){tbl.querySelectorAll('td.gc').forEach(function(c){
       var ci=parseInt(c.dataset.i);var cj=parseInt(c.dataset.j);
-      if(ci>=minI&&ci<=maxI&&cj>=minJ&&cj<=maxJ){c.classList.add('gon');c.textContent='\u2713';}});}
+      if(ci>=minI&&ci<=maxI&&cj>=minJ&&cj<=maxJ){c.classList.add('gon');c.textContent='\\u2713';}});}
   }else{
-    var on=td.classList.toggle('gon');td.textContent=on?'\u2713':'';}
+    var on=td.classList.toggle('gon');td.textContent=on?'\\u2713':'';}
   _tpLastClick[arcType]={i:i,j:j};
   syncInputFromGrid(arcType);renderQueueSummary();}
 function syncInputFromGrid(arcType){
@@ -1222,7 +1230,7 @@ function syncGridFromInput(arcType){
   var sel=new Set(pts.map(function(p){return p[0]+','+p[1];}));
   var total=0;tbl.querySelectorAll('td.gc').forEach(function(c){total++;
     var key=c.dataset.i+','+c.dataset.j;var on=sel.has(key);
-    c.classList.toggle('gon',on);c.textContent=on?'\u2713':'';});
+    c.classList.toggle('gon',on);c.textContent=on?'\\u2713':'';});
   if(countEl)countEl.textContent=sel.size+' / '+total+' selected';}
 function tpPreset(arcType,act){var q=S.queue.find(function(x){return x.arc_type===arcType&&x.index_1&&x.index_1.length;});
   if(!q)return;var ni=q.index_1.length;var nj=q.index_2.length;var pts=[];
@@ -1568,9 +1576,37 @@ function _srcLazyLoad(){
   </div>
   <div class="src-modal-body" id="srcEditorMount" style="overflow:auto;flex:1;"></div>
 </div>
+<!--ENGINE_TABS-->
+<!--ENGINE_JS-->
 </body>
 </html>
 """
+
+_ENGINE_JS_GLUE = """
+function engShowTab(name){
+  document.querySelectorAll('.eng-pane').forEach(function(p){p.style.display='none';});
+  var pane=document.getElementById('tab-'+name); if(pane) pane.style.display='block';
+  if(name==='topology') engTopology();
+  if(name==='audit') engAudit();
+}
+function engSetFace(face){
+  document.querySelectorAll('.face-toggle button').forEach(function(b){
+    b.classList.toggle('on', b.getAttribute('data-face')===face);});
+  document.querySelectorAll('.tab[data-face]').forEach(function(t){
+    t.style.display=(t.getAttribute('data-face')==='engine'&&face==='core')?'none':'';});
+}
+engSetFace('core');
+"""
+
+HTML_PAGE = (
+    _HTML_TEMPLATE
+    .replace('<!--ENGINE_CSS-->',
+             '<style>' + _ev.CSS_TOKENS + _ev.CSS_COMPONENTS + '</style>')
+    .replace('<!--ENGINE_TABS-->',
+             _ev.topology_tab_html() + _ev.audit_tab_html())
+    .replace('<!--ENGINE_JS-->',
+             '<script>' + _ev.engine_js() + _ENGINE_JS_GLUE + '</script>')
+)
 
 
 # ---------------------------------------------------------------------------

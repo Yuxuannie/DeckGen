@@ -94,3 +94,13 @@ def test_engine_topology_via_present_layer():
                         "fixtures", "SDFX_LPE_PLACEHOLDER.subckt")
     res = ep.topology_view(sdfx, "SDFX_LPE_PLACEHOLDER", when="notSE_SI")
     assert res["status"] == "OK" and "svg" in res and res["p1"]["status"] == "PASS"
+
+
+def test_index_includes_engine_tabs_and_face_toggle():
+    import gui
+    page = gui.HTML_PAGE if isinstance(getattr(gui, "HTML_PAGE", None), str) \
+        else gui.build_page()
+    for marker in ('tab-topology', 'tab-audit', 'data-face="engine"',
+                   'eng-topo-canvas'):
+        assert marker in page
+    page.encode('ascii')
