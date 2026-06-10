@@ -140,10 +140,6 @@ function engChip(status){
          ERROR:'chip-error',NA:'chip-na'};
   return '<span class="eng-chip '+(m[status]||'chip-error')+'">'+status+'</span>';
 }
-function engRenderVerdict(p1){
-  document.getElementById('eng-topo-p1chip').innerHTML=engChip(p1.status);
-  document.getElementById('eng-topo-verdict').textContent=p1.detail.join('\n');
-}
 function engPanZoom(canvas){
   var svg=canvas.querySelector('svg'); if(!svg) return;
   var vb=svg.viewBox.baseVal, pan=false, sx=0, sy=0;
@@ -292,12 +288,12 @@ function engAudit(){
 def audit_tab_html():
     return """
 <div class="main view-hidden" id="view-audit">
-  <div class="panel" style="flex:1;overflow:auto;">
+  <div class="panel eng-panel">
     <div class="eng-tab-title">Audit -- v2 re-derives and checks every queued arc</div>
-    <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
-      <span class="fl-label">Corner</span>
-      <select id="engAuditCorner" style="min-width:200px"></select>
-      <button class="btn" onclick="engAudit()">Run audit on queue</button>
+    <div class="eng-controls">
+      <div class="eng-field"><label>Corner</label>
+        <select id="engAuditCorner"></select></div>
+      <button class="btn btn-primary" onclick="engAudit()">Run audit on queue</button>
       <button id="eng-audit-csv" class="btn">Download audit.csv</button>
     </div>
     <div id="eng-audit-summary" style="margin-bottom:12px"></div>
