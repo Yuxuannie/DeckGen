@@ -53,35 +53,80 @@ CSS_COMPONENTS = """
 .eng-progress{height:2px;background:var(--accent);width:0;transition:width .2s;}
 """
 
+CSS_COMPONENTS += """
+.eng-panel{padding:18px 22px;overflow:auto;}
+.eng-controls{display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;margin-bottom:16px;}
+.eng-field{display:flex;flex-direction:column;gap:4px;}
+.eng-field label{font:600 11px var(--font-ui);color:var(--text-mut);
+  text-transform:uppercase;letter-spacing:.04em;}
+.eng-field select{min-width:180px;padding:6px 8px;border:1px solid var(--border);
+  border-radius:var(--r-chip);background:var(--surface);font:13px var(--font-ui);color:var(--text);}
+.eng-shell{display:grid;grid-template-columns:1fr 340px;gap:18px;align-items:start;}
+.eng-canvas{min-height:560px;}
+.eng-canvas-msg{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  color:var(--text-mut);font:13px var(--font-ui);}
+.eng-inspector{display:flex;flex-direction:column;gap:12px;}
+.eng-card-h{font:600 13px var(--font-ui);color:var(--text);margin-bottom:8px;
+  display:flex;align-items:center;gap:8px;}
+.eng-obl{font:12px/1.5 var(--font-mono);color:var(--text-mut);}
+.eng-bias{width:100%;border-collapse:collapse;}
+.eng-bias td{padding:4px 6px;border-bottom:1px solid var(--border);font:12px var(--font-mono);}
+.eng-pin{color:var(--text);font-weight:600;}
+.eng-bit{display:inline-block;min-width:20px;text-align:center;border-radius:3px;
+  background:var(--surface-2);padding:0 6px;}
+.eng-struct{font:12px var(--font-ui);color:var(--text);display:flex;flex-direction:column;gap:6px;}
+.eng-role-l{display:inline-block;min-width:54px;color:var(--text-mut);text-transform:uppercase;
+  font-size:11px;letter-spacing:.03em;}
+.eng-node{display:inline-block;background:var(--accent-wk);color:var(--accent);
+  border-radius:3px;padding:1px 6px;margin:2px 3px 0 0;font:11px var(--font-mono);}
+.eng-mut{color:var(--text-mut);font-size:12px;}
+.eng-trace{font:11px/1.5 var(--font-mono);color:var(--text-mut);white-space:pre-wrap;margin:6px 0 0;}
+.eng-trace-card summary{cursor:pointer;list-style:revert;}
+"""
+
 
 def topology_tab_html():
     return """
 <div class="main view-hidden" id="view-topology">
-  <div class="panel" style="flex:1;overflow:auto;">
-    <div class="eng-tab-title">Topology -- name-blind transistor analysis</div>
-    <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
-      <span class="fl-label">Cell</span>
-      <select id="engTopoCell" style="min-width:240px" onchange="engTopology()"></select>
-      <span class="fl-label">Corner</span>
-      <select id="engTopoCorner" style="min-width:200px"></select>
-      <button class="btn" onclick="engTopology()">Render</button>
+  <div class="panel eng-panel">
+    <div class="eng-controls">
+      <div class="eng-field"><label>Cell</label>
+        <select id="engTopoCell" onchange="engTopoLoadCell()"></select></div>
+      <div class="eng-field"><label>Clock pin</label>
+        <select id="engTopoClk" onchange="engTopology()"></select></div>
+      <div class="eng-field"><label>Data pin</label>
+        <select id="engTopoData" onchange="engTopology()"></select></div>
+      <div class="eng-field"><label>Corner</label>
+        <select id="engTopoCorner"></select></div>
+      <button class="btn btn-primary" onclick="engTopology()">Analyze</button>
     </div>
     <div class="eng-shell">
       <div class="eng-canvas" id="eng-topo-canvas">
+        <div class="eng-canvas-msg" id="eng-topo-empty">Select a cell to analyze its topology.</div>
         <div class="eng-legend">
           <div><i style="border-color:var(--path-data)"></i>measured data path</div>
           <div><i style="border-color:var(--path-masked);border-top-style:dashed"></i>masked scan input</div>
           <div><i style="border-color:var(--path-clock)"></i>clock</div>
         </div>
       </div>
-      <div>
-        <div class="eng-card"><h4>P1 -- Sensitization <span id="eng-topo-p1chip"></span></h4>
-          <div class="eng-detail" id="eng-topo-verdict">Select a cell and click Render.</div></div>
-        <div class="eng-card"><h4>Stage trace</h4>
-          <div class="eng-detail" id="eng-topo-trace"></div></div>
-        <div class="eng-card"><h4>CCC</h4>
-          <div class="eng-detail" id="eng-topo-ccc"></div></div>
-      </div>
+      <aside class="eng-inspector">
+        <div class="eng-card">
+          <div class="eng-card-h">Sensitization (P1) <span id="eng-topo-p1chip"></span></div>
+          <div class="eng-obl" id="eng-topo-obl">Pick a clock and data pin, then Analyze.</div>
+        </div>
+        <div class="eng-card">
+          <div class="eng-card-h">Side-pin bias</div>
+          <table class="eng-bias"><tbody id="eng-topo-bias"></tbody></table>
+        </div>
+        <div class="eng-card">
+          <div class="eng-card-h">Structure (CCC)</div>
+          <div class="eng-struct" id="eng-topo-struct"></div>
+        </div>
+        <details class="eng-card eng-trace-card">
+          <summary class="eng-card-h">Stage trace</summary>
+          <pre class="eng-trace" id="eng-topo-trace"></pre>
+        </details>
+      </aside>
     </div>
   </div>
 </div>
@@ -135,40 +180,87 @@ function engFillSelect(sel,items){
   if(prev){for(var i=0;i<sel.options.length;i++){
     if(sel.options[i].value===prev){sel.selectedIndex=i;break;}}}
 }
+function engPinGuess(pins,kind){
+  var clk=/^(CP|CLK|CK|ECK|GCK|E)$/i, dat=/^(D|SI|TI|DATA|TE)$/i;
+  for(var i=0;i<pins.length;i++){if((kind==='clk'?clk:dat).test(pins[i]))return pins[i];}
+  if(kind==='clk') return pins[0]||'';
+  for(var j=0;j<pins.length;j++){if(pins[j]!==document.getElementById('engTopoClk').value)return pins[j];}
+  return pins[0]||'';
+}
 function engTopoInit(){
   engFillSelect(document.getElementById('engTopoCell'),engCellNames());
   engFillSelect(document.getElementById('engTopoCorner'),engCorners());
+}
+function engTopoLoadCell(){
+  // first call (engine defaults) just to discover the cell's pins, then re-analyze with guesses
+  var cell=(document.getElementById('engTopoCell')||{}).value||'';
+  var corner=(document.getElementById('engTopoCorner')||{}).value||'';
+  if(!cell) return;
+  post('/api/engine/topology',{node:S.node,lib_type:S.libtype,cell:cell,corner:corner})
+    .then(function(d){
+      var pins=d.pins||[];
+      engFillSelect(document.getElementById('engTopoClk'),pins);
+      engFillSelect(document.getElementById('engTopoData'),pins);
+      if(pins.length){
+        document.getElementById('engTopoClk').value=engPinGuess(pins,'clk');
+        document.getElementById('engTopoData').value=engPinGuess(pins,'data');
+      }
+      engTopology();
+    });
 }
 function engAuditInit(){
   engFillSelect(document.getElementById('engAuditCorner'),engCorners());
 }
 function engTopology(){
   var cell=(document.getElementById('engTopoCell')||{}).value||'';
+  var clk=(document.getElementById('engTopoClk')||{}).value||'';
+  var data=(document.getElementById('engTopoData')||{}).value||'';
   var corner=(document.getElementById('engTopoCorner')||{}).value||'';
-  if(!cell){ document.getElementById('eng-topo-verdict').textContent=
-    'Select a cell (the dropdown is populated from the cells loaded in Explore).'; return; }
-  var b={node:S.node,lib_type:S.libtype,cell:cell,corner:corner};
-  post('/api/engine/topology',b).then(function(d){
-    var c=document.getElementById('eng-topo-canvas');
-    var old=c.querySelector('svg'); if(old) old.remove();
-    if(d.status==='ERROR'){ c.insertAdjacentHTML('afterbegin',
-      '<div class="eng-card chip-error" style="margin:16px">'+
-      (d.error||'engine error')+'</div>'); return; }
-    c.insertAdjacentHTML('afterbegin',d.svg);
-    engPanZoom(c);
-    engRenderVerdict(d.p1);
-    document.getElementById('eng-topo-trace').textContent=(d.stage_log||[]).join('\n');
-    document.getElementById('eng-topo-ccc').textContent=
-      'components: '+d.ccc.components+'\nroles: '+JSON.stringify(d.ccc.roles);
-  });
+  if(!cell){return;}
+  post('/api/engine/topology',{node:S.node,lib_type:S.libtype,cell:cell,corner:corner,
+    arc_type:'hold',rel_pin:clk||'CP',rel_dir:'rise',
+    constr_pin:data||'D',constr_dir:'fall'}).then(engRenderTopo);
 }
-function engAuditArcIds(){
-  // The Explore queue holds arc OBJECTS; the audit API wants arc-id STRINGS.
+function engRenderTopo(d){
+  var c=document.getElementById('eng-topo-canvas');
+  var old=c.querySelector('svg'); if(old) old.remove();
+  var empty=document.getElementById('eng-topo-empty'); if(empty) empty.style.display='none';
+  if(d.status==='ERROR'){
+    document.getElementById('eng-topo-p1chip').innerHTML=engChip('ERROR');
+    document.getElementById('eng-topo-obl').textContent=d.error||'engine error';
+    return;
+  }
+  c.insertAdjacentHTML('afterbegin',d.svg||'');
+  engPanZoom(c);
+  document.getElementById('eng-topo-p1chip').innerHTML=engChip(d.p1.status);
+  document.getElementById('eng-topo-obl').textContent=d.obligation||'';
+  // bias table
+  var bt=document.getElementById('eng-topo-bias'); bt.innerHTML='';
+  var biases=d.biases||{}; var keys=Object.keys(biases);
+  if(!keys.length){ bt.innerHTML='<tr><td class="eng-mut" colspan="2">no side pins</td></tr>'; }
+  keys.forEach(function(p){
+    var v=biases[p].value; var val=(v===null||v===undefined)?'-':v;
+    bt.insertAdjacentHTML('beforeend',
+      '<tr><td class="eng-pin">'+p+'</td><td><span class="eng-bit">'+val+'</span></td></tr>');
+  });
+  // structure
+  var roles=(d.ccc&&d.ccc.roles)||{}; var sh='';
+  sh+='<div class="eng-mut">'+((d.ccc&&d.ccc.components)||0)+' channel-connected component(s)</div>';
+  Object.keys(roles).forEach(function(r){
+    sh+='<div class="eng-role"><span class="eng-role-l">'+r+'</span> '+
+      roles[r].map(function(n){return '<span class="eng-node">'+n+'</span>';}).join('')+'</div>';
+  });
+  document.getElementById('eng-topo-struct').innerHTML=sh||'<div class="eng-mut">no storage</div>';
+  document.getElementById('eng-topo-trace').textContent=(d.stage_log||[]).join('\n');
+}
+function engAuditArcs(){
   if((S.auditArcs||[]).length) return S.auditArcs;
-  return (S.queue||[]).map(function(q){return q.arc_id;}).filter(Boolean);
+  return (S.queue||[]).map(function(q){return {arc_id:q.arc_id,cell:q.cell,
+    arc_type:q.arc_type,rel_pin:q.rel_pin,rel_dir:q.rel_dir,
+    probe_pin:q.probe_pin,when:q.when};});
 }
 function engAudit(){
-  var arcs=engAuditArcIds();
+  var arcs=engAuditArcs();
   if(!arcs.length){ document.getElementById('eng-audit-summary').innerHTML=
     '<div class="eng-detail">No arcs queued. Add arcs in the Explore tab first.</div>';
     document.getElementById('eng-audit-rows').innerHTML=''; return; }
@@ -191,7 +283,7 @@ function engAudit(){
   document.getElementById('eng-audit-csv').onclick=function(){
     window.location='/api/engine/audit_csv?node='+encodeURIComponent(S.node)+
       '&lib_type='+encodeURIComponent(S.libtype)+'&corner='+encodeURIComponent(corner)+
-      '&arcs='+encodeURIComponent(engAuditArcIds().join(','));
+      '&arcs='+encodeURIComponent(engAuditArcs().map(function(a){return a.arc_id;}).join(','));
   };
 }
 """

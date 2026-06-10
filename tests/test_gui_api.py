@@ -68,11 +68,12 @@ def test_engine_views_css_tokens_present():
 def test_topology_tab_fragment_structure():
     import gui_engine_views as v
     html = v.topology_tab_html()
-    for hook in ('id="eng-topo-canvas"', 'id="eng-topo-verdict"',
+    # eng-topo-verdict renamed to eng-topo-obl in the pin-picker redesign (same intent)
+    for hook in ('id="eng-topo-canvas"', 'id="eng-topo-obl"',
                  'id="eng-topo-trace"', "eng-legend"):
         assert hook in html
     js = v.engine_js()
-    for fn in ("engTopology", "engPanZoom", "engRenderVerdict"):
+    for fn in ("engTopology", "engPanZoom", "engRenderTopo"):
         assert fn in js
     (html + js).encode("ascii")
 
@@ -108,3 +109,17 @@ def test_index_includes_engine_tabs_integrated_as_views():
                    "showTab('topology')", "showTab('audit')"):
         assert marker in page, marker
     page.encode('ascii')
+
+
+def test_topology_tab_has_pin_pickers():
+    import gui_engine_views as v
+    html = v.topology_tab_html()
+    for hook in ('id="engTopoCell"', 'id="engTopoClk"', 'id="engTopoData"',
+                 'id="engTopoCorner"', 'id="eng-topo-canvas"',
+                 'id="eng-topo-bias"', 'id="eng-topo-struct"'):
+        assert hook in html, hook
+    js = v.engine_js()
+    for fn in ('engTopoLoadCell', 'engTopology', 'engRenderTopo', 'engPinGuess',
+               'engAudit', 'engAuditArcs'):
+        assert fn in js, fn
+    (html + js).encode('ascii')
