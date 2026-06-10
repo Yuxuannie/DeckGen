@@ -67,3 +67,42 @@ def test_sim_present_but_zero_vdd_is_stub_not_fail():
     p3 = p3_property(_ctx(vdd=0.0), _init(probes=("x1.ml_a",)), _arc(), sim)
     assert p3.status is PStatus.STUB
     assert any("no VDD reference" in d for d in p3.detail)
+
+
+from engine.wave import parse_csdf
+
+CSDF_SETTLED = """#H
+#N 'v(x1.ml_a)' 'v(x1.sl_a)'
+#C 0.0 2  0.0 0.45
+#C 4.0e-8 2  0.448 0.002
+#C 6.0e-8 2  0.45 0.0
+"""
+
+CSDF_MIDRAIL = """#H
+#N 'v(x1.ml_a)' 'v(x1.sl_a)'
+#C 0.0 2  0.0 0.45
+#C 4.0e-8 2  0.225 0.002
+#C 6.0e-8 2  0.45 0.0
+"""
+
+
+def test_settled_nodes_pass_with_sim():
+    sim = parse_csdf(CSDF_SETTLED)
+    p3 = p3_property(_ctx(), _init(probes=("x1.ml_a", "x1.sl_a")), _arc(), sim)
+    assert p3.status is PStatus.PASS
+    assert any("RAN" in d for d in p3.detail)
+
+
+def test_midrail_node_fails_with_sim():
+    # x1.ml_a sits at VDD/2 at the last sample before capture (50ns)
+    sim = parse_csdf(CSDF_MIDRAIL)
+    p3 = p3_property(_ctx(), _init(probes=("x1.ml_a", "x1.sl_a")), _arc(), sim)
+    assert p3.status is PStatus.FAIL
+    assert any("mid-rail" in d for d in p3.detail)
+
+
+def test_missing_trace_fails_with_sim():
+    sim = parse_csdf(CSDF_SETTLED)
+    p3 = p3_property(_ctx(), _init(probes=("x1.nope",)), _arc(), sim)
+    assert p3.status is PStatus.FAIL
+    assert any("MISSING" in d for d in p3.detail)
