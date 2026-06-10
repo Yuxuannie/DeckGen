@@ -34,3 +34,45 @@ class TestTopologyView:
         r = topology_view(str(bad), "BAD")
         assert r["status"] in ("ERROR", "NA")
         assert "error" in r or "p1" in r
+
+
+import shutil
+from core.engine_present import audit_arcs, audit_csv
+
+FIXTURE_COLLATERAL = os.path.join(REPO, "tests", "fixtures", "collateral")
+_NODE, _LIB = "N2P_v1.0", "test_lib"
+_CORNER = "ssgnp_0p450v_m40c_cworst_CCworst_T"
+
+
+def _collateral_root(tmp_path):
+    dest = tmp_path / "collateral"
+    shutil.copytree(os.path.join(FIXTURE_COLLATERAL, _NODE, _LIB),
+                    str(dest / _NODE / _LIB))
+    from tools.scan_collateral import build_manifest
+    build_manifest(str(dest), _NODE, _LIB)
+    return str(dest)
+
+
+class TestAudit:
+    def test_rows_and_summary(self, tmp_path):
+        croot = _collateral_root(tmp_path)
+        out = audit_arcs(node=_NODE, lib_type=_LIB, corner=_CORNER,
+                         arc_ids=["hold_DFFQ1_Q_rise_CP_rise_NO_CONDITION_1_1"],
+                         collateral_root=croot)
+        assert out["rows"], "expected at least one row"
+        row = out["rows"][0]
+        for k in ("cell", "arc", "corner", "P1", "P2", "P3",
+                  "bias_match", "arc_check", "notes"):
+            assert k in row
+        assert row["cell"] == "DFFQ1"
+        s = out["summary"]
+        assert s["total"] == len(out["rows"])
+
+    def test_csv_columns_exact_order(self, tmp_path):
+        croot = _collateral_root(tmp_path)
+        out = audit_arcs(node=_NODE, lib_type=_LIB, corner=_CORNER,
+                         arc_ids=["hold_DFFQ1_Q_rise_CP_rise_NO_CONDITION_1_1"],
+                         collateral_root=croot)
+        csv = audit_csv(out["rows"])
+        header = csv.splitlines()[0]
+        assert header == "cell,arc,corner,P1,P2,P3,bias_match,arc_check,notes"
