@@ -215,3 +215,72 @@ class TestBuildMeasContext:
         lines = [l for l in WORKED_DECK if not l.startswith('XVCP')]
         ctx = build_meas_context(lines, _arc_info())
         assert ctx.capture_t_ns is None
+
+
+import core.verify_sidecar as vs
+
+SDFX = os.path.join(REPO, 'engine', 'fixtures', 'SDFX_LPE_PLACEHOLDER.subckt')
+
+
+def _sdfx_arc_info(**over):
+    info = _arc_info(CELL_NAME='SDFX_LPE_PLACEHOLDER', NETLIST_PATH=SDFX)
+    info.update(over)
+    return info
+
+
+class TestWriteSidecar:
+    def test_ok_sidecar_on_engine_fixture(self, tmp_path):
+        path = vs.write_sidecar(str(tmp_path), _sdfx_arc_info(),
+                                {'arc_id': 'a1', 'corner': 'c1'}, WORKED_DECK)
+        data = json.loads(open(path).read())
+        assert data['schema_version'] == 1
+        assert data['status'] == 'OK'
+        assert data['arc']['cell'] == 'SDFX_LPE_PLACEHOLDER'
+        assert data['verdict']['p1']['status'] == 'PASS'
+        assert data['verdict']['p3']['status'] in ('STUB', 'PASS', 'FAIL')
+        assert data['engine']['version'] == '2.0-2b'
+        assert data['biases']['match'].split()[0] in (
+            'MATCH', 'MISMATCH:', 'NON_CRITICAL', 'N/A')
+        assert 'derived independently' not in data['arc_check']  # when given
+        assert data['timestamps']['started'] <= data['timestamps']['finished']
+
+    def test_missing_netlist_is_error_sidecar(self, tmp_path):
+        path = vs.write_sidecar(str(tmp_path),
+                                _sdfx_arc_info(NETLIST_PATH='/no/such.spi'),
+                                None, WORKED_DECK)
+        data = json.loads(open(path).read())
+        assert data['status'] == 'ERROR'
+        assert 'no netlist text available' in data['error']['summary']
+        assert 'verdict' not in data
+
+    def test_engine_exception_yields_error_sidecar(self, tmp_path, monkeypatch):
+        def boom(*a, **k):
+            raise RuntimeError('boom')
+        monkeypatch.setattr(vs, 'run_pipeline_src', boom)
+        path = vs.write_sidecar(str(tmp_path), _sdfx_arc_info(), None,
+                                WORKED_DECK)
+        data = json.loads(open(path).read())
+        assert data['status'] == 'ERROR'
+        assert data['error']['type'] == 'RuntimeError'
+        assert any('boom' in t for t in data['error']['traceback_tail'])
+        assert 'verdict' not in data
+
+    def test_stripped_meas_marker_is_loud(self, tmp_path):
+        lines = [l for l in WORKED_DECK if '.meas' not in l
+                 and 'Measurements' not in l]
+        path = vs.write_sidecar(str(tmp_path), _sdfx_arc_info(), None, lines)
+        data = json.loads(open(path).read())
+        assert data['status'] == 'OK'
+        assert any('meas extraction failed' in n for n in data['notes'])
+        assert data['verdict']['p3']['status'] == 'STUB'
+        assert any('no measurement block found' in d
+                   for d in data['verdict']['p3']['detail'])
+
+    def test_no_when_reports_derived_independently(self, tmp_path):
+        path = vs.write_sidecar(
+            str(tmp_path),
+            _sdfx_arc_info(WHEN='NO_CONDITION', LIT_WHEN='NO_CONDITION'),
+            None, WORKED_DECK)
+        data = json.loads(open(path).read())
+        assert data['status'] == 'OK'
+        assert 'derived independently' in data['arc_check']

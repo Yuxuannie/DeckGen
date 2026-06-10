@@ -306,3 +306,121 @@ def build_meas_context(deck_lines, arc_info):
     return MeasContext(rel_edges=edges, trig_cross=trig_cross,
                        trig_td_ns=trig_td, capture_t_ns=cap_t,
                        capture_dir=cap_d, vdd=vdd, notes=notes)
+
+
+# ---------------------------------------------------------------------------
+# sidecar writer (spec section 5)
+# ---------------------------------------------------------------------------
+
+SCHEMA_VERSION = 1
+SIDECAR_NAME = 'verify.json'
+
+
+def engine_version_info():
+    import engine
+    commit = None
+    try:
+        repo = os.path.dirname(os.path.dirname(os.path.abspath(engine.__file__)))
+        out = subprocess.run(['git', 'rev-parse', '--short', 'HEAD'],
+                             cwd=repo, capture_output=True, text=True,
+                             timeout=1)
+        if out.returncode == 0:
+            commit = out.stdout.strip()
+    except Exception:
+        pass        # air-gapped server may have no git; commit stays None
+    return {'version': getattr(engine, '__version__', 'unknown'),
+            'commit': commit}
+
+
+def _prop_dict(p):
+    return {'status': p.status.value, 'detail': list(p.detail)}
+
+
+def write_sidecar(deck_dir, arc_info, job, deck_lines):
+    """Run the engine on one v1-resolved arc and write {deck_dir}/verify.json.
+    NEVER raises for engine-side problems: any failure becomes a status=ERROR
+    sidecar. (A failure writing the file itself propagates; the batch caller
+    catches it and warns -- spec section 5.)"""
+    started = datetime.now(timezone.utc).isoformat()
+    payload = {
+        'schema_version': SCHEMA_VERSION,
+        'engine': engine_version_info(),
+        'deck': 'nominal_sim.sp',
+    }
+    notes = []
+    try:
+        record = build_record(arc_info, job)
+        payload['arc'] = {
+            'arc_id': record['arc_id'], 'cell': record['cell'],
+            'arc_type': record['arc_type'], 'corner': record['corner'],
+            'rel_pin': record['rel_pin'], 'rel_dir': record['rel_dir'],
+            'constr_pin': record['constr_pin'],
+            'constr_dir': record['constr_dir'],
+            'when': record['when'], 'when_literal': record['when_literal'],
+            'vector': record['vector'],
+        }
+        npath = arc_info.get('NETLIST_PATH') or ''
+        if not npath or not os.path.isfile(npath):
+            raise VerifyInputError(
+                'no netlist text available (NETLIST_PATH=%r)' % npath)
+        with open(npath, 'r') as fh:
+            src = fh.read()
+
+        meas, mnote = extract_meas_block(deck_lines)
+        if mnote:
+            notes.append(mnote)
+        record['measurement'] = meas
+        inc = arc_info.get('INCLUDE_FILE') or ''
+        model = ".inc '%s'" % inc if inc else ''
+
+        result = run_pipeline_src(record, src, meas, model, 'v1-audit')
+
+        if mnote:
+            ctx = MeasContext(rel_edges=[], trig_cross=0, trig_td_ns=0.0,
+                              capture_t_ns=None, capture_dir='', vdd=0.0,
+                              notes=['no measurement block found in v1 deck '
+                                     "(marker '* Measurements' absent and no "
+                                     '.meas lines)'])
+        else:
+            ctx = build_meas_context(deck_lines, arc_info)
+        result.verdict.p3 = p3_property(ctx, result.init, result.arc,
+                                        sim_data=None)
+
+        golden = derive_golden_biases(arc_info)
+        derived = {p: d.value for p, d in result.sens.side_biases.items()}
+        v = result.verdict
+        payload.update({
+            'status': 'OK',
+            'verdict': {'overall': v.overall.value,
+                        'p1': _prop_dict(v.p1), 'p2': _prop_dict(v.p2),
+                        'p3': _prop_dict(v.p3)},
+            'biases': {
+                'derived': {p: {'value': d.value, 'reason': d.reason}
+                            for p, d in result.sens.side_biases.items()},
+                'golden': golden,
+                'match': classify_bias_match(derived, result.sens.set_pins,
+                                             result.sens.masked_pins, golden),
+            },
+            'arc_check': result.sens.arc_check,
+            'stage_log': list(result.stage_log),
+        })
+    except Exception as e:
+        frames = traceback.extract_tb(sys.exc_info()[2])
+        last = frames[-1] if frames else None
+        summary = ('%s:%s in %s: %s' % (last.filename, last.lineno,
+                                        last.name, e)
+                   if last else str(e))
+        payload.update({
+            'status': 'ERROR',
+            'error': {'type': type(e).__name__, 'summary': summary,
+                      'traceback_tail':
+                          traceback.format_exc().splitlines()[-5:]},
+        })
+    payload['notes'] = notes
+    payload['timestamps'] = {'started': started,
+                             'finished': datetime.now(timezone.utc).isoformat()}
+    path = os.path.join(deck_dir, SIDECAR_NAME)
+    with open(path, 'w') as fh:
+        json.dump(payload, fh, indent=2, sort_keys=True)
+        fh.write('\n')
+    return path
