@@ -116,3 +116,63 @@ def extract_meas_block(deck_lines):
         return ''.join(meas_only).strip('\n'), None
     return '', ("meas extraction failed: marker '* Measurements' absent "
                 "and no .meas lines")
+
+
+# ---------------------------------------------------------------------------
+# golden biases + three-state bias match (spec section 5)
+# ---------------------------------------------------------------------------
+
+def derive_golden_biases(arc_info):
+    """The biases v1's deck drives, with the exact semantics of
+    deck_builder._generate_when_condition_lines (skip rel/constr pins;
+    '!X' -> 0 else 1). A non-empty SIDE_PIN_STATES wins (more explicit)."""
+    out = {}
+    for tok in (arc_info.get('SIDE_PIN_STATES') or '').split():
+        pin, _, val = tok.partition('=')
+        if pin and val in ('0', '1'):
+            out[pin] = int(val)
+    if out:
+        return out
+    when = arc_info.get('WHEN', '') or ''
+    if not when or when == 'NO_CONDITION':
+        return {}
+    rel = arc_info.get('REL_PIN', '')
+    constr = arc_info.get('CONSTR_PIN', '')
+    for cond in when.split('&'):
+        cond = cond.strip()
+        if not cond:
+            continue
+        pin = cond.lstrip('!')
+        if pin in (rel, constr):
+            continue
+        out[pin] = 0 if cond.startswith('!') else 1
+    return out
+
+
+def classify_bias_match(derived, set_pins, masked_pins, golden):
+    """Three-state aggregate (spec section 5): MISMATCH only for set-pin
+    (critical) disagreements; masked pins are non-critical by definition."""
+    if not golden:
+        return 'N/A (no golden biases in deck)'
+    crit_mism, crit_cmp, noncrit_diff, noncrit_cmp = [], 0, [], 0
+    for pin, gval in golden.items():
+        if pin not in derived:
+            continue
+        dval = derived[pin]
+        if pin in set_pins:
+            crit_cmp += 1
+            if dval != gval:
+                crit_mism.append('%s(derived=%s golden=%s)' % (pin, dval, gval))
+        elif pin in masked_pins:
+            noncrit_cmp += 1
+            if dval != gval:
+                noncrit_diff.append('%s derived=%s golden=%s' % (pin, dval, gval))
+    if crit_mism:
+        return 'MISMATCH: ' + ', '.join(crit_mism)
+    if crit_cmp:
+        if noncrit_diff:
+            return 'MATCH (non-critical: ' + ', '.join(noncrit_diff) + ')'
+        return 'MATCH'
+    if noncrit_cmp:
+        return 'NON_CRITICAL'
+    return 'N/A (no golden biases in deck)'

@@ -113,3 +113,47 @@ class TestExtractMeasBlock:
         meas, note = extract_meas_block(lines)
         assert meas == ''
         assert note is not None and 'meas extraction failed' in note
+
+
+from core.verify_sidecar import classify_bias_match, derive_golden_biases
+
+
+class TestGoldenBiases:
+    def test_from_when_literal_skips_driven_pins(self):
+        # mirrors deck_builder._generate_when_condition_lines semantics
+        g = derive_golden_biases(_arc_info(WHEN='!SE&SI&D'))
+        assert g == {'SE': 0, 'SI': 1}      # D is the constr pin -> skipped
+
+    def test_side_pin_states_wins(self):
+        g = derive_golden_biases(_arc_info(SIDE_PIN_STATES='SE=1 SI=0'))
+        assert g == {'SE': 1, 'SI': 0}
+
+    def test_no_condition_empty(self):
+        assert derive_golden_biases(_arc_info(WHEN='NO_CONDITION')) == {}
+
+
+class TestBiasMatch:
+    # spec section 5: per-pin three-state, masked pins are NEVER mismatches
+    def test_match(self):
+        out = classify_bias_match({'SE': 0, 'SI': 1}, ['SE'], ['SI'],
+                                  {'SE': 0, 'SI': 1})
+        assert out == 'MATCH'
+
+    def test_critical_mismatch(self):
+        out = classify_bias_match({'SE': 1, 'SI': 1}, ['SE'], ['SI'],
+                                  {'SE': 0, 'SI': 1})
+        assert out.startswith('MISMATCH:') and 'SE' in out
+
+    def test_masked_disagreement_is_not_mismatch(self):
+        out = classify_bias_match({'SE': 0, 'SI': 1}, ['SE'], ['SI'],
+                                  {'SE': 0, 'SI': 0})
+        assert out.startswith('MATCH')
+        assert 'non-critical' in out and 'SI' in out
+
+    def test_only_masked_compared(self):
+        out = classify_bias_match({'SI': 1}, [], ['SI'], {'SI': 0})
+        assert out == 'NON_CRITICAL'
+
+    def test_no_golden(self):
+        out = classify_bias_match({'SE': 0}, ['SE'], [], {})
+        assert out.startswith('N/A')
