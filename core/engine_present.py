@@ -26,6 +26,18 @@ def _ccc_summary(result):
     return {"components": len(result.ccc.components), "roles": roles}
 
 
+def _subckt_pins(src, cell):
+    import re
+    for line in src.splitlines():
+        s = line.strip()
+        if s.lower().startswith(".subckt"):
+            toks = s.split()
+            # .subckt CELL p1 p2 ... ; drop rails
+            rails = {"VDD", "VSS", "VPP", "VBB", "0"}
+            return [t for t in toks[2:] if t.upper() not in rails]
+    return []
+
+
 def topology_view(netlist_path, cell, corner=None, arc_type="hold",
                   rel_pin="CP", rel_dir="rise", constr_pin="D",
                   constr_dir="fall", when=None, force_bias=None):
@@ -38,6 +50,8 @@ def topology_view(netlist_path, cell, corner=None, arc_type="hold",
             src = fh.read()
     except OSError as e:
         return {"status": "ERROR", "error": "cannot read netlist: %s" % e}
+
+    pins = _subckt_pins(src, cell)
 
     record = {
         "cell": cell, "arc_type": arc_type,
@@ -83,6 +97,7 @@ def topology_view(netlist_path, cell, corner=None, arc_type="hold",
         "biases": {pin: {"value": d.value, "reason": d.reason}
                    for pin, d in sens.side_biases.items()},
         "arc_check": sens.arc_check,
+        "pins": pins,
     }
 
 
@@ -113,14 +128,26 @@ def audit_arcs(node, lib_type, corner, arc_ids, collateral_root="collateral"):
     from engine.stages.stage5_verify import p3_property
 
     rows = []
-    for arc_id in arc_ids:
-        parsed = parse_arc_identifier(arc_id)
-        if parsed is None:
-            rows.append({"cell": "?", "arc": arc_id, "corner": corner,
-                         "P1": "ERROR", "P2": "ERROR", "P3": "ERROR",
-                         "bias_match": "N/A", "arc_check": "INDEPENDENT",
-                         "notes": "unparseable arc id"})
-            continue
+    for item in arc_ids:
+        if isinstance(item, dict):
+            parsed = {
+                "cell_name": item.get("cell") or item.get("cell_name", ""),
+                "arc_type": item.get("arc_type", ""),
+                "rel_pin": item.get("rel_pin", ""),
+                "rel_dir": item.get("rel_dir", "rise"),
+                "probe_pin": item.get("probe_pin", ""),
+                "when": item.get("when", "NO_CONDITION"),
+            }
+            arc_id = item.get("arc_id") or item.get("cell", "?")
+        else:
+            arc_id = item
+            parsed = parse_arc_identifier(item)
+            if parsed is None:
+                rows.append({"cell": "?", "arc": arc_id, "corner": corner,
+                             "P1": "ERROR", "P2": "ERROR", "P3": "ERROR",
+                             "bias_match": "N/A", "arc_check": "INDEPENDENT",
+                             "notes": "unparseable arc id"})
+                continue
         try:
             info = resolve_all_from_collateral(
                 cell_name=parsed["cell_name"], arc_type=parsed["arc_type"],

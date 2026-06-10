@@ -1844,9 +1844,12 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
         except Exception as e:
             self._send_json({'status': 'ERROR', 'error': 'resolve: %s' % e})
             return
-        self._send_json(topology_view(npath, body['cell'], corner=body.get('corner'),
-                                      when=body.get('when'),
-                                      force_bias=body.get('force_bias')))
+        self._send_json(topology_view(
+            npath, body['cell'], corner=body.get('corner'),
+            arc_type=body.get('arc_type', 'hold'),
+            rel_pin=body.get('rel_pin', 'CP'), rel_dir=body.get('rel_dir', 'rise'),
+            constr_pin=body.get('constr_pin', 'D'), constr_dir=body.get('constr_dir', 'fall'),
+            when=body.get('when'), force_bias=body.get('force_bias')))
 
     # ------------------------------------------------------------------
     # /api/engine/audit  (POST)

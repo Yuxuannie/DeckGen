@@ -76,3 +76,31 @@ class TestAudit:
         csv = audit_csv(out["rows"])
         header = csv.splitlines()[0]
         assert header == "cell,arc,corner,P1,P2,P3,bias_match,arc_check,notes"
+
+
+def test_topology_view_returns_pins():
+    r = topology_view(SDFX, "SDFX_LPE_PLACEHOLDER", when="notSE_SI")
+    assert "pins" in r and isinstance(r["pins"], list)
+    # the SDFX subckt ports include these
+    for p in ("CP", "D", "SE", "SI", "Q"):
+        assert p in r["pins"]
+
+
+def test_topology_view_custom_rel_constr():
+    # explicit pins must flow through (no hard-coded D)
+    r = topology_view(SDFX, "SDFX_LPE_PLACEHOLDER", rel_pin="CP", rel_dir="rise",
+                      constr_pin="D", constr_dir="fall", when="notSE_SI")
+    assert r["status"] in ("OK", "NA")
+
+
+def test_audit_accepts_structured_arc_dicts(tmp_path):
+    croot = _collateral_root(tmp_path)
+    arc = {"arc_id": "hold_DFFQ1_Q_rise_CP_rise_NO_CONDITION",
+           "cell": "DFFQ1", "arc_type": "hold", "rel_pin": "CP",
+           "rel_dir": "rise", "probe_pin": "Q", "when": "NO_CONDITION"}
+    out = audit_arcs(node=_NODE, lib_type=_LIB, corner=_CORNER,
+                     arc_ids=[arc], collateral_root=croot)
+    assert out["rows"], "structured arc should produce a row"
+    assert out["rows"][0]["cell"] == "DFFQ1"
+    # must NOT be the unparseable-arc error path
+    assert out["rows"][0]["notes"] != "unparseable arc id"
