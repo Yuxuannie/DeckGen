@@ -697,12 +697,8 @@ table.vtbl tr:hover td{background:var(--tint);}
     <div class="tab active" onclick="showTab('explore')">Explore</div>
     <div class="tab" onclick="showTab('direct')">Direct</div>
     <div class="tab" onclick="showTab('validate')">Validate</div>
-    <div class="tab" data-tab="topology" data-face="core" onclick="engShowTab('topology')">Topology</div>
-    <div class="tab" data-tab="audit" data-face="core" onclick="engShowTab('audit')">Audit</div>
-    <span class="face-toggle" style="display:flex;align-items:center;gap:2px;margin-left:8px;">
-      <button data-face="core" class="btn btn-sm on" onclick="engSetFace('core')">Core</button>
-      <button data-face="engine" class="btn btn-sm" onclick="engSetFace('engine')">Engine</button>
-    </span>
+    <div class="tab" data-tab="topology" onclick="showTab('topology')">Topology</div>
+    <div class="tab" data-tab="audit" onclick="showTab('audit')">Audit</div>
   </div>
   <div class="spacer"></div>
   <div class="status-pill" id="statusPill">Loading&#x2026;</div>
@@ -906,11 +902,15 @@ var S={node:'',libtype:'',corners:[],selCorners:new Set(),cells:[],arcCache:{},
   queue:[],arcFilter:'all',cellFilter:'',cellGlob:false,results:[],lastDeckPath:'',
   vResults:[],vFilter:'all',genTaskId:'',genTotal:0,_restore:{}};
 function showTab(name){
-  ['explore','direct','validate'].forEach(function(n){
-    document.getElementById('view-'+n).classList.toggle('view-hidden',n!==name);});
+  var tabs=['explore','direct','validate','topology','audit'];
+  tabs.forEach(function(n){
+    var el=document.getElementById('view-'+n);
+    if(el) el.classList.toggle('view-hidden',n!==name);});
   document.querySelectorAll('.tab').forEach(function(t,i){
-    t.classList.toggle('active',['explore','direct','validate'][i]===name);});
+    t.classList.toggle('active',tabs[i]===name);});
   document.getElementById('dbar').style.display=name==='validate'?'none':'flex';
+  if(name==='topology'&&typeof engTopoInit==='function')engTopoInit();
+  if(name==='audit'&&typeof engAuditInit==='function')engAuditInit();
   closeDeck();}
 function post(url,body){return fetch(url,{method:'POST',
   headers:{'Content-Type':'application/json'},body:JSON.stringify(body)
@@ -1582,21 +1582,9 @@ function _srcLazyLoad(){
 </html>
 """
 
-_ENGINE_JS_GLUE = """
-function engShowTab(name){
-  document.querySelectorAll('.eng-pane').forEach(function(p){p.style.display='none';});
-  var pane=document.getElementById('tab-'+name); if(pane) pane.style.display='block';
-  if(name==='topology') engTopology();
-  if(name==='audit') engAudit();
-}
-function engSetFace(face){
-  document.querySelectorAll('.face-toggle button').forEach(function(b){
-    b.classList.toggle('on', b.getAttribute('data-face')===face);});
-  document.querySelectorAll('.tab[data-face]').forEach(function(t){
-    t.style.display=(t.getAttribute('data-face')==='engine'&&face==='core')?'none':'';});
-}
-engSetFace('core');
-"""
+# Engine tabs are now driven by the existing showTab() (extended above); no
+# separate glue needed. Kept as an empty hook for assembly compatibility.
+_ENGINE_JS_GLUE = ""
 
 HTML_PAGE = (
     _HTML_TEMPLATE

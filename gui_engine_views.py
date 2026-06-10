@@ -56,23 +56,32 @@ CSS_COMPONENTS = """
 
 def topology_tab_html():
     return """
-<div id="tab-topology" class="eng-pane" style="display:none">
-  <div class="eng-tab-title">Topology -- name-blind transistor analysis</div>
-  <div class="eng-shell">
-    <div class="eng-canvas" id="eng-topo-canvas">
-      <div class="eng-legend">
-        <div><i style="border-color:var(--path-data)"></i>measured data path</div>
-        <div><i style="border-color:var(--path-masked);border-top-style:dashed"></i>masked scan input</div>
-        <div><i style="border-color:var(--path-clock)"></i>clock</div>
-      </div>
+<div class="main view-hidden" id="view-topology">
+  <div class="panel" style="flex:1;overflow:auto;">
+    <div class="eng-tab-title">Topology -- name-blind transistor analysis</div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
+      <span class="fl-label">Cell</span>
+      <select id="engTopoCell" style="min-width:240px" onchange="engTopology()"></select>
+      <span class="fl-label">Corner</span>
+      <select id="engTopoCorner" style="min-width:200px"></select>
+      <button class="btn" onclick="engTopology()">Render</button>
     </div>
-    <div>
-      <div class="eng-card"><h4>P1 -- Sensitization <span id="eng-topo-p1chip"></span></h4>
-        <div class="eng-detail" id="eng-topo-verdict"></div></div>
-      <div class="eng-card"><h4>Stage trace</h4>
-        <div class="eng-detail" id="eng-topo-trace"></div></div>
-      <div class="eng-card"><h4>CCC</h4>
-        <div class="eng-detail" id="eng-topo-ccc"></div></div>
+    <div class="eng-shell">
+      <div class="eng-canvas" id="eng-topo-canvas">
+        <div class="eng-legend">
+          <div><i style="border-color:var(--path-data)"></i>measured data path</div>
+          <div><i style="border-color:var(--path-masked);border-top-style:dashed"></i>masked scan input</div>
+          <div><i style="border-color:var(--path-clock)"></i>clock</div>
+        </div>
+      </div>
+      <div>
+        <div class="eng-card"><h4>P1 -- Sensitization <span id="eng-topo-p1chip"></span></h4>
+          <div class="eng-detail" id="eng-topo-verdict">Select a cell and click Render.</div></div>
+        <div class="eng-card"><h4>Stage trace</h4>
+          <div class="eng-detail" id="eng-topo-trace"></div></div>
+        <div class="eng-card"><h4>CCC</h4>
+          <div class="eng-detail" id="eng-topo-ccc"></div></div>
+      </div>
     </div>
   </div>
 </div>
@@ -112,8 +121,33 @@ function engPanZoom(canvas){
       svg.querySelectorAll('.net,.edge').forEach(function(x){x.style.opacity='1';});});
   });
 }
+function engCellNames(){
+  return (S.cells||[]).map(function(c){
+    return (typeof c==='string')?c:(c.name||c.cell||c.cell_name||'');}).filter(Boolean);
+}
+function engCorners(){
+  return (S.selCorners&&S.selCorners.size)?Array.from(S.selCorners):(S.corners||[]);
+}
+function engFillSelect(sel,items){
+  if(!sel) return; var prev=sel.value; sel.innerHTML='';
+  items.forEach(function(n){var o=document.createElement('option');
+    o.value=n;o.textContent=n;sel.appendChild(o);});
+  if(prev){for(var i=0;i<sel.options.length;i++){
+    if(sel.options[i].value===prev){sel.selectedIndex=i;break;}}}
+}
+function engTopoInit(){
+  engFillSelect(document.getElementById('engTopoCell'),engCellNames());
+  engFillSelect(document.getElementById('engTopoCorner'),engCorners());
+}
+function engAuditInit(){
+  engFillSelect(document.getElementById('engAuditCorner'),engCorners());
+}
 function engTopology(){
-  var b={node:S.node,lib_type:S.libtype,cell:S.cell,corner:S.corner};
+  var cell=(document.getElementById('engTopoCell')||{}).value||'';
+  var corner=(document.getElementById('engTopoCorner')||{}).value||'';
+  if(!cell){ document.getElementById('eng-topo-verdict').textContent=
+    'Select a cell (the dropdown is populated from the cells loaded in Explore).'; return; }
+  var b={node:S.node,lib_type:S.libtype,cell:cell,corner:corner};
   post('/api/engine/topology',b).then(function(d){
     var c=document.getElementById('eng-topo-canvas');
     var old=c.querySelector('svg'); if(old) old.remove();
@@ -138,7 +172,8 @@ function engAudit(){
   if(!arcs.length){ document.getElementById('eng-audit-summary').innerHTML=
     '<div class="eng-detail">No arcs queued. Add arcs in the Explore tab first.</div>';
     document.getElementById('eng-audit-rows').innerHTML=''; return; }
-  post('/api/engine/audit',{node:S.node,lib_type:S.libtype,corner:S.corner,
+  var corner=(document.getElementById('engAuditCorner')||{}).value||'';
+  post('/api/engine/audit',{node:S.node,lib_type:S.libtype,corner:corner,
     arcs:arcs}).then(function(d){
     var tb=document.getElementById('eng-audit-rows'); tb.innerHTML='';
     (d.rows||[]).forEach(function(r){
@@ -155,7 +190,7 @@ function engAudit(){
   });
   document.getElementById('eng-audit-csv').onclick=function(){
     window.location='/api/engine/audit_csv?node='+encodeURIComponent(S.node)+
-      '&lib_type='+encodeURIComponent(S.libtype)+'&corner='+encodeURIComponent(S.corner)+
+      '&lib_type='+encodeURIComponent(S.libtype)+'&corner='+encodeURIComponent(corner)+
       '&arcs='+encodeURIComponent(engAuditArcIds().join(','));
   };
 }
@@ -164,13 +199,20 @@ function engAudit(){
 
 def audit_tab_html():
     return """
-<div id="tab-audit" class="eng-pane" style="display:none">
-  <div class="eng-tab-title">Audit -- v2 re-derives and checks every arc</div>
-  <div id="eng-audit-summary" style="margin-bottom:12px"></div>
-  <button id="eng-audit-csv" class="btn">Download audit.csv</button>
-  <table class="eng-table"><thead><tr>
-    <th>Cell</th><th>Arc</th><th>P1</th><th>P2</th><th>P3</th>
-    <th>bias_match</th><th>arc_check</th><th>notes</th></tr></thead>
-    <tbody id="eng-audit-rows"></tbody></table>
+<div class="main view-hidden" id="view-audit">
+  <div class="panel" style="flex:1;overflow:auto;">
+    <div class="eng-tab-title">Audit -- v2 re-derives and checks every queued arc</div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
+      <span class="fl-label">Corner</span>
+      <select id="engAuditCorner" style="min-width:200px"></select>
+      <button class="btn" onclick="engAudit()">Run audit on queue</button>
+      <button id="eng-audit-csv" class="btn">Download audit.csv</button>
+    </div>
+    <div id="eng-audit-summary" style="margin-bottom:12px"></div>
+    <table class="eng-table"><thead><tr>
+      <th>Cell</th><th>Arc</th><th>P1</th><th>P2</th><th>P3</th>
+      <th>bias_match</th><th>arc_check</th><th>notes</th></tr></thead>
+      <tbody id="eng-audit-rows"></tbody></table>
+  </div>
 </div>
 """

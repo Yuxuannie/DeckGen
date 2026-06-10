@@ -96,11 +96,15 @@ def test_engine_topology_via_present_layer():
     assert res["status"] == "OK" and "svg" in res and res["p1"]["status"] == "PASS"
 
 
-def test_index_includes_engine_tabs_and_face_toggle():
+def test_index_includes_engine_tabs_integrated_as_views():
+    # Engine tabs are real view-* siblings driven by the existing showTab(),
+    # each with its own cell/corner picker. (Phase-1 has no Core/Engine face
+    # toggle yet -- deferred to Phase 2.)
     import gui
     page = gui.HTML_PAGE if isinstance(getattr(gui, "HTML_PAGE", None), str) \
         else gui.build_page()
-    for marker in ('tab-topology', 'tab-audit', 'data-face="engine"',
-                   'eng-topo-canvas'):
-        assert marker in page
+    for marker in ('id="view-topology"', 'id="view-audit"', 'eng-topo-canvas',
+                   'id="engTopoCell"', 'id="engTopoCorner"', 'id="engAuditCorner"',
+                   "showTab('topology')", "showTab('audit')"):
+        assert marker in page, marker
     page.encode('ascii')
