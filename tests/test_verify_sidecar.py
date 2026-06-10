@@ -377,3 +377,18 @@ class TestVerifyBatch:
             assert args.verify is True
         finally:
             _sys.argv = argv
+
+
+from core.verify_sidecar import _resolve_ns
+
+
+class TestResolveNs:
+    def test_scientific_notation_not_split_on_exponent(self):
+        # '5e+3n' must parse as 5000 ns, not mis-split on the exponent '+'
+        assert _resolve_ns('5e+3n', {}) == 5000.0
+
+    def test_plain_and_compound_forms(self):
+        params = {'ms': '1n', 'off': '5 * ms'}
+        assert _resolve_ns('10 * ms', params) == 10.0
+        assert _resolve_ns('50 * ms + off', params) == 55.0
+        assert _resolve_ns('sin(x)', params) is None

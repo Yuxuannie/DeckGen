@@ -197,6 +197,12 @@ def _resolve_ns(expr, params, depth=0):
     if depth > 10 or expr is None:
         return None
     expr = expr.strip().strip("'")
+    # Plain numeric literal first, so scientific notation like '5e+3n' is not
+    # mis-split on its exponent '+' into '5e' + '3n'.
+    m = _NUM_RE.match(expr)
+    if m:
+        unit = m.group(1)
+        return float(expr[:-1] if unit else expr) * _UNIT_NS.get(unit, 1.0)
     if '+' in expr:
         total = 0.0
         for part in expr.split('+'):
@@ -213,10 +219,6 @@ def _resolve_ns(expr, params, depth=0):
             return None
         v = _resolve_ns(right, params, depth + 1)
         return None if v is None else k * v
-    m = _NUM_RE.match(expr)
-    if m:
-        unit = m.group(1)
-        return float(expr[:-1] if unit else expr) * _UNIT_NS.get(unit, 1.0)
     if expr in params:
         return _resolve_ns(params[expr], params, depth + 1)
     return None

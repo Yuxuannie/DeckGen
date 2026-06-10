@@ -145,7 +145,8 @@ def main(argv: list[str] | None = None) -> int:
                             result.init.probes, wave=True)
         ctx = MeasContext(
             rel_edges=winfo["rel_edges_ns"], trig_cross=3, trig_td_ns=0.0,
-            capture_t_ns=winfo["t_cap_edge"] * 1e9, capture_dir="rise",
+            capture_t_ns=winfo["t_cap_edge"] * 1e9,
+            capture_dir=result.arc.rel_dir,
             vdd=float(G.VDD_VALUE),
             notes=["context from P2 prototype deck timeline"])
         sim_data = None
