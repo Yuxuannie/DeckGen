@@ -273,7 +273,7 @@ def _api_list_arcs(node, lib_type, cell):
         if not probe_pin and output_pins:
             probe_pin = output_pins[0]
 
-        # Source provenance — find cell-specific netlist file
+        # Source provenance -- find cell-specific netlist file
         netlist_file = None
         if netlist_dir:
             cell_name = a.get('cell', cell)

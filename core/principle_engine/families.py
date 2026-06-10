@@ -129,7 +129,7 @@ _BOOTSTRAP_FAMILIES: list = [
     ),
     # --- Setup arc families (Phase 2B.1 addition) ---
     # Setup uses same monte=1 .tran style and NONE init style as hold/common.
-    # Source: spec_draft.md §4 (setup in MVP scope), E2_sampling_results.md SS A.
+    # Source: spec_draft.md SS4 (setup in MVP scope), E2_sampling_results.md SS A.
     TemplateFamily(
         key="setup/common/rise_fall",
         hspice_template_path="templates/v2/setup/template__common__rise__fall__1.sp",
