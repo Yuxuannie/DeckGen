@@ -284,3 +284,96 @@ class TestWriteSidecar:
         data = json.loads(open(path).read())
         assert data['status'] == 'OK'
         assert 'derived independently' in data['arc_check']
+
+
+import hashlib
+import shutil
+
+from core.batch import run_batch
+
+FIXTURE_COLLATERAL = os.path.join(REPO, 'tests', 'fixtures', 'collateral')
+ARC_IDS = ['hold_DFFQ1_Q_rise_CP_rise_NO_CONDITION_1_1']
+CORNER = 'ssgnp_0p450v_m40c_cworst_CCworst_T'
+_NODE = 'N2P_v1.0'
+_LIB = 'test_lib'
+
+
+def _make_collateral_root(tmp_path):
+    dest = tmp_path / 'collateral'
+    shutil.copytree(os.path.join(FIXTURE_COLLATERAL, _NODE, _LIB),
+                    str(dest / _NODE / _LIB))
+    from tools.scan_collateral import build_manifest
+    build_manifest(str(dest), _NODE, _LIB)
+    return str(dest)
+
+
+def _tree_hashes(root):
+    out = {}
+    for dp, _, fns in os.walk(root):
+        for fn in fns:
+            p = os.path.join(dp, fn)
+            with open(p, 'rb') as fh:
+                out[os.path.relpath(p, root)] = \
+                    hashlib.sha256(fh.read()).hexdigest()
+    return out
+
+
+def _run(outdir, collateral_root, verify):
+    return run_batch(arc_ids=ARC_IDS, corner_names=[CORNER], files={},
+                     output_dir=str(outdir), nominal_only=True,
+                     node=_NODE, lib_type=_LIB,
+                     collateral_root=collateral_root, verify=verify)
+
+
+class TestVerifyBatch:
+    def test_byte_identical_whole_tree(self, tmp_path):
+        # Every common output file identical; only verify.json may be added.
+        croot = _make_collateral_root(tmp_path)
+        coll_before = _tree_hashes(croot)
+        _run(tmp_path / 'off', croot, verify=False)
+        _run(tmp_path / 'on', croot, verify=True)
+        off = _tree_hashes(tmp_path / 'off')
+        on = _tree_hashes(tmp_path / 'on')
+        on_base = {k: v for k, v in on.items()
+                   if os.path.basename(k) != 'verify.json'}
+        assert on_base == off
+        assert any(os.path.basename(k) == 'verify.json' for k in on)
+        # the audit layer must not touch any collateral (v1-maintained) file
+        assert _tree_hashes(croot) == coll_before
+
+    def test_sidecar_well_formed_per_job(self, tmp_path):
+        croot = _make_collateral_root(tmp_path)
+        jobs, results, errors = _run(tmp_path / 'out', croot, verify=True)
+        assert not errors
+        for r in results:
+            if not r['success']:
+                continue
+            assert r.get('sidecar')
+            data = json.loads(open(r['sidecar']).read())
+            assert data['schema_version'] == 1
+            assert data['status'] in ('OK', 'ERROR')
+            assert data['arc']['cell'] == 'DFFQ1'
+
+    def test_engine_crash_does_not_abort_batch(self, tmp_path, monkeypatch):
+        def boom(*a, **k):
+            raise RuntimeError('boom')
+        monkeypatch.setattr(vs, 'run_pipeline_src', boom)
+        croot = _make_collateral_root(tmp_path)
+        jobs, results, errors = _run(tmp_path / 'out', croot, verify=True)
+        ok = [r for r in results if r['success']]
+        assert ok                                # decks still written
+        for r in ok:
+            data = json.loads(open(r['sidecar']).read())
+            assert data['status'] == 'ERROR'
+
+    def test_cli_flag_exists(self):
+        import deckgen
+        import sys as _sys
+        argv = _sys.argv
+        _sys.argv = ['deckgen.py', '--verify', '--cell', 'X', '--arc_type',
+                     'hold', '--rel_pin', 'CP', '--rel_dir', 'rise']
+        try:
+            args = deckgen.parse_args()
+            assert args.verify is True
+        finally:
+            _sys.argv = argv
