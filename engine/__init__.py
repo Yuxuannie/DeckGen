@@ -12,4 +12,6 @@ docs/phase2/v2_technique_survey.md.
 """
 from engine.pipeline import run_pipeline
 
+__version__ = "2.0-2b"
+
 __all__ = ["run_pipeline"]
