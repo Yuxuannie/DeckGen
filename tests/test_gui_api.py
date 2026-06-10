@@ -85,3 +85,12 @@ def test_audit_tab_fragment_structure():
         assert hook in html
     assert "engAudit" in v.engine_js()
     (html + v.engine_js()).encode("ascii")
+
+
+def test_engine_topology_via_present_layer():
+    import os
+    import core.engine_present as ep
+    sdfx = os.path.join(os.path.dirname(__file__), "..", "engine",
+                        "fixtures", "SDFX_LPE_PLACEHOLDER.subckt")
+    res = ep.topology_view(sdfx, "SDFX_LPE_PLACEHOLDER", when="notSE_SI")
+    assert res["status"] == "OK" and "svg" in res and res["p1"]["status"] == "PASS"

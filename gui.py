@@ -1598,6 +1598,8 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
             self._serve_validate_html()
         elif self.path.startswith('/api/source/'):
             self._serve_source()
+        elif self.path.startswith('/api/engine/audit_csv'):
+            self._engine_audit_csv()
         else:
             self.send_response(404)
             self.end_headers()
@@ -1791,9 +1793,74 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
             self._send_json(self._handle_validate_html(data)); return
         elif path == '/api/source/register':
             self._send_json(_api_source_register(data.get('path', ''))); return
+        elif path == '/api/engine/topology':
+            self._engine_topology(data)
+        elif path == '/api/engine/audit':
+            self._engine_audit(data)
         else:
             self.send_response(404)
             self.end_headers()
+
+    # ------------------------------------------------------------------
+    # /api/engine/topology  (POST)
+    # ------------------------------------------------------------------
+
+    def _engine_topology(self, body):
+        from core.engine_present import topology_view
+        from core.collateral import CollateralStore
+        from core.resolver import NetlistResolver
+        collateral_root = getattr(DeckgenHandler, 'COLLATERAL_ROOT',
+                                  _DEFAULT_COLLATERAL_ROOT)
+        try:
+            store = CollateralStore(body.get('collateral_root', collateral_root),
+                                    body['node'], body['lib_type'],
+                                    skip_autoscan=True)
+            corner = store.get_corner(body['corner'])
+            npath, _pins = NetlistResolver(corner.get('netlist_dir')).resolve(body['cell'])
+        except Exception as e:
+            self._send_json({'status': 'ERROR', 'error': 'resolve: %s' % e})
+            return
+        self._send_json(topology_view(npath, body['cell'], corner=body.get('corner'),
+                                      when=body.get('when'),
+                                      force_bias=body.get('force_bias')))
+
+    # ------------------------------------------------------------------
+    # /api/engine/audit  (POST)
+    # ------------------------------------------------------------------
+
+    def _engine_audit(self, body):
+        from core.engine_present import audit_arcs
+        collateral_root = getattr(DeckgenHandler, 'COLLATERAL_ROOT',
+                                  _DEFAULT_COLLATERAL_ROOT)
+        try:
+            r = audit_arcs(node=body['node'], lib_type=body['lib_type'],
+                           corner=body['corner'], arc_ids=body.get('arcs', []),
+                           collateral_root=body.get('collateral_root',
+                                                     collateral_root))
+        except Exception as e:
+            r = {'status': 'ERROR', 'error': str(e), 'rows': [], 'summary': {}}
+        self._send_json(r)
+
+    # ------------------------------------------------------------------
+    # /api/engine/audit_csv  (GET)
+    # ------------------------------------------------------------------
+
+    def _engine_audit_csv(self):
+        import urllib.parse
+        from core.engine_present import audit_arcs, audit_csv
+        collateral_root = getattr(DeckgenHandler, 'COLLATERAL_ROOT',
+                                  _DEFAULT_COLLATERAL_ROOT)
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        arcs = [a for a in q.get('arcs', [''])[0].split(',') if a]
+        r = audit_arcs(node=q['node'][0], lib_type=q['lib_type'][0],
+                       corner=q['corner'][0], arc_ids=arcs,
+                       collateral_root=collateral_root)
+        csv_text = audit_csv(r['rows'])
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/csv')
+        self.send_header('Content-Disposition', 'attachment; filename=audit.csv')
+        self.end_headers()
+        self.wfile.write(csv_text.encode('ascii'))
 
     def _read_json(self):
         length = int(self.headers.get('Content-Length', 0))
