@@ -75,3 +75,13 @@ def test_topology_tab_fragment_structure():
     for fn in ("engTopology", "engPanZoom", "engRenderVerdict"):
         assert fn in js
     (html + js).encode("ascii")
+
+
+def test_audit_tab_fragment_structure():
+    import gui_engine_views as v
+    html = v.audit_tab_html()
+    for hook in ('id="eng-audit-summary"', 'id="eng-audit-rows"',
+                 'id="eng-audit-csv"'):
+        assert hook in html
+    assert "engAudit" in v.engine_js()
+    (html + v.engine_js()).encode("ascii")

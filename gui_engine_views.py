@@ -128,4 +128,41 @@ function engTopology(){
       'components: '+d.ccc.components+'\nroles: '+JSON.stringify(d.ccc.roles);
   });
 }
+function engAudit(){
+  var arcs=(S.auditArcs||[]); if(!arcs.length){ arcs=S.queue||[]; }
+  post('/api/engine/audit',{node:S.node,lib_type:S.libtype,corner:S.corner,
+    arcs:arcs}).then(function(d){
+    var tb=document.getElementById('eng-audit-rows'); tb.innerHTML='';
+    (d.rows||[]).forEach(function(r){
+      var bad=(r.P1==='FAIL'||r.P1==='ERROR'||/^MISMATCH/.test(r.bias_match));
+      tb.insertAdjacentHTML('beforeend','<tr'+(bad?' class="eng-row-bad"':'')+'>'+
+        '<td>'+r.cell+'</td><td>'+r.arc+'</td>'+
+        '<td>'+engChip(r.P1)+'</td><td>'+engChip(r.P2)+'</td><td>'+engChip(r.P3)+'</td>'+
+        '<td>'+r.bias_match+'</td><td>'+r.arc_check+'</td><td>'+(r.notes||'')+'</td></tr>');
+    });
+    var s=d.summary||{}, h='';
+    h+='<span class="eng-stat"><span class="n">'+(s.total||0)+'</span><span class="l">arcs</span></span>';
+    h+='<span class="eng-stat"><span class="n">'+(s.arc_check_agree_rate||0)+'%</span><span class="l">arc agree</span></span>';
+    document.getElementById('eng-audit-summary').innerHTML=h;
+  });
+  document.getElementById('eng-audit-csv').onclick=function(){
+    window.location='/api/engine/audit_csv?node='+encodeURIComponent(S.node)+
+      '&lib_type='+encodeURIComponent(S.libtype)+'&corner='+encodeURIComponent(S.corner)+
+      '&arcs='+encodeURIComponent((S.auditArcs||S.queue||[]).join(','));
+  };
+}
+"""
+
+
+def audit_tab_html():
+    return """
+<div id="tab-audit" class="eng-pane" style="display:none">
+  <div class="eng-tab-title">Audit -- v2 re-derives and checks every arc</div>
+  <div id="eng-audit-summary" style="margin-bottom:12px"></div>
+  <button id="eng-audit-csv" class="btn">Download audit.csv</button>
+  <table class="eng-table"><thead><tr>
+    <th>Cell</th><th>Arc</th><th>P1</th><th>P2</th><th>P3</th>
+    <th>bias_match</th><th>arc_check</th><th>notes</th></tr></thead>
+    <tbody id="eng-audit-rows"></tbody></table>
+</div>
 """
