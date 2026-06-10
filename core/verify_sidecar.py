@@ -20,6 +20,7 @@ import traceback
 from datetime import datetime, timezone
 
 from engine.pipeline import run_pipeline_src
+from engine.stages.stage5_verify import MeasContext, p3_property
 
 
 class VerifyInputError(Exception):
@@ -176,3 +177,132 @@ def classify_bias_match(derived, set_pins, masked_pins, golden):
     if noncrit_cmp:
         return 'NON_CRITICAL'
     return 'N/A (no golden biases in deck)'
+
+
+# ---------------------------------------------------------------------------
+# meas context from substituted deck lines (spec section 4.1)
+# ---------------------------------------------------------------------------
+
+_UNIT_NS = {'f': 1e-6, 'p': 1e-3, 'n': 1.0, 'u': 1e3, 'm': 1e6}
+_PARAM_RE = re.compile(r"^\s*\.param\s+(\w+)\s*=\s*'?([^'\n]*?)'?\s*$")
+_STDVS_RE = re.compile(r"^\s*XV\w*\s+(\S+)\s+0\s+(stdvs\w+)\s+(.*)$")
+_TPAR_RE = re.compile(r"\bt(\d\d)\s*=\s*'([^']+)'")
+_NUM_RE = re.compile(r"^[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?([fpnum]?)$")
+
+
+def _resolve_ns(expr, params, depth=0):
+    """Resolve a v1 template time expression to ns. Handles exactly the forms
+    the production templates use: NUM[unit] | NAME | K * NAME | A + B.
+    Returns None when the form is anything else (caller notes UNRESOLVED)."""
+    if depth > 10 or expr is None:
+        return None
+    expr = expr.strip().strip("'")
+    if '+' in expr:
+        total = 0.0
+        for part in expr.split('+'):
+            v = _resolve_ns(part, params, depth + 1)
+            if v is None:
+                return None
+            total += v
+        return total
+    if '*' in expr:
+        left, _, right = expr.partition('*')
+        try:
+            k = float(left.strip())
+        except ValueError:
+            return None
+        v = _resolve_ns(right, params, depth + 1)
+        return None if v is None else k * v
+    m = _NUM_RE.match(expr)
+    if m:
+        unit = m.group(1)
+        return float(expr[:-1] if unit else expr) * _UNIT_NS.get(unit, 1.0)
+    if expr in params:
+        return _resolve_ns(params[expr], params, depth + 1)
+    return None
+
+
+def build_meas_context(deck_lines, arc_info):
+    """Lift MeasContext from v1's substituted deck lines (spec 4.1).
+    Never raises for unexpected template shapes: returns a context with
+    capture_t_ns=None and a note (P3 then reports STUB naming the gap)."""
+    lines = [l if isinstance(l, str) else str(l) for l in deck_lines]
+    rel_pin = arc_info.get('REL_PIN', '')
+    notes = []
+    try:
+        vdd = float(arc_info.get('VDD_VALUE') or 0.0)
+    except ValueError:
+        vdd = 0.0
+        notes.append("UNRESOLVED: VDD_VALUE %r" % arc_info.get('VDD_VALUE'))
+
+    params = {}
+    for l in lines:
+        m = _PARAM_RE.match(l)
+        if m:
+            params[m.group(1)] = m.group(2)
+
+    def _unresolved(reason):
+        notes.append(reason)
+        return MeasContext(rel_edges=[], trig_cross=0, trig_td_ns=0.0,
+                           capture_t_ns=None, capture_dir='', vdd=vdd,
+                           notes=notes)
+
+    # toggling-pin line: edge directions from the stdvs model-name suffix,
+    # edge times from its tNN= params
+    stdvs = None
+    for l in lines:
+        m = _STDVS_RE.match(l)
+        if m and m.group(1) == rel_pin:
+            stdvs = m
+            break
+    if stdvs is None:
+        return _unresolved("UNRESOLVED: no stdvs toggling line for rel_pin "
+                           "%r" % rel_pin)
+    dirs = [t for t in stdvs.group(2).split('_') if t in ('rise', 'fall')]
+    tpars = sorted(_TPAR_RE.findall(stdvs.group(3)))
+    edges = []
+    for (idx, pname), d in zip(tpars, dirs):
+        t = _resolve_ns(pname, params)
+        if t is None:
+            return _unresolved("UNRESOLVED: .param %s = %r" %
+                               (pname, params.get(pname)))
+        edges.append(('t' + idx, t, d))
+    edges.sort(key=lambda e: e[1])
+    if not edges:
+        return _unresolved("UNRESOLVED: stdvs line has no tNN= edge params")
+
+    # primary measurement: first .meas whose trig probes v(rel_pin).
+    # Clause attribution (normative): split at the 'targ' keyword; only a
+    # trig-clause td gates the capture count.
+    trig_cross, trig_td = None, 0.0
+    pat = re.compile(r"trig\s+v\(%s\)" % re.escape(rel_pin), re.IGNORECASE)
+    for l in lines:
+        if not l.lstrip().startswith('.meas') or not pat.search(l):
+            continue
+        trig_part = re.split(r"\btarg\b", l, maxsplit=1)[0]
+        mc = re.search(r"cross\s*=\s*(\d+)", trig_part)
+        if not mc:
+            continue
+        trig_cross = int(mc.group(1))
+        mtd = re.search(r"td\s*=\s*'?([^'\s]+)'?", trig_part)
+        if mtd:
+            td = _resolve_ns(mtd.group(1), params)
+            if td is None:
+                return _unresolved("UNRESOLVED: trig td %r" % mtd.group(1))
+            trig_td = td
+        break
+    if trig_cross is None:
+        return _unresolved("UNRESOLVED: no .meas trig on v(%s) with cross="
+                           % rel_pin)
+
+    after = [e for e in edges if e[1] >= trig_td]
+    if len(after) < trig_cross:
+        notes.append("trig cross=%d after td=%gns: only %d edge(s) in the "
+                     "schedule" % (trig_cross, trig_td, len(after)))
+        return MeasContext(rel_edges=edges, trig_cross=trig_cross,
+                           trig_td_ns=trig_td, capture_t_ns=None,
+                           capture_dir='', vdd=vdd, notes=notes)
+    _, cap_t, cap_d = after[trig_cross - 1]
+    return MeasContext(rel_edges=edges, trig_cross=trig_cross,
+                       trig_td_ns=trig_td, capture_t_ns=cap_t,
+                       capture_dir=cap_d, vdd=vdd, notes=notes)

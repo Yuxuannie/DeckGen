@@ -157,3 +157,61 @@ class TestBiasMatch:
     def test_no_golden(self):
         out = classify_bias_match({'SE': 0}, ['SE'], [], {})
         assert out.startswith('N/A')
+
+
+from core.verify_sidecar import build_meas_context
+
+# Substituted v1 deck shape -- the worked example from the spec
+# (mpw/template__CP__rise__fall__1.sp with max_slew = 1n).
+WORKED_DECK = [
+    ".param max_slew = '1n'\n",
+    ".param search_window = '1n'\n",
+    ".param opt_init = '5 * search_window'\n",
+    ".param constr_pin_offset = opt_init\n",
+    ".param related_pin_t01 = '10 * max_slew'\n",
+    ".param related_pin_t02 = '20 * max_slew'\n",
+    ".param related_pin_t03 = '50 * max_slew'\n",
+    ".param related_pin_t04 = '50 * max_slew + constr_pin_offset'\n",
+    "XVCP CP 0 stdvs_mpw_rise_fall_rise_fall VDD='vdd_value' slew='rel_pin_slew'"
+    " t01='related_pin_t01' t02='related_pin_t02' t03='related_pin_t03'"
+    " t04='related_pin_t04'\n",
+    "* Measurements\n",
+    ".meas cp2q_del1 trig v(CP) val='vdd_value/2' cross=3 targ v(Q)"
+    " val='vdd_value/2' cross=1 td='related_pin_t03'\n",
+    ".tran 1p 50u sweep monte=1\n",
+]
+
+
+class TestBuildMeasContext:
+    def test_worked_example(self):
+        ctx = build_meas_context(WORKED_DECK, _arc_info())
+        assert [(t, d) for _, t, d in ctx.rel_edges] == \
+            [(10.0, 'rise'), (20.0, 'fall'), (50.0, 'rise'), (55.0, 'fall')]
+        assert ctx.trig_cross == 3
+        assert ctx.trig_td_ns == 0.0          # td is in the TARG clause
+        assert ctx.capture_t_ns == 50.0       # 3rd crossing from t=0 = rise@t03
+        assert ctx.capture_dir == 'rise'
+        assert ctx.vdd == 0.45
+
+    def test_td_moved_into_trig_clause_shifts_the_count(self):
+        # Pins the normative convention: only a trig-clause td gates counting.
+        lines = [l.replace(
+            "cross=3 targ v(Q) val='vdd_value/2' cross=1 td='related_pin_t03'",
+            "cross=3 td='related_pin_t03' targ v(Q) val='vdd_value/2' cross=1")
+            for l in WORKED_DECK]
+        ctx = build_meas_context(lines, _arc_info())
+        assert ctx.trig_td_ns == 50.0
+        # only 2 edges at/after 50ns -> no 3rd crossing -> unresolved
+        assert ctx.capture_t_ns is None
+        assert any('cross=3' in n for n in ctx.notes)
+
+    def test_unresolved_param_is_stub_not_crash(self):
+        lines = [l.replace("'50 * max_slew'", "'sin(x)'") for l in WORKED_DECK]
+        ctx = build_meas_context(lines, _arc_info())
+        assert ctx.capture_t_ns is None
+        assert any('UNRESOLVED' in n for n in ctx.notes)
+
+    def test_no_toggling_line_is_unresolved(self):
+        lines = [l for l in WORKED_DECK if not l.startswith('XVCP')]
+        ctx = build_meas_context(lines, _arc_info())
+        assert ctx.capture_t_ns is None
