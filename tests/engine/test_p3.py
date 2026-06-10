@@ -106,3 +106,27 @@ def test_missing_trace_fails_with_sim():
     p3 = p3_property(_ctx(), _init(probes=("x1.nope",)), _arc(), sim)
     assert p3.status is PStatus.FAIL
     assert any("MISSING" in d for d in p3.detail)
+
+
+def test_p2_deck_info_exports_rel_edges():
+    import os
+    from engine.config import ENGINE_DIR
+    from engine.p2_deck import build as build_p2
+    from engine.stages import stage0_parse, stage1_ccc, stage2_sensitize
+    from engine.stages import stage3_initialize
+    with open(os.path.join(ENGINE_DIR, 'fixtures',
+                           'SDFX_LPE_PLACEHOLDER.subckt'), 'r',
+              encoding='ascii') as fh:
+        g = stage0_parse.parse(fh.read(), 'SDFX_LPE_PLACEHOLDER')
+    ccc = stage1_ccc.decompose(g)
+    arc = _arc()
+    arc.cell = 'SDFX_LPE_PLACEHOLDER'
+    sens = stage2_sensitize.derive(g, arc, ccc)
+    init = stage3_initialize.derive(g, ccc, arc, sens)
+    _, info = build_p2(arc, sens, init, init.probes, wave=True)
+    edges = info['rel_edges_ns']
+    assert [d for _, _, d in edges] == ['rise', 'fall', 'rise']
+    assert edges[-1][1] == info['t_cap_edge'] * 1e9
+    # 2 edges before the capture edge -> exactly 1 pre-cycle, matching S3
+    before = [e for e in edges if e[1] < edges[-1][1]]
+    assert len(before) // 2 == init.precycle_count.value

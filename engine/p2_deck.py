@@ -117,5 +117,8 @@ def build(arc: Arc, sens: SensitizationResult, init: InitializationResult,
         lines.append(".option nomod")       # .meas/.mt0 only; no waveform dump
     lines.append(".end")
     info = {"meas_map": meas_map, "t_settle": t_settle * 1e-9,
-            "t_cap_edge": t_cap_edge * 1e-9}
+            "t_cap_edge": t_cap_edge * 1e-9,
+            "rel_edges_ns": [("load_r", t_load_r, "rise"),
+                             ("load_f", t_load_f, "fall"),
+                             ("cap", t_cap_edge, "rise")]}
     return "\n".join(lines) + "\n", (info if wave else meas_map)

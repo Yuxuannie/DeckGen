@@ -128,13 +128,33 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.sim or args.mt0:
         from engine.sim import run_p2
-        from engine.stages.stage5_verify import p2_property
+        from engine.stages.stage5_verify import (MeasContext, p2_property,
+                                                 p3_property)
         p2res = run_p2(result.arc, result.ccc, result.sens, result.init,
                        args.simdir, hspice_cmd=args.hspice,
                        mt0_path=args.mt0, mt0_inv_path=args.mt0_inv)
         result.verdict.p2 = p2_property(p2res)
         result.stage_log[-1] = (f"S5 verify   : P2 {'PASS' if p2res.passed else 'FAIL/n-a'} "
                                 f"({'ran' if p2res.ran else p2res.note})")
+
+        # P3: meas context from the P2 prototype deck's own timeline; check (c)
+        # evaluates the wave run's CSDF when it exists, else P3 stays STUB.
+        from engine import golden_env as G
+        from engine.p2_deck import build as build_p2
+        _, winfo = build_p2(result.arc, result.sens, result.init,
+                            result.init.probes, wave=True)
+        ctx = MeasContext(
+            rel_edges=winfo["rel_edges_ns"], trig_cross=3, trig_td_ns=0.0,
+            capture_t_ns=winfo["t_cap_edge"] * 1e9, capture_dir="rise",
+            vdd=float(G.VDD_VALUE),
+            notes=["context from P2 prototype deck timeline"])
+        sim_data = None
+        tr0 = args.tr0 or os.path.join(args.simdir, "p2_wave.tr0")
+        if os.path.isfile(tr0):
+            from engine.wave import parse_csdf
+            with open(tr0, "r", encoding="ascii", errors="replace") as fh:
+                sim_data = parse_csdf(fh.read())
+        result.verdict.p3 = p3_property(ctx, result.init, result.arc, sim_data)
 
     print(render_status(result))
     print(render(result))
