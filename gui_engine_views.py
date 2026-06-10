@@ -52,3 +52,80 @@ CSS_COMPONENTS = """
 .eng-tab-title{font:600 20px var(--font-ui);color:var(--text);margin:0 0 12px;}
 .eng-progress{height:2px;background:var(--accent);width:0;transition:width .2s;}
 """
+
+
+def topology_tab_html():
+    return """
+<div id="tab-topology" class="eng-pane" style="display:none">
+  <div class="eng-tab-title">Topology -- name-blind transistor analysis</div>
+  <div class="eng-shell">
+    <div class="eng-canvas" id="eng-topo-canvas">
+      <div class="eng-legend">
+        <div><i style="border-color:var(--path-data)"></i>measured data path</div>
+        <div><i style="border-color:var(--path-masked);border-top-style:dashed"></i>masked scan input</div>
+        <div><i style="border-color:var(--path-clock)"></i>clock</div>
+      </div>
+    </div>
+    <div>
+      <div class="eng-card"><h4>P1 -- Sensitization <span id="eng-topo-p1chip"></span></h4>
+        <div class="eng-detail" id="eng-topo-verdict"></div></div>
+      <div class="eng-card"><h4>Stage trace</h4>
+        <div class="eng-detail" id="eng-topo-trace"></div></div>
+      <div class="eng-card"><h4>CCC</h4>
+        <div class="eng-detail" id="eng-topo-ccc"></div></div>
+    </div>
+  </div>
+</div>
+"""
+
+
+def engine_js():
+    return r"""
+function engChip(status){
+  var m={PASS:'chip-pass',FAIL:'chip-fail',STUB:'chip-stub',
+         ERROR:'chip-error',NA:'chip-na'};
+  return '<span class="eng-chip '+(m[status]||'chip-error')+'">'+status+'</span>';
+}
+function engRenderVerdict(p1){
+  document.getElementById('eng-topo-p1chip').innerHTML=engChip(p1.status);
+  document.getElementById('eng-topo-verdict').textContent=p1.detail.join('\n');
+}
+function engPanZoom(canvas){
+  var svg=canvas.querySelector('svg'); if(!svg) return;
+  var vb=svg.viewBox.baseVal, pan=false, sx=0, sy=0;
+  if(!vb || !vb.width){ var bb=svg.getBBox();
+    svg.setAttribute('viewBox','0 0 '+bb.width+' '+bb.height); vb=svg.viewBox.baseVal; }
+  svg.addEventListener('mousedown',function(e){pan=true;sx=e.clientX;sy=e.clientY;
+    svg.style.cursor='grabbing';});
+  window.addEventListener('mouseup',function(){pan=false;svg.style.cursor='grab';});
+  svg.addEventListener('mousemove',function(e){ if(!pan) return;
+    var k=vb.width/svg.clientWidth;
+    vb.x-=(e.clientX-sx)*k; vb.y-=(e.clientY-sy)*k; sx=e.clientX; sy=e.clientY; });
+  svg.addEventListener('wheel',function(e){e.preventDefault();
+    var f=e.deltaY<0?0.9:1.1; vb.x+=vb.width*(1-f)/2; vb.y+=vb.height*(1-f)/2;
+    vb.width*=f; vb.height*=f;},{passive:false});
+  svg.querySelectorAll('.net').forEach(function(n){
+    n.addEventListener('mouseenter',function(){
+      svg.querySelectorAll('.net,.edge').forEach(function(x){x.style.opacity='.35';});
+      n.style.opacity='1';});
+    n.addEventListener('mouseleave',function(){
+      svg.querySelectorAll('.net,.edge').forEach(function(x){x.style.opacity='1';});});
+  });
+}
+function engTopology(){
+  var b={node:S.node,lib_type:S.libtype,cell:S.cell,corner:S.corner};
+  post('/api/engine/topology',b).then(function(d){
+    var c=document.getElementById('eng-topo-canvas');
+    var old=c.querySelector('svg'); if(old) old.remove();
+    if(d.status==='ERROR'){ c.insertAdjacentHTML('afterbegin',
+      '<div class="eng-card chip-error" style="margin:16px">'+
+      (d.error||'engine error')+'</div>'); return; }
+    c.insertAdjacentHTML('afterbegin',d.svg);
+    engPanZoom(c);
+    engRenderVerdict(d.p1);
+    document.getElementById('eng-topo-trace').textContent=(d.stage_log||[]).join('\n');
+    document.getElementById('eng-topo-ccc').textContent=
+      'components: '+d.ccc.components+'\nroles: '+JSON.stringify(d.ccc.roles);
+  });
+}
+"""

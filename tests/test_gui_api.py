@@ -63,3 +63,15 @@ def test_engine_views_css_tokens_present():
     for cls in (".chip-pass", ".chip-fail", ".chip-stub", ".chip-error"):
         assert cls in css
     css.encode("ascii")
+
+
+def test_topology_tab_fragment_structure():
+    import gui_engine_views as v
+    html = v.topology_tab_html()
+    for hook in ('id="eng-topo-canvas"', 'id="eng-topo-verdict"',
+                 'id="eng-topo-trace"', "eng-legend"):
+        assert hook in html
+    js = v.engine_js()
+    for fn in ("engTopology", "engPanZoom", "engRenderVerdict"):
+        assert fn in js
+    (html + js).encode("ascii")
