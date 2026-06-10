@@ -158,6 +158,8 @@ def render_svg(graph, ccc, sens=None, arc=None) -> str:
     S.append(f'<text x="10" y="20" font-size="14">{graph.cell}  '
              f'{arc.label() if arc else ""}  '
              f'{"P1=" + ("PASS" if sens and sens.proven else "") if sens else ""}</text>')
+    _edge_class = {"blue": "edge-clock", "red": "edge-masked", "green": "edge-data",
+                   "gray": "edge-data"}
     # edges first (under boxes)
     for a, b in sorted(edges):
         if a not in pos or b not in pos:
@@ -166,14 +168,15 @@ def render_svg(graph, ccc, sens=None, arc=None) -> str:
         x2, y2 = pos[b][0], pos[b][1] + BH // 2
         c = _edge_color(a, constr, clock_nets, core)
         dash = 'stroke-dasharray="5,3"' if c == "red" else ""
+        ecls = _edge_class[c]
         S.append(f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="{c}" '
-                 f'stroke-width="1.5" {dash} marker-end="url(#a)"/>')
+                 f'stroke-width="1.5" {dash} class="edge {ecls}" marker-end="url(#a)"/>')
     # boxes
     for n, (x, y) in pos.items():
         fill = PALETTE[ccc_idx[n] % len(PALETTE)] if n in ccc_idx else "#ffffff"
         rx = 14 if n in inputs else 3
         S.append(f'<rect x="{x}" y="{y}" width="{BW}" height="{BH}" rx="{rx}" '
-                 f'fill="{fill}" stroke="#333"/>')
+                 f'fill="{fill}" stroke="#333" data-net="{n}" class="net"/>')
         S.append(f'<text x="{x + BW // 2}" y="{y + 18}" text-anchor="middle">{n}</text>')
     S.append('<defs><marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="3" '
              'orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#333"/></marker></defs>')
