@@ -290,3 +290,248 @@ Determinism: ties broken by the existing sorted enumeration order.
 t=0-worst-case vector tracks the measured-edge-worst-case vector (the caveat in
 `findings.md` 2.4 / open_questions Q4). If it does not track, this proposal is
 downgraded to "report the bump per vector" rather than "auto-select worst."
+
+===========================================================================
+
+# COVERAGE EXTENSIBILITY ANALYSIS  (MPW / setup-hold / sync) -- TOP PRIORITY
+
+This section answers the QC lead's first question per arc/cell type: does the
+engine have a PHYSICAL PATH to the type (CAN EXTEND), or does a premise of the
+current abstraction fail (ARCHITECTURAL WALL)? Tags as in findings.md
+(`[CODE]` quoted source, `[STD]` textbook, `[DERIVED]` my derivation,
+`[UNVERIFIED -- no SPICE cross-check]`). No engine change is applied.
+
+Two structural facts from the engine read drive every verdict below `[CODE]`:
+
+- F1. The sequential init stage was BUILT FOR HOLD. `stage3_initialize.py`
+  hard-codes a hold convention: `cap = 1 if arc.constr_dir == "fall" else 0`
+  with reason "HOLD CONVENTION ... the value held just before the constrained
+  edge", and the only fixture arc is `hold_cp_d_placeholder`. The engine already
+  derives master/slave pre-edge state across a capturing edge.
+- F2. The storage labeller is ALREADY MULTI-STAGE. `stage1_ccc.py`:
+  `labels[id(core)] = "slave" if i == 0 else ("master" if i == last else
+  f"stage{last - i}")` -- it ranks N>=2 cross-coupled storage cores by
+  influence-distance to the output and names intermediate stages `stage{k}`.
+
+## Judgment table (the per-type answer to give the QC lead)
+
+| Type | Structural / deterministic part | Other part | VERDICT | One-line physical reason |
+|---|---|---|---|---|
+| **setup/hold** | CAN EXTEND -- approx. already doing it (F1) | pushout/degradation pass-criterion = measurement layer | **CAN EXTEND** | same master/slave-state-across-the-capturing-edge physics stage3 already derives; setup is the mirror of hold |
+| **MPW** | CAN EXTEND -- sensitize pulse path + set pre-pulse internal charge state | min-width SEARCH = simulator + measurement layer | **CAN EXTEND** | MPW deck-gen = sensitization (stage2) + Pillar-3 pre-pulse charge state (stage3) + pulse stimulus; the RC charging that sets the actual minimum is the sim's job (scope guard 8) |
+| **sync cell** | CAN EXTEND -- N storage stages (F2) | metastability (MTBF, tau) = statistical / AIQC layer | **SPLIT: structural CAN EXTEND; metastability is a clean BOUNDARY, not a wall** | the deterministic engine's honest X (Pillar-3 non-convergence) IS the metastable locus; quantifying it is statistical |
+
+Headline for the QC lead: **none of the three is an architectural wall.** Two are
+direct extensions; the third splits cleanly into a structural part the engine
+extends to and a statistical part that was never the deterministic engine's job --
+and the seam between them is exactly the engine's existing X semantics.
+
+-----
+
+## CE-1. setup / hold
+
+**(a) Physical requirement.** `[DERIVED]` A setup/hold golden deck for a flop
+(rel_pin = CP, constr_pin = D) must: (i) sensitize D as the live capture path
+(scan/side inputs masked); (ii) pre-load the master/slave latch to the PRIOR
+value (complement of the value to be captured) so the capture yields an
+observable Q transition; (iii) apply the capturing CP edge with D transitioning
+at a controlled offset relative to that edge. Setup = D must be stable a
+sufficient time BEFORE the edge; hold = stable a sufficient time AFTER. The
+quantity characterized is the minimum offset at which capture is still correct,
+read as the cp2q-delay-degradation (pushout) threshold, not a pure logic flip.
+
+**(b) Current-abstraction gap.** `[CODE]+[DERIVED]`
+- Sensitization (i): `stage2_sensitize` already derives and proves it (P1).
+- Initial state (ii): `stage3_initialize` already derives it -- this is its
+  primary, hold-convention purpose (F1). Master written-node value + cross-coupled
+  complement + slave prior value are all computed.
+- Stimulus offset (iii): the constraint-offset SEARCH (bisection over the D-to-CP
+  separation) is the only piece NOT in the engine -- and it belongs in the
+  measurement layer, which stage4 passes through UNCHANGED ("MEASUREMENT (Liberate,
+  passed through UNCHANGED)" `[CODE]`). The engine emits the deck for ONE timing
+  point; Liberate's block + the search drive the offset.
+- The genuine engine gap is small: stage3 hard-codes the hold convention. Setup
+  needs the convention PARAMETERIZED by arc_type (which side of the edge the
+  D-stability window sits on; the prior-load and sensitization are identical).
+
+**(c) Verdict: CAN EXTEND** (the closest of the three to "already done"). The gap
+is a parameterization of an existing stage plus a measurement-layer search, not a
+new abstraction. No premise fails.
+
+**(d) Physical reason it extends + hypotheses to TEST.** `[DERIVED]`
+Setup and hold are the SAME event -- a value captured at a clock edge -- measured
+from opposite sides of the edge. The initial-state physics (latch must hold the
+prior value so the transition is observable) is identical and already implemented.
+Proposed text diff:
+
+```
+# engine/stages/stage3_initialize.py  -- parameterize the convention
+-    cap = 1 if arc.constr_dir == "fall" else 0       # HOLD CONVENTION (stated)
++    # convention by arc_type: hold = value held BEFORE the edge; setup = value
++    # that must ARRIVE-and-be-stable to capture. Prior-load is identical.
++    cap = _captured_value(arc)   # branches on arc.arc_type in {hold, setup}
+```
+
+Hypotheses to test (NOT assume):
+- H1 `[UNVERIFIED]`: the existing prior-load + sensitization, with the convention
+  parameterized, produces a setup deck whose P2 passes. Needs a setup fixture arc
+  + SPICE.
+- H2 `[UNVERIFIED]`: the pushout/degradation pass-criterion is fully expressible
+  in the passed-through Liberate measurement block (i.e. the engine need not own
+  it). If a setup arc requires the engine to compute the degradation threshold,
+  that is a measurement responsibility, not an abstraction gap -- confirm the
+  boundary holds for setup as it does for hold.
+
+Risk: low-medium. The prior-load is reused; the only behavioral change is the
+convention branch. Setup's "stable before" vs hold's "stable after" must map to
+the correct edge-relative stimulus, which is deck timing, not topology.
+
+-----
+
+## CE-2. min pulse width (MPW)
+
+**(a) Physical requirement.** `[DERIVED]` MPW characterizes the narrowest pulse on
+rel_pin (a clock, set, or reset) for which the receiving internal node still
+transitions PAST THRESHOLD before the pulse ends -- a narrower pulse is
+"swallowed" (the node charges partway, then the pulse reverses and it relaxes
+back). A golden MPW deck must: (i) sensitize the path so the pulse reaches the
+target internal node; (ii) set the target node's PRE-pulse charge state to the
+value the pulse must flip away from; (iii) emit a single pulse of width W (the
+search parameter) and probe the node's transition completion. The minimum W is
+found by the simulator over the search; the engine produces the parameterized
+deck.
+
+**(b) Current-abstraction gap.** `[CODE]+[DERIVED]`
+- Sensitization (i): stage2 -- present.
+- Pre-pulse charge state (ii): for a flop clock-MPW, this is the same prior-load
+  stage3 does (F1). For a node that is FLOATING/dynamic before the pulse, the
+  correct pre-pulse voltage is exactly a Pillar-3 charge-resolve result (P3/P4).
+  So MPW's initial-state requirement sits DIRECTLY on the conduction-graph +
+  Pillar-3 charge framework -- no new abstraction.
+- Pulse stimulus + completion probe (iii): deck emission. A single narrow pulse is
+  a simpler stimulus than the multi-cycle drive-and-settle stage3 already emits;
+  W is a parameter supplied by the measurement/search layer.
+- What is NOT in the engine and SHOULD NOT BE: the RC charging dynamics that
+  decide whether width W is sufficient. Scope guard 8 explicitly forbids
+  reimplementing Elmore / transition time -- that is the simulator's job. The
+  engine sets t=0 charge state; the sim computes whether the node crossed.
+
+**(c) Verdict: CAN EXTEND.** MPW deck-generation decomposes entirely into
+existing pieces (sensitize + Pillar-3 initial charge + pulse emission). No premise
+of the abstraction fails. The boundary to state to the QC lead: the engine
+GENERATES the MPW deck and sets the charge state; the simulator + width search
+find the minimum -- and that division is correct, not a limitation.
+
+**(d) Physical reason it extends + hypotheses to TEST.** `[DERIVED]`
+The hypothesis "MPW is a sensitization + internal-node charge-state problem"
+HOLDS under analysis: pulse-swallowing IS a charge question -- did the node
+accumulate enough charge to cross threshold within W? The engine owns the
+boundary conditions of that question (sensitization + initial charge); the
+trajectory is the sim's. This turns "we have not done MPW yet" into "MPW is a
+direct application of our charge model for the initial state, with the dynamics
+left to SPICE."
+
+Hypotheses to test (NOT assume):
+- H3 `[UNVERIFIED]`: for a clock-MPW on a standard flop, the pre-pulse state is
+  exactly stage3's prior-load (no new charge math needed). Likely true; test on a
+  DFF MPW fixture.
+- H4 `[UNVERIFIED]`: for an MPW whose target is a dynamic/floating node, the
+  Pillar-3 charge resolve gives the correct pre-pulse voltage AND the coupling
+  bump (2.5) during the pulse onset does not invalidate the t=0 setup. This is the
+  case that most stresses Pillar 3; needs a dynamic-node MPW cell + SPICE.
+- H5 (boundary): confirm the engine is NOT expected to PREDICT minimum width
+  analytically. If the QC lead expects an analytic min-W, that is out of scope
+  (it would duplicate the transient solver). The engine's deliverable is the
+  parameterized deck; the search is measurement.
+
+Risk: medium, concentrated in H4 (dynamic-node MPW depends on Pillar 3 being
+right). For flop clock-MPW (H3) the risk is low (reuses prior-load).
+
+-----
+
+## CE-3. sync (multi-stage synchronizer) cell
+
+**(a) Physical requirement.** `[DERIVED]+[STD]` A synchronizer is N>=2 flops in
+series sampling an asynchronous input to suppress metastability propagation. Its
+characterization has TWO distinct parts:
+- Structural/deterministic: the ordinary per-stage arcs (delay through each stage,
+  setup/hold of each flop). Requires identifying and ordering N storage stages and
+  loading them.
+- Metastability/statistical: the mean-time-between-failures, governed by the
+  resolution time constant tau and aperture Tw `[STD]`:
+  `MTBF = exp(t_r / tau) / (T_w * f_clk * f_data)` (Kleeman-Cantoni form). This is
+  a DISTRIBUTION over resolution times when the first flop is driven to its
+  metastable point -- a measure-zero initial condition with exponential settling.
+
+**(b) Current-abstraction gap.** `[CODE]+[DERIVED]`
+- Multi-stage structure: stage1 ALREADY ranks and labels >=2 storage cores and
+  names intermediate stages `stage{k}` (F2). CCC + state-node id therefore already
+  covers the N-stage skeleton; the per-stage arcs reduce to CE-1 (setup/hold) and
+  the existing delay path, applied per stage.
+- Multi-stage drive-and-settle: stage3 currently loads master+slave for one flop;
+  loading N stages in sequence is a parameter extension (more precycles, ordered
+  by the stage{k} labels), not a new abstraction.
+- Metastability: the deterministic switch-level + charge engine resolves every
+  node to definite 0/1 or X. The metastable state is precisely a node held AT
+  threshold whose resolution is statistical/exponential -- which the deterministic
+  engine cannot quantify and SHOULD NOT (it has no probability model). Notably,
+  Pillar-3's non-convergence X (findings D1.3: a threshold-straddling node whose
+  fixpoint oscillates) is exactly the metastable locus. The engine marks WHERE
+  metastability lives; it does not measure HOW LONG it lasts.
+
+**(c) Verdict: SPLIT.** Structural part: **CAN EXTEND** (stage1 already
+multi-stage; per-stage arcs are CE-1 + delay). Metastability part: a clean
+**ARCHITECTURAL BOUNDARY, not a wall** -- it is out of the deterministic engine's
+responsibility by design and belongs to the statistical / AIQC layer. The
+distinction matters for the QC lead: the engine does not FAIL at sync cells; it
+covers their structural characterization and hands the statistical metric across
+a seam that coincides with its own honest X.
+
+**(d) Physical reason + the separation hypothesis to TEST.** `[DERIVED]`
+The two parts separate because they are different mathematical objects: the
+structural arcs are deterministic functions of topology + charge state (engine
+territory); MTBF is an expectation over a continuous resolution-time distribution
+(statistical territory). The engine can even FEED the statistical layer -- Pillar
+3 can parameterize a near-threshold initial node voltage, setting up the
+metastable condition the statistical layer then samples (Monte Carlo / analytic
+tau extraction).
+
+Hypotheses to test (NOT assume):
+- H6 `[UNVERIFIED]`: stage1's multi-stage labelling produces a correct ordered
+  stage list for a real 2- or 3-stage sync cell (the influence-distance ranking
+  does not collapse two stages or mis-order them). Needs a sync-cell netlist.
+- H7 `[UNVERIFIED]`: the structural and metastable parts separate CLEANLY -- i.e.
+  every deterministic sync arc is derivable WITHOUT a metastability model, and the
+  metastability metric needs ONLY a near-threshold initial condition + a
+  statistical layer (no hidden deterministic dependency). If a deterministic arc
+  turns out to require a metastability assumption, the seam is not clean and this
+  verdict tightens.
+- H8 (boundary statement for the QC lead): metastability MTBF/tau is owned by the
+  AIQC statistical layer; the deterministic engine's contribution is (1) the
+  structural per-stage decks and (2) optionally a Pillar-3-parameterized
+  near-threshold initial condition to seed the statistical run. Confirm the AIQC
+  layer accepts that handoff object.
+
+Risk: structural -- low/medium (reuses F2 + CE-1). Metastability -- not an engine
+risk; it is a scope boundary that must be AGREED with the AIQC owner, not built
+here.
+
+-----
+
+## Cross-type summary for the QC conversation
+
+The single most important framing: the engine's abstraction is "sensitize a path
++ resolve internal charge/logic state + emit a parameterized deck; leave dynamics,
+search, and statistics to the simulator and the measurement/statistical layers."
+Measured against that boundary:
+
+- setup/hold and MPW are INSIDE it (deterministic deck-gen) -> CAN EXTEND.
+- sync is INSIDE it structurally and OUTSIDE it for the statistical metric -> CAN
+  EXTEND for the structure, clean handoff for metastability.
+
+No type requires overturning a premise of the abstraction. The one thing to NOT
+claim: that the engine predicts minimum pulse width, setup/hold pushout
+thresholds, or MTBF analytically -- those are the simulator's and the statistical
+layer's outputs. Claiming them would mean reimplementing the transient solver or
+a probability model, which is explicitly out of scope. The defensible claim is
+deck-generation coverage, and that reaches all three.
