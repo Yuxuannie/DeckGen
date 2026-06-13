@@ -22,10 +22,31 @@ from __future__ import annotations
 import re
 from typing import Dict, List
 
-from engine.types import Device, DeviceGraph
+from engine.types import Cap, Device, DeviceGraph
 
 RAILS = {"VDD", "VSS", "VPP", "VBB", "0"}   # "0" = SPICE global ground
 _TERM_SUFFIX = re.compile(r"#.*$")
+
+# SPICE engineering suffixes for capacitor values (Layer B). "meg" before "m"/"g".
+_SI_SUFFIX = {"meg": 1e6, "f": 1e-15, "p": 1e-12, "n": 1e-9, "u": 1e-6,
+              "m": 1e-3, "k": 1e3, "g": 1e9, "t": 1e12}
+
+
+def _cap_value(tok: str):
+    """Parse a capacitor value token tolerantly; None if unparseable (recorded,
+    never silently dropped). Handles plain floats, `C=...`, and SPICE suffixes."""
+    t = tok.split("=")[-1].strip().lower()
+    try:
+        return float(t)
+    except ValueError:
+        pass
+    for suf in ("meg", "f", "p", "n", "u", "m", "k", "g", "t"):
+        if t.endswith(suf):
+            try:
+                return float(t[:-len(suf)]) * _SI_SUFFIX[suf]
+            except ValueError:
+                return None
+    return None
 
 
 class _UF:
@@ -115,6 +136,8 @@ def _split_device(toks: List[str]):
 def parse(source: str, cell: str) -> DeviceGraph:
     ports: List[str] = []
     raw_devices: List[tuple] = []          # (name, kind, model, [d,g,s,b])
+    raw_caps: List[tuple] = []             # Layer B: (rawnode_a, rawnode_b, farads, line)
+    cap_skips: List[str] = []              # unparseable C lines (recorded, never dropped silently)
     device_names: set = set()
     uf = _UF()
 
@@ -146,7 +169,18 @@ def parse(source: str, cell: str) -> DeviceGraph:
         elif head == "R":
             # R<name> n1 n2 value [$active]   -> short it (intra-net interconnect)
             uf.union(toks[1], toks[2])
-        # C / anything else: ignored for connectivity
+        elif head == "C":
+            # C<name> n1 n2 value   -> Layer B: retain (mapped to logical nets
+            # AFTER clustering below). Layer A connectivity is untouched.
+            if len(toks) < 4:
+                cap_skips.append(f"C-skip: too few tokens -- {line}")
+                continue
+            val = _cap_value(toks[3])
+            if val is None:
+                cap_skips.append(f"C-skip: unparseable value -- {line}")
+                continue
+            raw_caps.append((toks[1], toks[2], val, line))
+        # anything else: ignored for connectivity
 
     # --- name each cluster (logical net) ---
     groups: Dict[str, List[str]] = {}
@@ -185,12 +219,25 @@ def parse(source: str, cell: str) -> DeviceGraph:
         devices.append(Device(name=name, kind=kind, model=model,
                               terminals={"d": d, "g": g, "s": s, "b": b}))
 
+    # --- Layer B: map retained caps onto logical nets (connectivity untouched) ---
+    caps: List[Cap] = [
+        Cap(a=node_to_net.get(a, a), b=node_to_net.get(b, b), farads=val, raw=line)
+        for a, b, val, line in raw_caps
+    ]
+    grounded = sum(1 for c in caps if c.a in RAILS or c.b in RAILS)
+    intra = sum(1 for c in caps if c.a == c.b)
+    coupling = len(caps) - grounded - intra
+
     nets = sorted(set(node_to_net.values()))
     n_r = sum(1 for ln in source.splitlines() if ln.strip()[:1] in ("R", "r"))
     checks.insert(0, f"R-merge: {len(uf.parent)} raw nodes -> {len(nets)} logical "
                      f"nets via {n_r} resistors; {len(devices)} transistors")
+    checks.append(f"Layer B: {len(caps)} parasitic C retained "
+                  f"({grounded} grounded, {coupling} coupling, {intra} intra-net); "
+                  f"{len(cap_skips)} unparseable")
+    checks.extend(cap_skips)
 
     return DeviceGraph(
         cell=cell, ports=ports, devices=devices, nets=nets,
-        node_to_net=node_to_net, checks=checks, source=source,
+        node_to_net=node_to_net, caps=caps, checks=checks, source=source,
     )

@@ -47,12 +47,25 @@ class Device:
 
 
 @dataclass
+class Cap:
+    """A retained parasitic capacitor (Layer B, spec SS2.2/SS4). Endpoints are
+    LOGICAL nets (post R-merge, via node_to_net) or a rail. A rail endpoint
+    ("VSS"/"VBB"/"0" etc.) marks a grounded cap; two signal nets mark a coupling
+    cap. The raw line is kept for provenance."""
+    a: str
+    b: str
+    farads: float
+    raw: str
+
+
+@dataclass
 class DeviceGraph:
     cell: str
     ports: List[str]
     devices: List[Device]
     nets: List[str]               # logical net names (after R-merge)
     node_to_net: Dict[str, str] = field(default_factory=dict)  # raw extracted node -> logical net
+    caps: List[Cap] = field(default_factory=list)     # Layer B: retained parasitic C (spec SS2.2)
     checks: List[str] = field(default_factory=list)   # Stage-0 self-check derivations
     source: str = ""              # raw netlist text (provenance only)
 
