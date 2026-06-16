@@ -46,9 +46,86 @@ def _rect(x, y, w, h, fill="none", stroke="none", rx=0, sw=1, dash=""):
 
 def _line(x1, y1, x2, y2, color=INK, sw=2, dash="", marker=True):
     d = f" stroke-dasharray='{dash}'" if dash else ""
-    m = " marker-end='url(#arrow)'" if marker else ""
-    return (f"<line x1='{x1}' y1='{y1}' x2='{x2}' y2='{y2}' stroke='{color}' "
-            f"stroke-width='{sw}'{d}{m}/>")
+    out = (f"<line x1='{x1}' y1='{y1}' x2='{x2}' y2='{y2}' stroke='{color}' "
+           f"stroke-width='{sw}'{d}/>")
+    if marker:                       # explicit arrowhead (raster-safe; no marker-end)
+        dx, dy = x2 - x1, y2 - y1
+        L = (dx * dx + dy * dy) ** 0.5 or 1.0
+        ux, uy = dx / L, dy / L
+        px, py = -uy, ux
+        bx, by = x2 - ux * 10, y2 - uy * 10
+        out += (f"<polygon points='{x2:.1f},{y2:.1f} {bx+px*5:.1f},{by+py*5:.1f} "
+                f"{bx-px*5:.1f},{by-py*5:.1f}' fill='{color}'/>")
+    return out
+
+
+def _edge(x1, y1, x2, y2, color=INK, r=17, sw=2):
+    """Directed edge between two node centers, trimmed by node radius r."""
+    dx, dy = x2 - x1, y2 - y1
+    L = (dx * dx + dy * dy) ** 0.5 or 1.0
+    ux, uy = dx / L, dy / L
+    return _line(x1 + ux * r, y1 + uy * r, x2 - ux * r, y2 - uy * r, color, sw)
+
+
+def _arc(x1, y1, x2, y2, color, bend, sw=2):
+    """Curved directed edge (quadratic) with an explicit arrowhead."""
+    mx, my = (x1 + x2) / 2, (y1 + y2) / 2 + bend
+    dx, dy = x2 - mx, y2 - my
+    L = (dx * dx + dy * dy) ** 0.5 or 1.0
+    ux, uy = dx / L, dy / L
+    px, py = -uy, ux
+    bx, by = x2 - ux * 10, y2 - uy * 10
+    return (f"<path d='M{x1},{y1} Q{mx},{my} {x2},{y2}' fill='none' stroke='{color}' "
+            f"stroke-width='{sw}'/>"
+            f"<polygon points='{x2:.1f},{y2:.1f} {bx+px*5:.1f},{by+py*5:.1f} "
+            f"{bx-px*5:.1f},{by-py*5:.1f}' fill='{color}'/>")
+
+
+def _node(x, y, name, color=INK, r=17):
+    return (f"<circle cx='{x}' cy='{y}' r='{r}' fill='white' stroke='{color}' "
+            f"stroke-width='2'/>"
+            + _t(x, y + 5, name, 13, anchor="middle", weight="bold", fill=color))
+
+
+def _inv(x, y, color=INK, left=False):
+    """Inverter triangle + bubble; apex right by default, left if left=True."""
+    if left:
+        tri = (f"<polygon points='{x},{y-14} {x},{y+14} {x-28},{y}' fill='white' "
+               f"stroke='{color}' stroke-width='2'/>")
+        bub = (f"<circle cx='{x-33}' cy='{y}' r='5' fill='white' stroke='{color}' "
+               f"stroke-width='2'/>")
+    else:
+        tri = (f"<polygon points='{x},{y-14} {x},{y+14} {x+28},{y}' fill='white' "
+               f"stroke='{color}' stroke-width='2'/>")
+        bub = (f"<circle cx='{x+33}' cy='{y}' r='5' fill='white' stroke='{color}' "
+               f"stroke-width='2'/>")
+    return tri + bub
+
+
+def _passg(x, y, gate, color=INK):
+    """Pass-transistor box with its gate label."""
+    return (_rect(x, y - 15, 52, 30, "white", color, rx=4, sw=2)
+            + _t(x + 26, y + 4, "pass", 10.5, anchor="middle")
+            + _t(x + 26, y - 21, "g=" + gate, 11, anchor="middle", fill=color))
+
+
+def _table(x, y, headers, rows, colw, rowh=24):
+    """Simple grid; returns (svg, bottom_y)."""
+    out = []
+    tw = sum(colw)
+    out.append(_rect(x, y, tw, rowh, "#eef2ff", PANEL_BD))
+    cx = x
+    for h, w in zip(headers, colw):
+        out.append(_t(cx + w / 2, y + 16, h, 11.5, anchor="middle", weight="bold"))
+        cx += w
+    for ri, row in enumerate(rows):
+        ry = y + rowh + ri * rowh
+        out.append(_rect(x, ry, tw, rowh, "white", PANEL_BD))
+        cx = x
+        for v, w in zip(row, colw):
+            out.append(_t(cx + w / 2, ry + 16, v, 11.5, anchor="middle"))
+            cx += w
+    return "".join(out), y + rowh + len(rows) * rowh
 
 
 def _step(x, y, n, lines, color=INK):
@@ -335,10 +412,179 @@ def fig_s2():
     return "".join(s)
 
 
+# ---------------------------------------------------------------------------
+# S1 PROCESS -- how CCC + SCC actually find a storage node (worked micro-example)
+# ---------------------------------------------------------------------------
+def fig_s1_process():
+    W, H = 1500, 600
+    s = [_header(W, H)]
+    s.append(_t(40, 44, "Stage 1 -- HOW storage is found: channel graph (CCC) + "
+                "feedback loops (SCC)", 23, weight="bold"))
+    s.append(_t(40, 70, "worked on one latch core; the identical procedure runs "
+                "cell-wide and returns all 8 storage loops", 14, fill=MUTE))
+
+    # ---- panel 1: transistor-level latch core ----
+    s.append(_rect(40, 92, 540, 420, PANEL, PANEL_BD, rx=12))
+    s.append(_t(60, 120, "1) the latch core (transistor level)", 15, weight="bold"))
+    # pass-gate loads node A from Din under clock CK
+    s.append(_node(120, 215, "Din"))
+    s.append(_line(137, 215, 178, 215, INK, 2, marker=False))
+    s.append(_passg(178, 215, "CK"))
+    s.append(_line(230, 215, 283, 215, INK, 2, marker=False))
+    # cross-coupled inverter pair: A --INV1--> B (top),  B --INV2--> A (bottom)
+    s.append(_node(300, 215, "A", DATA))
+    s.append(_node(470, 215, "B", DATA))
+    s.append(_line(317, 215, 332, 215, INK, 2, marker=False))
+    s.append(_inv(332, 215))
+    s.append(_line(370, 215, 453, 215, INK, 2, marker=False))
+    s.append(_line(470, 232, 470, 330, INK, 2, marker=False))      # B down
+    s.append(_inv(458, 330, left=True))
+    s.append(_line(458, 330, 470, 330, INK, 2, marker=False))      # B into INV2
+    s.append(_line(420, 330, 300, 330, INK, 2, marker=False))      # INV2 out left
+    s.append(_line(300, 330, 300, 232, INK, 2, marker=False))      # up to A
+    s.append(_t(300, 372, "bit a", 11, anchor="middle", fill=MUTE))
+    s.append(_t(470, 372, "bit b", 11, anchor="middle", fill=MUTE))
+    s.append(_t(60, 432, "two inverters back-to-back = a feedback loop;", 12.5))
+    s.append(_t(60, 450, "the pass-gate loads it under clock CK", 12.5))
+    s.append(_t(60, 480, "channel graph (source-drain) partitions nets -> 39 CCCs;",
+                12, fill=MUTE))
+    s.append(_t(60, 497, "rails and primary inputs are boundaries", 12, fill=MUTE))
+
+    # ---- panel 2: influence digraph + the cycle ----
+    s.append(_rect(600, 92, 440, 420, "#f1f5f9", PANEL_BD, rx=12))
+    s.append(_t(620, 120, "2) influence digraph", 15, weight="bold"))
+    s.append(_t(620, 142, "one edge per transistor:  gate -> drain,  source -> drain",
+                12.5, fill=MUTE))
+    dn = (690, 215)
+    ck = (690, 360)
+    A = (860, 290)
+    B = (985, 290)
+    s.append(_edge(dn[0], dn[1], A[0], A[1], INK))
+    s.append(_edge(ck[0], ck[1], A[0], A[1], INK))
+    # the red feedback cycle A <-> B
+    s.append(_arc(877, 283, 968, 283, CLR, -34))     # A -> B (above)
+    s.append(_arc(968, 297, 877, 297, CLR, 34))      # B -> A (below)
+    s.append(_node(dn[0], dn[1], "Din", MUTE))
+    s.append(_node(ck[0], ck[1], "CK", MUTE))
+    s.append(_node(A[0], A[1], "A", DATA))
+    s.append(_node(B[0], B[1], "B", DATA))
+    s.append(_t(620, 415, "red cycle:  A -> B -> A", 13, weight="bold", fill=CLR))
+    s.append(_t(620, 435, "(cross-coupled feedback = a bistable)", 12, fill=MUTE))
+    s.append(_t(620, 470, "an inverter's input net (a gate) drives its", 12, fill=MUTE))
+    s.append(_t(620, 487, "output net (a drain) -> the two arrows close a loop",
+                12, fill=MUTE))
+
+    # ---- panel 3: SCC + gate filter -> storage ----
+    s.append(_rect(1060, 92, 400, 420, DATA_BG, DATA, rx=12))
+    s.append(_t(1080, 120, "3) Tarjan SCC + gate filter", 15, weight="bold", fill=DATA))
+    bullets = [
+        "strongly-connected component found:",
+        "   {A, B},  size 2",
+        "keep only loops with >= 2 nets that are",
+        "   themselves transistor GATES",
+        "A gates INV1, B gates INV2  -> both kept",
+        "series-stack drain-only nodes -> dropped",
+    ]
+    for i, b in enumerate(bullets):
+        s.append(_t(1080, 152 + i * 26, b, 12.5))
+    s.append(_rect(1080, 322, 360, 96, "white", DATA, rx=8))
+    s.append(_t(1100, 352, "=> a BISTABLE storage latch", 15, weight="bold", fill=PASS))
+    s.append(_t(1100, 378, "identified from STRUCTURE alone,", 12.5))
+    s.append(_t(1100, 397, "real nets here: mq_a / mq_b", 12.5, fill=MUTE))
+    s.append(_t(1080, 470, "(roles master/slave then come from", 12, fill=MUTE))
+    s.append(_t(1080, 487, "influence-distance to the output Q)", 12, fill=MUTE))
+
+    # bottom strip
+    s.append(_rect(40, 528, 1420, 50, GREEN_BG, GREEN_BD, rx=10))
+    s.append(_t(58, 558, "Run over the whole cell:", 13.5, weight="bold", fill="#065f46"))
+    s.append(_t(245, 558, "8 such feedback loops found = the 8 latches; ranked by "
+               "distance to Q they form the master..slave chain (next figure).", 13))
+    s.append("</svg>")
+    return "".join(s)
+
+
+# ---------------------------------------------------------------------------
+# S2 PROCESS -- the Boolean-difference derivation, step by step
+# ---------------------------------------------------------------------------
+def fig_s2_booldiff():
+    W, H = 1360, 620
+    s = [_header(W, H)]
+    s.append(_t(40, 44, "Stage 2 -- HOW the bias is derived: switch-level Boolean "
+                "difference", 23, weight="bold"))
+    s.append(_t(40, 70, "evaluate the captured node M through the transistors as inputs "
+                "toggle -- stdlib, no SAT solver", 14, fill=MUTE))
+
+    # ---- panel L: the switch-level data path (feedback cut) ----
+    s.append(_rect(40, 92, 470, 496, PANEL, PANEL_BD, rx=12))
+    s.append(_t(60, 120, "the data path (latch feedback CUT)", 15, weight="bold"))
+    s.append(_node(105, 210, "D"))
+    s.append(_node(105, 360, "SI"))
+    s.append(_passg(190, 210, "SEB"))
+    s.append(_passg(190, 360, "SE"))
+    s.append(_line(122, 210, 190, 210, INK, 2, marker=False))
+    s.append(_line(122, 360, 190, 360, INK, 2, marker=False))
+    s.append(_line(242, 210, 330, 268, INK, 2, marker=False))   # mux to M
+    s.append(_line(242, 360, 330, 292, INK, 2, marker=False))
+    s.append(_node(350, 280, "M", DATA, 20))
+    s.append(_t(350, 318, "captured (master) node", 11, anchor="middle", fill=MUTE))
+    # latch with a cut
+    s.append(_line(370, 280, 410, 280, INK, 2, marker=False))
+    s.append(_inv(410, 280))
+    s.append(_line(448, 280, 448, 230, INK, 2, dash="4,3", marker=False))
+    s.append(_line(448, 230, 350, 230, CLR, 2, dash="4,3", marker=False))
+    s.append(_line(350, 230, 350, 260, CLR, 2, dash="4,3", marker=False))
+    s.append(_t(360, 222, "feedback CUT", 11, fill=CLR))
+    s.append(_t(60, 372, "SE selects D vs SI;  CP gates transparency;", 12.5))
+    s.append(_t(60, 390, "the storage feedback is cut so M is a clean", 12.5))
+    s.append(_t(60, 408, "function of the inputs -- then we evaluate it.", 12.5))
+    s.append(_t(60, 446, "Boolean difference d(M)/d(x) = does toggling", 12, fill=MUTE))
+    s.append(_t(60, 463, "input x change the evaluated node M?", 12, fill=MUTE))
+
+    # ---- panel R: the derivation (three evaluated tests) ----
+    s.append(_rect(540, 92, 780, 496, "#f1f5f9", PANEL_BD, rx=12))
+    s.append(_t(560, 120, "the derivation = evaluate M as inputs toggle", 15,
+                weight="bold"))
+
+    s.append(_t(560, 152, "(1) does M follow D?   [CP transparent, SE=0]", 13,
+                weight="bold"))
+    t1, y1 = _table(560, 162, ["D", "M"], [["0", "0"], ["1", "1"]], [70, 70])
+    s.append(t1)
+    s.append(_t(710, 186, "M follows D  =>  ", 13))
+    s.append(_t(835, 186, "D CONTROLS capture", 13, weight="bold", fill=DATA))
+
+    s.append(_t(560, y1 + 26, "(2) toggle side pin SI -- does M change?", 13,
+                weight="bold"))
+    t2, y2 = _table(560, y1 + 36, ["D", "SI", "M"],
+                    [["0", "0", "0"], ["0", "1", "0"], ["1", "0", "1"],
+                     ["1", "1", "1"]], [60, 60, 60])
+    s.append(t2)
+    s.append(_t(750, y1 + 70, "M independent of SI  =>", 13))
+    s.append(_t(750, y1 + 90, "SI MASKED  (hold 1, non-critical)", 13, weight="bold",
+                fill=CLK))
+
+    s.append(_t(560, y2 + 26, "(3) toggle side pin SE -- does M change?", 13,
+                weight="bold"))
+    t3, y3 = _table(560, y2 + 36, ["SE", "M"], [["0", "M = D"], ["1", "M = SI"]],
+                    [70, 110])
+    s.append(t3)
+    s.append(_t(760, y2 + 62, "M changes  =>", 13))
+    s.append(_t(760, y2 + 82, "SE REQUIRED;  SE=0 selects D", 13, weight="bold",
+                fill=DATA))
+
+    s.append(_t(560, y3 + 28, "(4) clear:  CD=1 forces M cleared  =>  CD REQUIRED = 0",
+                13, weight="bold"))
+    s.append(_rect(560, y3 + 40, 740, 40, "white", PASS, rx=8))
+    s.append(_t(576, y3 + 65, "=> biases {CD=0, SE=0, SI=1}", 15, weight="bold"))
+    s.append(_t(900, y3 + 65, "P1 PASS", 15, weight="bold", fill=PASS))
+    s.append("</svg>")
+    return "".join(s)
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
-    for name, fn in (("s0_rmerge.svg", fig_s0), ("s1_storage.svg", fig_s1),
-                     ("s2_sensitize.svg", fig_s2)):
+    for name, fn in (("s0_rmerge.svg", fig_s0),
+                     ("s1_process.svg", fig_s1_process), ("s1_storage.svg", fig_s1),
+                     ("s2_booldiff.svg", fig_s2_booldiff), ("s2_sensitize.svg", fig_s2)):
         path = os.path.join(OUT, name)
         with open(path, "w", encoding="ascii") as fh:
             fh.write(fn())

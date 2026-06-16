@@ -5,3 +5,7 @@ collateral/*/*/Netlist/
 __pycache__/
 *.py[cod]
 *.pyo
+
+# engine_walkthrough generated artifacts (regenerate via build_pptx.py)
+docs/engine_walkthrough/_png/
+docs/engine_walkthrough/engine_walkthrough.pptx
