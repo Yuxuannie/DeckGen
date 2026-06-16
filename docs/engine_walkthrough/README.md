@@ -17,6 +17,31 @@ The numbers in these pages are the engine's ACTUAL output on that cell.
 The `*_process` figures show HOW the algorithm computes each result on a worked
 micro-example; the companions show the result / interpretation.
 
+## Pitch slides (after S2): charge resolve + LPE roadmap
+
+Three purple-themed 16:9 slides for the SCLD/MingJing pitch, generated from the
+real engine (`engine/charge.py`) -- no hand-entered numbers:
+
+| Slide | Figure | Built by |
+|-------|--------|----------|
+| Charge resolve -- the method | `figs/pitch_a1_charge_method.svg` | `pitch_slides.py` |
+| Charge resolve -- engine output (canonical cases) | `figs/pitch_a2_charge_cases.svg` | `engine/charge_svg.py` (cards) driven by `resolve_checked` |
+| From the LPE netlist: capabilities -> applications -> ask | `figs/pitch_b_lpe_roadmap.svg` | `pitch_slides.py` |
+
+```bash
+python3 docs/engine_walkthrough/pitch_slides.py   # refresh the 3 pitch SVGs
+python3 docs/engine_walkthrough/build_pptx.py     # also writes pitch.pptx (3 slides)
+```
+
+`engine/charge_svg.py:render_svg(result, Cg, Cc, entry_V, fixed_V, title)` draws
+one charge-resolve case in `engine/draw.py` house style; every voltage is read
+from a `ChargeResolve`, so `tests/engine/test_charge_svg.py` can assert the figure
+equals `resolve_checked(...).voltages`. Slide B's status tags (BUILT/NEXT/
+ROADMAP/HYPOTHESIS/DIRECTION) match the repo: charge resolve is BUILT; the
+aggressor/victim impact layer is NEXT; the cell-from-LPE fingerprint is ROADMAP
+(today's is template-level); worst-case init / AIQC / reverse-eng are
+forward-looking.
+
 ## Build the slides
 
 Figures are SVG. Regenerate them, then assemble the editable PowerPoint deck:

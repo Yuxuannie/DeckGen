@@ -141,5 +141,30 @@ def main():
     print("wrote", OUT, "(%d slides)" % len(prs.slides._sldIdLst))
 
 
+# pitch slides are already full 16:9 (title + content baked into the SVG), so
+# they go full-bleed -- no separate pptx title box.
+PITCH = ["pitch_a1_charge_method.svg", "pitch_a2_charge_cases.svg",
+         "pitch_b_lpe_roadmap.svg"]
+PITCH_OUT = os.path.join(HERE, "pitch.pptx")
+
+
+def build_pitch():
+    prs = Presentation()
+    prs.slide_width = Inches(13.333)
+    prs.slide_height = Inches(7.5)
+    blank = prs.slide_layouts[6]
+    for fig in PITCH:
+        slide = prs.slides.add_slide(blank)
+        png = raster(fig, dpi=200)
+        iw, ih = Image.open(png).size
+        w, h = _fit(iw, ih, prs.slide_width, prs.slide_height)
+        left = (prs.slide_width - w) // 2
+        top = (prs.slide_height - h) // 2
+        slide.shapes.add_picture(png, left, top, width=w, height=h)
+    prs.save(PITCH_OUT)
+    print("wrote", PITCH_OUT, "(%d slides)" % len(prs.slides._sldIdLst))
+
+
 if __name__ == "__main__":
     main()
+    build_pitch()

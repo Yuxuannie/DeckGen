@@ -9,3 +9,4 @@ __pycache__/
 # engine_walkthrough generated artifacts (regenerate via build_pptx.py)
 docs/engine_walkthrough/_png/
 docs/engine_walkthrough/engine_walkthrough.pptx
+docs/engine_walkthrough/pitch.pptx
