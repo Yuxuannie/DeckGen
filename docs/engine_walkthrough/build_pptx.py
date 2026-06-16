@@ -144,7 +144,7 @@ def main():
 # pitch slides are already full 16:9 (title + content baked into the SVG), so
 # they go full-bleed -- no separate pptx title box.
 PITCH = ["pitch_a1_charge_circuits.svg", "pitch_a2_charge_method.svg",
-         "pitch_b_lpe_roadmap.svg"]
+         "pitch_b1_lpe_capabilities.svg", "pitch_b2_app_roadmap.svg"]
 PITCH_OUT = os.path.join(HERE, "pitch.pptx")
 
 

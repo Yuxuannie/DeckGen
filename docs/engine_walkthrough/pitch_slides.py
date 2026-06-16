@@ -184,74 +184,94 @@ def slide_a2():
 
 
 # ---------------------------------------------------------------------------
-# Slide B -- from the LPE netlist: capabilities -> applications -> ask
+# Slide B1 -- what the engine can do FROM THE LPE NETLIST (capabilities)
+# Slide B2 -- applications these outputs grow into (roadmap) + the ask
 # ---------------------------------------------------------------------------
-def _item(x, y, w, title, pill_label, pill_color, body, cite):
-    s = [_rect(x, y, w, 92, PANEL, RULE, rx=10),
-         _t(x + 16, y + 28, title, 15, INK, weight="bold"),
-         _pill(x + w - 120, y + 14, pill_label, pill_color),
-         _t(x + 16, y + 52, body, 12.5, BODY)]
+def _cap(x, y, w, title, pill_label, pill_color, body, cite, h=96):
+    s = [_rect(x, y, w, h, PANEL, RULE, rx=10),
+         _rect(x, y, 5, h, pill_color),                         # status accent rail
+         _t(x + 20, y + 30, title, 16, INK, weight="bold"),
+         _pill(x + w - 130, y + 15, pill_label, pill_color, 116),
+         _t(x + 20, y + 56, body, 13, BODY)]
     if cite:
-        s.append(_t(x + 16, y + 76, cite, 11.5, MUTE, mono=True))
-    return "".join(s), 92
+        s.append(_t(x + 20, y + 80, cite, 11.5, MUTE, mono=True))
+    return "".join(s), h
 
 
-def slide_b():
-    s = _head("From the LPE netlist: capabilities -> applications -> ask",
-              "honest status -- BUILT today / NEXT / forward-looking; every BUILT "
-              "claim is true in the repo")
-    colw = 700
-    lx, rx = 56, 56 + colw + 24
-    s.append(_t(lx, 134, "What the engine can do from the LPE netlist", 17, BLUE,
-                weight="bold"))
-    s.append(_t(rx, 134, "Applications these outputs grow into", 17, BLUE,
-                weight="bold"))
-    left = [
+def slide_b1():
+    s = _head("What the engine can do FROM the LPE netlist",
+              "structural + charge capabilities -- honest status: BUILT today / "
+              "NEXT; every BUILT claim is true in the repo")
+    s.append(_rect(56, 120, W - 112, 30, HEAD, BLUE, rx=8))
+    s.append(_t(72, 140, "all of these read only the extracted LPE netlist -- no "
+               "PDK, no cell documentation, no node naming", 13, INK, weight="bold"))
+    items = [
+        ("Structure from LPE", "BUILT", GREEN,
+         "logical schematic (R-merge), CCC, the storage latches, and P1 "
+         "sensitization -- all name-blind (S0-S2)",
+         "engine/stages/  +  rename-invariance gate"),
         ("Charge resolve", "BUILT", GREEN,
-         "floating internal-node voltage by charge conservation (Cg/Cc), "
-         "invariant-checked", "engine/charge.py"),
+         "floating internal-node voltage by charge conservation (Cg/Cc), checked "
+         "by 3 SPICE-free invariants",
+         "engine/charge.py (Pillar 3)  +  tests"),
         ("Coupling in the resolve", "BUILT", GREEN,
-         "a held aggressor's coupling already enters the resolve (the divider "
-         "case)", "engine/charge.py : resolve()"),
+         "a held aggressor's coupling already enters the resolve -- the divider "
+         "case, no separate layer needed", "engine/charge.py : resolve()"),
         ("Aggressor / victim impact", "NEXT", BLUE,
-         "the coupling data (Cc) is in hand; a dedicated impact-analysis layer is "
-         "the next step", "(layer not built)"),
+         "the coupling data (Cc) is already in hand; a dedicated impact-analysis "
+         "layer is the next step (not built)", "(layer not built)"),
         ("Cell fingerprint from LPE", "ROADMAP", AMBER,
          "today's fingerprint is TEMPLATE-level (22 fingerprints -> 5 families / "
-         "63 templates); cell-level LPE fingerprint is ahead",
+         "63 templates); a cell-level LPE fingerprint is ahead",
          "docs/foundation/D_template_calibration.md"),
     ]
-    right = [
-        ("Worst-case initialization", "HYPOTHESIS", AMBER,
-         "the resolved internal voltage is what a correct worst-case init must "
-         "reflect (S3 sync init is still a {None} placeholder)", "forward-looking"),
-        ("AIQC feature", "DIRECTION", AMBER,
-         "topology + charge as features for topology-aware sampling, upgrading "
-         "MLQC", "forward-looking"),
-        ("Reverse-engineering", "DIRECTION", AMBER,
-         "CCC + charge recover cell behaviour from LPE structure, "
-         "naming-independent", "forward-looking"),
-    ]
-    y = 152
-    for it in left:
-        g, h = _item(lx, y, colw, *it)
+    y = 168
+    for it in items:
+        g, h = _cap(56, y, W - 112, *it)
         s.append(g)
-        y += h + 16
-    y = 152
-    for it in right:
-        g, h = _item(rx, y, colw, *it)
-        s.append(g)
-        y += h + 16
+        y += h + 14
+    _cite(s, "Built today: structure S0-S2, engine/charge.py (Pillar 3), "
+             "P1/P2/P3 --verify sidecar (core/verify_sidecar.py).")
+    s.append("</svg>")
+    return "".join(s)
 
-    ay = 636
-    s.append(_rect(56, ay, W - 112, 96, HEAD, BLUE, rx=12))
-    s.append(_t(76, ay + 32, "The engine has the capability base. Which application "
+
+def slide_b2():
+    s = _head("Applications these outputs grow into -- the roadmap",
+              "all forward-looking; the engine has the capability base, the "
+              "applications are co-built with your team")
+    items = [
+        ("Worst-case initialization", "HYPOTHESIS", AMBER,
+         "the resolved internal voltage is exactly what a correct worst-case "
+         "initialization must reflect; feeding the charge resolve into a "
+         "worst-case-init query is the bridge",
+         "today: S3 sync init is still a {None} placeholder -- not done"),
+        ("AIQC feature", "DIRECTION", AMBER,
+         "topology + charge as features for topology-aware sampling -- a "
+         "structural upgrade to MLQC's sampling",
+         "direction, not built"),
+        ("Reverse-engineering from LPE", "DIRECTION", AMBER,
+         "CCC + charge recover a cell's behaviour from its LPE structure alone, "
+         "naming-independent -- a cell the team did not document becomes legible",
+         "direction, not built"),
+    ]
+    y = 150
+    for it in items:
+        g, h = _cap(56, y, W - 112, *it, h=104)
+        s.append(g)
+        y += h + 18
+    # the ask
+    ay = 560
+    s.append(_rect(56, ay, W - 112, 150, HEAD, BLUE, rx=12))
+    s.append(_t(80, ay + 40, "The ask", 16, BLUE, weight="bold"))
+    s.append(_t(80, ay + 74, "The engine has the capability base. Which application "
                "we build next -- and how -- depends on the problems your team most "
-               "wants solved.", 15, INK, weight="bold"))
-    s.append(_t(76, ay + 60, "The flows are co-built, with your team as the owner of "
-               "what matters; that is the conversation we want to have.", 14, BODY))
-    _cite(s, "Built today: engine/charge.py (Pillar 3), P1/P2/P3 --verify sidecar "
-             "(core/verify_sidecar.py).")
+               "wants solved.", 16, INK, weight="bold"))
+    s.append(_t(80, ay + 104, "The flows are co-built, with your team as the owner "
+               "of what matters; that is the conversation we want to have.", 15,
+               BODY))
+    _cite(s, "capability base today: engine/charge.py (Pillar 3) + structure S0-S2; "
+             "applications above are forward-looking.")
     s.append("</svg>")
     return "".join(s)
 
@@ -260,7 +280,8 @@ def main():
     os.makedirs(OUT, exist_ok=True)
     for name, fn in (("pitch_a1_charge_circuits.svg", slide_a1),
                      ("pitch_a2_charge_method.svg", slide_a2),
-                     ("pitch_b_lpe_roadmap.svg", slide_b)):
+                     ("pitch_b1_lpe_capabilities.svg", slide_b1),
+                     ("pitch_b2_app_roadmap.svg", slide_b2)):
         with open(os.path.join(OUT, name), "w", encoding="ascii") as fh:
             fh.write(fn())
         print("wrote", os.path.join(OUT, name))
