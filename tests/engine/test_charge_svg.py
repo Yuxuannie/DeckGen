@@ -6,7 +6,12 @@ every resolved voltage drawn on the card must equal resolve_checked(...).voltage
 import xml.dom.minidom as minidom
 
 from engine.charge import resolve_checked
-from engine.charge_svg import card, render_svg
+from engine.charge_svg import card, render_svg, circuit_case
+
+KIND = {"scalar share": "merge",
+        "coupling divider to fixed aggressor": "divider",
+        "free-free split": "freefree",
+        "singular island -> X": "island"}
 
 # the same canonical inputs charge_viz._demo() uses (kept in sync structurally)
 CASES = {
@@ -61,5 +66,26 @@ def test_card_returns_positive_height():
     kw = CASES["free-free split"]
     r = resolve_checked(**kw)
     g, h = card(r, kw["Cg"], kw["Cc"], kw["entry_V"], kw["fixed_V"], "t")
-    assert "<g" or "<rect" in g
+    assert "<rect" in g
     assert h > 0
+
+
+def test_circuit_case_embeds_resolved_voltage_from_engine():
+    """The capacitor-schematic figure must label the SAME voltages the engine
+    resolves -- recomputed independently, so a hardcoded number would not match."""
+    for name, kw in CASES.items():
+        r = resolve_checked(**kw)
+        g, h = circuit_case(r, kw["Cg"], kw["Cc"], kw["entry_V"], kw["fixed_V"],
+                            name, KIND[name])
+        assert h > 0 and "<rect" in g
+        fresh = resolve_checked(**kw).voltages
+        for v in fresh.values():
+            assert ("X" if v is None else f"{v:+.5f}") in g
+
+
+def test_circuit_island_shows_X_not_a_number():
+    kw = CASES["singular island -> X"]
+    r = resolve_checked(**kw)
+    g, _ = circuit_case(r, kw["Cg"], kw["Cc"], kw["entry_V"], kw["fixed_V"],
+                        "island", "island")
+    assert "X" in g and "+0.45000" not in g and "+0.15000" not in g

@@ -1,41 +1,39 @@
 #!/usr/bin/env python3
 """
-pitch_slides.py -- the charge-resolve + LPE-roadmap pitch slides (after S2).
+pitch_slides.py -- charge-resolve (on circuits) + LPE-roadmap pitch slides.
 
-Slide A1  charge resolve -- the method (cap_network -> Cg/Cc -> contract ->
-          matrix A.V=b -> solve -> V; X for a singular island; 3 invariants).
-Slide A2  charge resolve -- engine output: the canonical cases, drawn by
-          engine.charge_svg.card from real resolve_checked(...) results.
-Slide B   from the LPE netlist: capabilities -> applications -> ask, every item
-          carrying an honest status tag that matches the repo.
+House style (white bg, blue/red/green/gray, Arial) -- same visual language as the
+engine walkthrough deck; NO purple. The charge principle is explained with real
+CAPACITOR-CIRCUIT schematics drawn by engine.charge_svg.circuit_case, with every
+voltage read from resolve_checked(...).
 
-White background, 16:9, purple theme. Slide A numbers come from engine.charge,
-never hardcoded. Re-run after editing:  python3 docs/engine_walkthrough/pitch_slides.py
-ASCII source only.
+Slide A1  charge resolve -- the principle, on circuits (4 canonical cases).
+Slide A2  charge resolve -- the method + 3 SPICE-free invariants.
+Slide B   from the LPE netlist: capabilities -> applications -> ask (honest tags).
+
+Re-run:  python3 docs/engine_walkthrough/pitch_slides.py   (ASCII source only)
 """
 import os
 import sys
 
-# allow running as a script from anywhere: put the repo root on sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))))
 
 from engine.charge import resolve_checked
-from engine.charge_svg import card, PURPLE, PURPLE2, LAV, LAV2, INK, BODY, MUTE, \
-    RULE, GREEN, AMBER, SANS, MONO
+from engine.charge_svg import (circuit_case, _gnd, _capv, _caph, _node, _switch,
+                               INK, BODY, MUTE, RULE, PANEL, HEAD, BLUE, GREEN,
+                               RED, AMBER, GRN_BG, GRN_BD, SANS, MONO)
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "figs")
 W, H = 1536, 864
 
 
-def _esc(s):
-    return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-
 def _t(x, y, s, size=14, fill=INK, anchor="start", weight="normal", mono=False):
     f = MONO if mono else SANS
     return (f"<text x='{x}' y='{y}' font-size='{size}' text-anchor='{anchor}' "
-            f"fill='{fill}' font-weight='{weight}' {f}>{_esc(s)}</text>")
+            f"fill='{fill}' font-weight='{weight}' {f}>"
+            f"{str(s).replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')}"
+            f"</text>")
 
 
 def _rect(x, y, w, h, fill="none", stroke="none", rx=0, sw=1):
@@ -43,16 +41,20 @@ def _rect(x, y, w, h, fill="none", stroke="none", rx=0, sw=1):
             f"fill='{fill}' stroke='{stroke}' stroke-width='{sw}'/>")
 
 
-def _arrow(x1, y1, x2, y2, color=PURPLE, sw=2):
+def _ln(x1, y1, x2, y2, color=INK, sw=2):
+    return (f"<line x1='{x1}' y1='{y1}' x2='{x2}' y2='{y2}' stroke='{color}' "
+            f"stroke-width='{sw}'/>")
+
+
+def _arrow(x1, y1, x2, y2, color=INK, sw=2):
     dx, dy = x2 - x1, y2 - y1
     L = (dx * dx + dy * dy) ** 0.5 or 1.0
     ux, uy = dx / L, dy / L
     px, py = -uy, ux
     bx, by = x2 - ux * 10, y2 - uy * 10
-    return (f"<line x1='{x1}' y1='{y1}' x2='{x2}' y2='{y2}' stroke='{color}' "
-            f"stroke-width='{sw}'/><polygon points='{x2:.1f},{y2:.1f} "
-            f"{bx+px*5:.1f},{by+py*5:.1f} {bx-px*5:.1f},{by-py*5:.1f}' "
-            f"fill='{color}'/>")
+    return (_ln(x1, y1, x2, y2, color, sw)
+            + f"<polygon points='{x2:.1f},{y2:.1f} {bx+px*5:.1f},{by+py*5:.1f} "
+              f"{bx-px*5:.1f},{by-py*5:.1f}' fill='{color}'/>")
 
 
 def _pill(x, y, label, color, w=104):
@@ -63,23 +65,10 @@ def _pill(x, y, label, color, w=104):
 def _head(title, subtitle):
     s = [f"<svg xmlns='http://www.w3.org/2000/svg' width='{W}' height='{H}' "
          f"viewBox='0 0 {W} {H}'><rect width='{W}' height='{H}' fill='white'/>"]
-    s.append(_t(56, 58, title, 30, INK, weight="bold"))
-    s.append(_t(56, 88, subtitle, 16, MUTE))
-    s.append(f"<line x1='56' y1='104' x2='{W-56}' y2='104' stroke='{RULE}' "
-             f"stroke-width='1.5'/>")
+    s.append(_t(56, 56, title, 28, INK, weight="bold"))
+    s.append(_t(56, 86, subtitle, 15, MUTE))
+    s.append(_ln(56, 102, W - 56, 102, RULE, 1.5))
     return s
-
-
-def _flowbox(x, y, w, h, head, lines, accent):
-    s = [_rect(x, y, w, h, LAV2, accent, rx=10),
-         _rect(x, y, w, 26, LAV, accent, rx=10),
-         _rect(x, y + 16, w, 10, LAV),
-         _t(x + w / 2, y + 18, head, 13, accent, anchor="middle", weight="bold")]
-    for i, ln in enumerate(lines):
-        mono = any(t in ln for t in ("=", "Cg", "Cc", "A.", "V", "Q", "(", "_"))
-        s.append(_t(x + w / 2, y + 50 + i * 19, ln, 11.5, BODY, anchor="middle",
-                    mono=mono))
-    return "".join(s)
 
 
 def _honesty(s, y):
@@ -91,103 +80,105 @@ def _honesty(s, y):
 
 
 def _cite(s, text):
-    s.append(_t(56, H - 28, text, 12.5, MUTE, mono=True))
+    s.append(_t(56, H - 26, text, 12, MUTE, mono=True))
+
+
+CASES = [
+    ("scalar share: two nets merge through an ON device", "merge",
+     dict(free_groups=[["dyn", "tap"]], Cg={"dyn": 1.0e-15, "tap": 0.3e-15},
+          Cc={}, entry_V={"dyn": 0.45, "tap": 0.0}, fixed_V={})),
+    ("coupling divider to a held aggressor", "divider",
+     dict(free_groups=[["f"]], Cg={"f": 1.0e-15}, Cc={("agg", "f"): 0.5e-15},
+          entry_V={"f": 0.0}, fixed_V={"agg": 0.45})),
+    ("free-free coupling split (not the average)", "freefree",
+     dict(free_groups=[["f1"], ["f2"]], Cg={"f1": 1.0e-15, "f2": 1.0e-15},
+          Cc={("f1", "f2"): 0.8e-15}, entry_V={"f1": 0.45, "f2": 0.0}, fixed_V={})),
+    ("singular isolated island -> X (no rail reference)", "island",
+     dict(free_groups=[["f1"], ["f2"]], Cg={}, Cc={("f1", "f2"): 0.8e-15},
+          entry_V={"f1": 0.45, "f2": 0.0}, fixed_V={})),
+]
 
 
 # ---------------------------------------------------------------------------
-# Slide A1 -- the method
+# Slide A1 -- the principle, on circuits
 # ---------------------------------------------------------------------------
 def slide_a1():
-    s = _head("Charge-conservation resolve (Pillar 3) -- the method",
-              "floating internal-node voltage by charge conservation; SPICE-free, "
-              "every step auditable")
-    y = 150
-    boxes = [
-        ("1  cap_network", ["graph.caps (LPE) ->", "Cg grounded, Cc coupling",
-                            "intra-net vanish"], PURPLE),
-        ("2  contract", ["ON-connected nets ->", "one super-node carrying",
-                         "Q = SUM Cg * Ventry"], PURPLE),
-        ("3  coupling matrix", ["Cc stamps A.V = b ;", "fixed (held) nodes",
-                                "inject into the RHS"], PURPLE),
-        ("4  solve", ["dense Gaussian solve", "-> V (model voltage)", ""], PURPLE2),
-    ]
-    bw, gap = 320, 40
-    x = 56
-    for i, (head, lines, acc) in enumerate(boxes):
-        s.append(_flowbox(x, y, bw, 108, head, lines, acc))
-        if i < len(boxes) - 1:
-            s.append(_arrow(x + bw, y + 54, x + bw + gap, y + 54))
-        x += bw + gap
-    # singular branch
-    sx = 56 + 3 * (bw + gap)
-    s.append(_arrow(sx + bw / 2, y + 108, sx + bw / 2, y + 150))
-    s.append(_rect(sx, y + 150, bw, 40, "#FFF8E8", AMBER, rx=8))
-    s.append(_t(sx + bw / 2, y + 168, "singular: no rail reference", 12, "#8a6d00",
-                anchor="middle", weight="bold"))
-    s.append(_t(sx + bw / 2, y + 184, "-> X (not a fabricated value)", 11.5, BODY,
-                anchor="middle", mono=True))
-
-    # invariants panel
-    iy = 400
-    s.append(_t(56, iy, "Three SPICE-free invariants (each ends PASS / FAIL)", 18,
-                INK, weight="bold"))
-    inv = [
-        ("residual", "the solver solved its own system: ||A.V - b|| ~ 0"),
-        ("convex-hull bound", "every resolved V lies within the boundary "
-         "potentials (a cap M-matrix average) -- outside = a bug"),
-        ("scalar cross-check", "an uncoupled super-node equals the closed-form "
-         "charge-share V"),
-    ]
-    yy = iy + 30
-    for name, body in inv:
-        s.append(_rect(56, yy, W - 112, 56, LAV2, RULE, rx=8))
-        s.append(_pill(72, yy + 18, "PASS", GREEN, 64))
-        s.append(_t(150, yy + 24, name, 14, PURPLE, weight="bold"))
-        s.append(_t(150, yy + 44, body, 12.5, BODY))
-        yy += 66
-
-    _honesty(s, 700)
-    _cite(s, "source: engine/charge.py (Pillar 3) -- resolve_checked(); render "
-             "engine/charge_svg.py")
+    s = _head("Charge-conservation resolve -- the principle, on circuits",
+              "a floating internal node holds trapped charge Q = Cg * Ventry; the "
+              "settled voltage is read off the capacitor network")
+    cw, ch = 700, 224
+    xs = [56, 56 + cw + 24]
+    ys = [128, 128 + ch + 20]
+    for i, (title, kind, kw) in enumerate(CASES):
+        r = resolve_checked(**kw)
+        col, row = i % 2, i // 2
+        g, h = circuit_case(r, kw["Cg"], kw["Cc"], kw["entry_V"], kw["fixed_V"],
+                            title, kind, xs[col], ys[row], cw, ch)
+        s.append(g)
+    _cite(s, "source: engine/charge.py resolve_checked(); drawn by "
+             "engine/charge_svg.py circuit_case() -- model predictions, "
+             "UNVERIFIED vs SPICE")
     s.append("</svg>")
     return "".join(s)
 
 
 # ---------------------------------------------------------------------------
-# Slide A2 -- engine output (the canonical cases, real numbers)
+# Slide A2 -- the method + invariants
 # ---------------------------------------------------------------------------
+def _flowbox(x, y, w, h, head, lines, accent):
+    s = [_rect(x, y, w, h, PANEL, accent, rx=10),
+         _rect(x, y, w, 26, HEAD, accent, rx=10), _rect(x, y + 16, w, 10, HEAD),
+         _t(x + w / 2, y + 18, head, 13, accent, anchor="middle", weight="bold")]
+    for i, ln in enumerate(lines):
+        mono = any(t in ln for t in ("=", "Cg", "Cc", "A.", "Q", "_", "("))
+        s.append(_t(x + w / 2, y + 50 + i * 19, ln, 11.5, BODY, anchor="middle",
+                    mono=mono))
+    return "".join(s)
+
+
 def slide_a2():
-    s = _head("Charge-conservation resolve -- engine output (canonical cases)",
-              "every number below is produced by resolve_checked(...), drawn by "
-              "engine.charge_svg -- not hand-entered")
-    cases = [
-        ("scalar share: two nets merge through an ON device",
-         dict(free_groups=[["dyn", "tap"]], Cg={"dyn": 1.0e-15, "tap": 0.3e-15},
-              Cc={}, entry_V={"dyn": 0.45, "tap": 0.0}, fixed_V={})),
-        ("coupling divider to a FIXED aggressor",
-         dict(free_groups=[["f"]], Cg={"f": 1.0e-15}, Cc={("agg", "f"): 0.5e-15},
-              entry_V={"f": 0.0}, fixed_V={"agg": 0.45})),
-        ("free-free coupling split (NOT the average)",
-         dict(free_groups=[["f1"], ["f2"]], Cg={"f1": 1.0e-15, "f2": 1.0e-15},
-              Cc={("f1", "f2"): 0.8e-15}, entry_V={"f1": 0.45, "f2": 0.0},
-              fixed_V={})),
-        ("singular isolated island -> X (no rail reference)",
-         dict(free_groups=[["f1"], ["f2"]], Cg={}, Cc={("f1", "f2"): 0.8e-15},
-              entry_V={"f1": 0.45, "f2": 0.0}, fixed_V={})),
+    s = _head("Charge-conservation resolve -- the method",
+              "SPICE-free: contract, stamp a capacitance matrix, solve; a singular "
+              "island resolves to X")
+    y = 142
+    boxes = [
+        ("1  cap_network", ["graph.caps (LPE) ->", "Cg grounded, Cc coupling",
+                            "intra-net vanish"], BLUE),
+        ("2  contract", ["ON-connected nets ->", "one super-node carrying",
+                         "Q = SUM Cg * Ventry"], BLUE),
+        ("3  coupling matrix", ["Cc stamps A.V = b ;", "held nodes inject",
+                                "into the RHS b"], BLUE),
+        ("4  solve", ["dense Gaussian solve", "-> V (model voltage)",
+                      "singular -> X"], GREEN),
     ]
-    cw = 700
-    xs = [56, 56 + cw + 24]
-    ys = [128, 128]
-    rowmax = [128, 128]
-    for i, (title, kw) in enumerate(cases):
-        r = resolve_checked(**kw)
-        col = i % 2
-        g, h = card(r, kw["Cg"], kw["Cc"], kw["entry_V"], kw["fixed_V"], title,
-                    xs[col], ys[col], cw)
-        s.append(g)
-        ys[col] += h + 22
-    _cite(s, "source: engine/charge.py resolve_checked(); engine/charge_svg.py "
-             "render -- model predictions, UNVERIFIED vs SPICE")
+    bw, gap, x = 320, 40, 56
+    for i, (hd, lines, acc) in enumerate(boxes):
+        s.append(_flowbox(x, y, bw, 104, hd, lines, acc))
+        if i < 3:
+            s.append(_arrow(x + bw, y + 52, x + bw + gap, y + 52, INK))
+        x += bw + gap
+
+    iy = 326
+    s.append(_t(56, iy, "Three SPICE-free invariants (each ends PASS / FAIL)", 18,
+                INK, weight="bold"))
+    inv = [
+        ("residual", "the solver solved its own system:  ||A.V - b|| ~ 0"),
+        ("convex-hull bound", "every resolved V lies within the boundary "
+         "potentials (a cap M-matrix average) -- outside the hull = a bug"),
+        ("scalar cross-check", "an uncoupled super-node equals the closed-form "
+         "charge-share V"),
+    ]
+    yy = iy + 28
+    for name, body in inv:
+        s.append(_rect(56, yy, W - 112, 58, GRN_BG, GRN_BD, rx=8))
+        s.append(_pill(72, yy + 19, "PASS", GREEN, 64))
+        s.append(_t(150, yy + 25, name, 14, BLUE, weight="bold"))
+        s.append(_t(150, yy + 46, body, 12.5, BODY))
+        yy += 68
+
+    _honesty(s, 712)
+    _cite(s, "source: engine/charge.py resolve_checked() -- voltages, derivations, "
+             "and these invariants all from one call")
     s.append("</svg>")
     return "".join(s)
 
@@ -196,10 +187,10 @@ def slide_a2():
 # Slide B -- from the LPE netlist: capabilities -> applications -> ask
 # ---------------------------------------------------------------------------
 def _item(x, y, w, title, pill_label, pill_color, body, cite):
-    s = [_rect(x, y, w, 92, LAV2, RULE, rx=10)]
-    s.append(_t(x + 16, y + 28, title, 15, INK, weight="bold"))
-    s.append(_pill(x + w - 120, y + 14, pill_label, pill_color))
-    s.append(_t(x + 16, y + 52, body, 12.5, BODY))
+    s = [_rect(x, y, w, 92, PANEL, RULE, rx=10),
+         _t(x + 16, y + 28, title, 15, INK, weight="bold"),
+         _pill(x + w - 120, y + 14, pill_label, pill_color),
+         _t(x + 16, y + 52, body, 12.5, BODY)]
     if cite:
         s.append(_t(x + 16, y + 76, cite, 11.5, MUTE, mono=True))
     return "".join(s), 92
@@ -211,19 +202,18 @@ def slide_b():
               "claim is true in the repo")
     colw = 700
     lx, rx = 56, 56 + colw + 24
-    s.append(_t(lx, 138, "What the engine can do from the LPE netlist", 17, PURPLE,
+    s.append(_t(lx, 134, "What the engine can do from the LPE netlist", 17, BLUE,
                 weight="bold"))
-    s.append(_t(rx, 138, "Applications these outputs grow into", 17, PURPLE,
+    s.append(_t(rx, 134, "Applications these outputs grow into", 17, BLUE,
                 weight="bold"))
-
     left = [
         ("Charge resolve", "BUILT", GREEN,
          "floating internal-node voltage by charge conservation (Cg/Cc), "
          "invariant-checked", "engine/charge.py"),
         ("Coupling in the resolve", "BUILT", GREEN,
-         "a fixed aggressor's coupling already enters the resolve (the divider "
+         "a held aggressor's coupling already enters the resolve (the divider "
          "case)", "engine/charge.py : resolve()"),
-        ("Aggressor / victim impact", "NEXT", PURPLE,
+        ("Aggressor / victim impact", "NEXT", BLUE,
          "the coupling data (Cc) is in hand; a dedicated impact-analysis layer is "
          "the next step", "(layer not built)"),
         ("Cell fingerprint from LPE", "ROADMAP", AMBER,
@@ -242,20 +232,19 @@ def slide_b():
          "CCC + charge recover cell behaviour from LPE structure, "
          "naming-independent", "forward-looking"),
     ]
-    y = 156
-    for title, pl, pc, body, cite in left:
-        g, h = _item(lx, y, colw, title, pl, pc, body, cite)
+    y = 152
+    for it in left:
+        g, h = _item(lx, y, colw, *it)
         s.append(g)
         y += h + 16
-    y = 156
-    for title, pl, pc, body, cite in right:
-        g, h = _item(rx, y, colw, title, pl, pc, body, cite)
+    y = 152
+    for it in right:
+        g, h = _item(rx, y, colw, *it)
         s.append(g)
         y += h + 16
 
-    # ask bar
-    ay = 640
-    s.append(_rect(56, ay, W - 112, 96, LAV, PURPLE, rx=12))
+    ay = 636
+    s.append(_rect(56, ay, W - 112, 96, HEAD, BLUE, rx=12))
     s.append(_t(76, ay + 32, "The engine has the capability base. Which application "
                "we build next -- and how -- depends on the problems your team most "
                "wants solved.", 15, INK, weight="bold"))
@@ -269,8 +258,8 @@ def slide_b():
 
 def main():
     os.makedirs(OUT, exist_ok=True)
-    for name, fn in (("pitch_a1_charge_method.svg", slide_a1),
-                     ("pitch_a2_charge_cases.svg", slide_a2),
+    for name, fn in (("pitch_a1_charge_circuits.svg", slide_a1),
+                     ("pitch_a2_charge_method.svg", slide_a2),
                      ("pitch_b_lpe_roadmap.svg", slide_b)):
         with open(os.path.join(OUT, name), "w", encoding="ascii") as fh:
             fh.write(fn())
