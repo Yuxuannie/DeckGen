@@ -8,6 +8,10 @@ Running example: `SDFSYNC4RPQSXGMZD1BWP130HPNPN3P48CPD` (scan-DFF, 4-stage
 synchronizer; pins CD/CP/D/SE/SI/Q), corner `ssgnp_0p450v_m40c_cworst_CCworst_T`.
 The numbers in these pages are the engine's ACTUAL output on that cell.
 
+A complete Chinese speaker script for the full talk (one section per slide across
+both decks, S0 -> charge -> roadmap) lives at
+[zh/speech_full_zh.md](zh/speech_full_zh.md).
+
 | Stage | Page | Process figure (HOW) | Result/companion |
 |-------|------|----------------------|------------------|
 | S0 -- recover the logical schematic | [s0_parse.md](s0_parse.md) | `figs/s0_rmerge.svg` | `figs/union_find.svg` (how nodes merge) |
