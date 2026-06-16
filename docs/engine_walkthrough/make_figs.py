@@ -12,6 +12,7 @@ and keep it crisp). Re-run after editing:
 ASCII source only. The S1/S2 content uses the engine's ACTUAL output for
 SDFSYNC4RPQSXGMZD1BWP130HPNPN3P48CPD (corner ssgnp_0p450v_m40c).
 """
+import math
 import os
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "figs")
@@ -580,9 +581,191 @@ def fig_s2_booldiff():
     return "".join(s)
 
 
+def _mos(x, y, color=INK, hl=False):
+    """Tiny MOS glyph: vertical channel (source bottom / drain top), gate to left."""
+    cc = PASS if hl else color
+    return "".join([
+        f"<line x1='{x-5}' y1='{y-16}' x2='{x-5}' y2='{y+16}' stroke='{color}' stroke-width='3'/>",
+        f"<line x1='{x-24}' y1='{y}' x2='{x-5}' y2='{y}' stroke='{color}' stroke-width='2'/>",
+        f"<line x1='{x+3}' y1='{y-16}' x2='{x+3}' y2='{y+16}' stroke='{cc}' stroke-width='3'/>",
+        f"<line x1='{x+3}' y1='{y-16}' x2='{x+3}' y2='{y-32}' stroke='{cc}' stroke-width='2'/>",
+        f"<line x1='{x+3}' y1='{y+16}' x2='{x+3}' y2='{y+32}' stroke='{cc}' stroke-width='2'/>",
+    ])
+
+
+# ---------------------------------------------------------------------------
+# UNION-FIND -- how raw nodes merge into logical nets (S0 detail)
+# ---------------------------------------------------------------------------
+def fig_union_find():
+    W, H = 1400, 600
+    s = [_header(W, H)]
+    s.append(_t(40, 44, "Union-find: how raw nodes merge into logical nets (S0)",
+                23, weight="bold"))
+    s.append(_t(40, 70, "a disjoint-set structure with two ops -- find(x) = which "
+                "group is x in;  union(a, b) = merge two groups", 14, fill=MUTE))
+
+    # panel 1 -- singletons
+    s.append(_rect(40, 92, 380, 430, PANEL, PANEL_BD, rx=12))
+    s.append(_t(60, 120, "1) start: each raw node = its own set", 14.5, weight="bold"))
+    raws = ["ml_a#1", "XMSA4#d", "XMSA5#d", "XMLA0#g", "XMLA1#g", "XMFA1#d"]
+    for i, r in enumerate(raws):
+        cx, cy = 110 + (i % 2) * 180, 180 + (i // 2) * 90
+        s.append(f"<circle cx='{cx}' cy='{cy}' r='28' fill='white' stroke='{RAW}' "
+                 f"stroke-width='2'/>")
+        s.append(_t(cx, cy + 4, r, 10.5, anchor="middle"))
+    s.append(_t(60, 500, "689 singletons;  find(x) = x", 12.5, fill=MUTE))
+
+    # panel 2 -- process resistors, build the tree
+    s.append(_rect(440, 92, 470, 430, "#f1f5f9", PANEL_BD, rx=12))
+    s.append(_t(460, 120, "2) for each resistor R(a, b):  union(a, b)", 14.5,
+                weight="bold"))
+    rlines = ["R41:  ml_a#1  --  XMSA4#d", "R42:  XMSA4#d  --  XMSA5#d",
+              "R43:  XMSA5#d  --  XMLA0#g", "R44:  XMLA0#g  --  XMLA1#g",
+              "R47:  XMFA1#d  --  ml_a#1"]
+    for i, ln in enumerate(rlines):
+        s.append(_t(462, 150 + i * 19, ln, 12, fill=MUTE))
+    # the resulting tree: root (smallest name) with members pointing up
+    root = (675, 300)
+    kids = [(520, 400), (600, 430), (680, 410), (760, 430), (840, 400)]
+    s.append(_node(root[0], root[1], "root", DATA, 26))
+    for kx, ky in kids:
+        s.append(_edge(kx, ky, root[0], root[1], INK, 24))
+        s.append(f"<circle cx='{kx}' cy='{ky}' r='20' fill='white' stroke='{INK}' "
+                 f"stroke-width='1.5'/>")
+    s.append(_t(460, 470, "child -> parent edges; root = the set's representative",
+                12, fill=MUTE))
+    s.append(_t(460, 490, "(deterministic: the smaller raw-node name becomes root)",
+                12, fill=MUTE))
+    s.append(_t(460, 510, "find(x): walk to root, then re-point x straight at it "
+               "(path compression)", 12, fill=MUTE))
+
+    # panel 3 -- result = one logical net
+    s.append(_rect(930, 92, 430, 430, DATA_BG, DATA, rx=12))
+    s.append(_t(950, 120, "3) one set = one logical net", 14.5, weight="bold",
+                fill=DATA))
+    rc = (1145, 250)
+    s.append(_node(rc[0], rc[1], "rep", DATA, 28))
+    for ang in range(0, 360, 60):
+        rx = rc[0] + int(120 * math.cos(math.radians(ang)))
+        ry = rc[1] + int(95 * math.sin(math.radians(ang)))
+        s.append(_edge(rx, ry, rc[0], rc[1], "#93c5fd", 28))
+        s.append(f"<circle cx='{rx}' cy='{ry}' r='16' fill='white' stroke='{DATA}' "
+                 f"stroke-width='1.5'/>")
+    s.append(_t(rc[0], 410, "this set = logical net  ml_a", 14, anchor="middle",
+                weight="bold"))
+    s.append(_t(950, 445, "after path compression every member points straight at the",
+                12, fill=MUTE))
+    s.append(_t(950, 463, "representative -> find is near O(1)", 12, fill=MUTE))
+    s.append(_t(950, 488, "the NAME 'ml_a' = the most common base#k among members",
+                12, fill=MUTE))
+    s.append(_t(950, 506, "(cosmetic; the representative is just an internal id)",
+                12, fill=MUTE))
+
+    # banner
+    s.append(_rect(40, 538, 1320, 48, GREEN_BG, GREEN_BD, rx=10))
+    s.append(_t(58, 567, "689 raw nodes  --[1033 unions over resistors]->  92 logical "
+               "nets.", 14, weight="bold", fill="#065f46"))
+    s.append(_t(720, 567, "The SAME union-find runs again in S1 over transistor "
+               "channels -> 39 CCCs.", 13))
+    s.append("</svg>")
+    return "".join(s)
+
+
+# ---------------------------------------------------------------------------
+# CCC -- channel-connected components from the 92 logical nets (S1)
+# ---------------------------------------------------------------------------
+def fig_ccc():
+    W, H = 1440, 620
+    s = [_header(W, H)]
+    s.append(_t(40, 44, "Channel-Connected Components (CCC): group the 92 nets by "
+                "transistor channels", 22, weight="bold"))
+    s.append(_t(40, 70, "input = S0's output: 92 logical nets (82 internal + 10 "
+                "ports/rails). A transistor's source-drain channel links two nets; "
+                "the gate does not.", 13.5, fill=MUTE))
+
+    # panel 1 -- the linking rule
+    s.append(_rect(40, 92, 410, 446, PANEL, PANEL_BD, rx=12))
+    s.append(_t(60, 120, "1) the linking rule", 14.5, weight="bold"))
+    s.append(_mos(180, 220, INK, hl=True))
+    s.append(_t(188, 180, "d (drain)", 11, fill=PASS))
+    s.append(_t(188, 270, "s (source)", 11, fill=PASS))
+    s.append(_t(110, 224, "g", 11, anchor="end", fill=MUTE))
+    s.append(_t(60, 320, "edge = source-drain channel (green)", 12.5, fill=PASS))
+    s.append(_t(60, 340, "between the drain net and the source net", 12, fill=MUTE))
+    s.append(_t(60, 372, "gate is EXCLUDED -- it controls, it is not", 12.5))
+    s.append(_t(60, 390, "part of the conduction path here", 12, fill=MUTE))
+    s.append(_t(60, 424, "BOUNDARIES (grouping stops):", 12.5, weight="bold", fill=CLR))
+    s.append(_t(60, 444, "rails VDD/VSS/VPP/VBB and primary", 12))
+    s.append(_t(60, 462, "inputs CD/CP/D/SE/SI -> only the 82", 12))
+    s.append(_t(60, 480, "internal nets get grouped", 12))
+
+    # panel 2 -- channel graph + union-find -> components
+    s.append(_rect(470, 92, 560, 446, "#f1f5f9", PANEL_BD, rx=12))
+    s.append(_t(490, 120, "2) channel graph -> union-find -> components", 14.5,
+                weight="bold"))
+    # three illustrative components, colored
+    comp1 = {"mq": (640, 200), "mq_a": (760, 175), "mq_b": (780, 250),
+             "mq_x": (660, 270)}
+    e1 = [("mq", "mq_a"), ("mq_a", "mq_b"), ("mq_b", "mq_x"), ("mq_x", "mq")]
+    comp2 = {"mi": (640, 360), "seb": (760, 360)}
+    e2 = [("mi", "seb")]
+    comp3 = {"clkb": (910, 200), "ckx": (980, 260)}
+    e3 = [("clkb", "ckx")]
+    for net, edges, col in [(comp1, e1, DATA), (comp2, e2, NET), (comp3, e3, CLK)]:
+        for a, b in edges:
+            ax, ay = net[a]; bx, by = net[b]
+            s.append(_line(ax, ay, bx, by, col, 2, marker=False))
+        for nm, (nx, ny) in net.items():
+            s.append(f"<circle cx='{nx}' cy='{ny}' r='20' fill='white' stroke='{col}' "
+                     f"stroke-width='2'/>")
+            s.append(_t(nx, ny + 4, nm, 10, anchor="middle"))
+    # rails as boundary boxes that edges touch but do not cross
+    s.append(_rect(890, 350, 64, 30, "#e5e7eb", MUTE, rx=4))
+    s.append(_t(922, 370, "VSS", 11, anchor="middle", fill=MUTE))
+    s.append(_t(922, 405, "(rail = boundary;", 10.5, anchor="middle", fill=MUTE))
+    s.append(_t(922, 420, "stops the group)", 10.5, anchor="middle", fill=MUTE))
+    s.append(_t(490, 470, "the SAME union-find as S0, now over source-drain edges",
+                12.5, fill=MUTE))
+    s.append(_t(490, 492, "82 internal nets  ->  ", 13))
+    s.append(_t(620, 492, "39 channel-connected components", 13, weight="bold",
+                fill=DATA))
+    s.append(_t(490, 514, "(each color above = one CCC)", 12, fill=MUTE))
+
+    # panel 3 -- what a CCC is
+    s.append(_rect(1050, 92, 350, 446, DATA_BG, DATA, rx=12))
+    s.append(_t(1070, 120, "3) what one CCC is", 14.5, weight="bold", fill=DATA))
+    c = {"mq": (1170, 200), "mq_a": (1270, 185), "mq_b": (1285, 260),
+         "mq_x": (1185, 270)}
+    for a, b in [("mq", "mq_a"), ("mq_a", "mq_b"), ("mq_b", "mq_x"), ("mq_x", "mq")]:
+        ax, ay = c[a]; bx, by = c[b]
+        s.append(_line(ax, ay, bx, by, DATA, 2, marker=False))
+    for nm, (nx, ny) in c.items():
+        s.append(f"<circle cx='{nx}' cy='{ny}' r='21' fill='white' stroke='{DATA}' "
+                 f"stroke-width='2'/>")
+        s.append(_t(nx, ny + 4, nm, 10.5, anchor="middle"))
+    s.append(_t(1070, 330, "a CCC = nets that share charge", 12.5))
+    s.append(_t(1070, 348, "through channels (a switch-level", 12, fill=MUTE))
+    s.append(_t(1070, 366, "node group)", 12, fill=MUTE))
+    s.append(_t(1070, 398, "39 CCCs total;  8 of them contain", 12.5, weight="bold"))
+    s.append(_t(1070, 416, "a cross-coupled feedback loop", 12.5, weight="bold"))
+    s.append(_t(1070, 434, "= the 8 latches", 12.5, weight="bold", fill=PASS))
+    s.append(_t(1070, 462, "(the loop is found by SCC inside", 12, fill=MUTE))
+    s.append(_t(1070, 480, "the CCC -- the S1 process figure)", 12, fill=MUTE))
+
+    # banner -- CCC vs SCC
+    s.append(_rect(40, 554, 1360, 48, GREEN_BG, GREEN_BD, rx=10))
+    s.append(_t(58, 583, "CCC (undirected, source-drain) = the partition.", 13.5,
+               weight="bold", fill="#065f46"))
+    s.append(_t(530, 583, "SCC (directed influence graph) = finds the bistable loop "
+               "inside a CCC.   39 groups, 8 with storage.", 13))
+    s.append("</svg>")
+    return "".join(s)
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     for name, fn in (("s0_rmerge.svg", fig_s0),
+                     ("union_find.svg", fig_union_find), ("ccc.svg", fig_ccc),
                      ("s1_process.svg", fig_s1_process), ("s1_storage.svg", fig_s1),
                      ("s2_booldiff.svg", fig_s2_booldiff), ("s2_sensitize.svg", fig_s2)):
         path = os.path.join(OUT, name)

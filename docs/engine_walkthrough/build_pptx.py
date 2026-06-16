@@ -35,6 +35,14 @@ SLIDES = [
      "de-parasitic R-merge: 689 raw nodes -> 92 logical nets via 1033 R; "
      "164 transistors; bridges = 0 (PASS)",
      "s0_rmerge.svg"),
+    ("Union-find -- how raw nodes merge into logical nets",
+     "find(x) = which group; union(a,b) = merge; one union per resistor -> "
+     "689 raw nodes become 92 logical nets",
+     "union_find.svg"),
+    ("Channel-Connected Components (CCC) -- group the 92 nets by transistor channels",
+     "source-drain channels link nets (gate excluded); rails/inputs are "
+     "boundaries; 82 internal nets -> 39 CCCs, 8 with storage",
+     "ccc.svg"),
     ("Stage 1 -- HOW storage is found: channel graph (CCC) + feedback loops (SCC)",
      "build the influence digraph, find strongly-connected loops, keep the ones "
      "with >= 2 gate nets = the latches",

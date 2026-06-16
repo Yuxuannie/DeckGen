@@ -10,8 +10,8 @@ The numbers in these pages are the engine's ACTUAL output on that cell.
 
 | Stage | Page | Process figure (HOW) | Result/companion |
 |-------|------|----------------------|------------------|
-| S0 -- recover the logical schematic | [s0_parse.md](s0_parse.md) | `figs/s0_rmerge.svg` | -- |
-| S1 -- find the storage latches | [s1_ccc.md](s1_ccc.md) | `figs/s1_process.svg` (CCC + SCC algorithm) | `figs/s1_storage.svg` (the 8-latch chain) |
+| S0 -- recover the logical schematic | [s0_parse.md](s0_parse.md) | `figs/s0_rmerge.svg` | `figs/union_find.svg` (how nodes merge) |
+| S1 -- find the storage latches | [s1_ccc.md](s1_ccc.md) | `figs/ccc.svg` (what a CCC is) + `figs/s1_process.svg` (SCC algorithm) | `figs/s1_storage.svg` (the 8-latch chain) |
 | S2 -- sensitization | [s2_sensitize.md](s2_sensitize.md) | `figs/s2_booldiff.svg` (Boolean-difference derivation) | `figs/s2_sensitize.svg` (read vs define_arc) |
 
 The `*_process` figures show HOW the algorithm computes each result on a worked
