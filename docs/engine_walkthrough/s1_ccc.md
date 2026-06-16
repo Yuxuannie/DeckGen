@@ -21,6 +21,31 @@ S1 ccc: 39 CCC(s); storage
   **8 latches = a 4-stage synchronizer x 2 latches per stage.** The engine found
   exactly that, name-blind.
 
+## How CCC works, in detail (the four operations)
+
+1. **Channel-connected components (the 39).** Add an edge between two nets that
+   share a transistor source-drain channel; union-find them. That partition is the
+   39 CCCs -- "what is galvanically connected through conducting channels." Most
+   are combinational (buffers, the scan mux, clear logic, output stage).
+2. **Influence graph.** For every transistor add directed edges
+   `gate -> drain` and `source -> drain` (what can affect what).
+3. **Feedback loops (Tarjan SCC).** A strongly-connected loop in that graph is a
+   signal that feeds back on itself = a bistable. Keep only loops with **>= 2
+   gate-controlling members** (this drops series-stack internal nodes that are
+   drains but never gates). Each surviving loop = one storage latch -> **8 found.**
+4. **Rank by distance to Q.** BFS hop-count from each loop to the output; sort
+   ascending. Closest = `slave`, farthest = `master`, the rest `stage{...}`.
+
+## "6 stages" is a labeling artifact -- it is 8 latches = 4 flip-flops
+
+With 8 latches the ranker emits: rank 0 -> `slave`, rank 7 -> `master`, and the
+**6 in between** -> `stage1..6`. So `8 = master + 6 middle + slave`. A **4-stage
+synchronizer = 4 flip-flops = 8 latches** (each flip-flop is a master latch + a
+slave latch). The `stageN` names merely rank the middle latches; they do **not**
+mean six synchronizer stages. The engine does not yet **pair** the 8 into 4
+master/slave flip-flops -- that pairing (FF1..FF4 in the figure) is a planned
+refinement. State it plainly so the count is not misread.
+
 ## How a "storage latch" is found (name-blind)
 
 A latch holds state in **cross-coupled feedback**. The engine builds an

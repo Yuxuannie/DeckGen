@@ -12,6 +12,7 @@ The numbers in these pages are the engine's ACTUAL output on that cell.
 |-------|------|--------|
 | S0 -- recover the logical schematic (de-parasitic R-merge) | [s0_parse.md](s0_parse.md) | `figs/s0_rmerge.svg` |
 | S1 -- find the storage latches from structure | [s1_ccc.md](s1_ccc.md) | `figs/s1_storage.svg` |
+| S2 -- sensitization, derived per arc | [s2_sensitize.md](s2_sensitize.md) | `figs/s2_sensitize.svg` |
 
 Figures are SVG (PowerPoint / Keynote / Google Slides insert SVG natively and
 keep it crisp at any zoom). Regenerate after edits:

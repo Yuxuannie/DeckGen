@@ -228,9 +228,99 @@ def fig_s1():
     return "".join(s)
 
 
+# ---------------------------------------------------------------------------
+# Figure S2 -- sensitization is derived PER ARC (Boolean difference)
+# ---------------------------------------------------------------------------
+def fig_s2():
+    W, H = 1320, 660
+    s = [_header(W, H)]
+    s.append(_t(40, 46, "Stage 2 -- Sensitization is DERIVED, per arc "
+                "(Boolean difference)", 24, weight="bold"))
+    s.append(_t(40, 74, "hold side pins static, toggle the measured pin, require the "
+                "captured node to follow it; then classify each side pin by toggling it",
+                15, fill=MUTE))
+
+    # left panel: the derivation (worked on the arc this run actually measured)
+    s.append(_rect(40, 100, 600, 470, PANEL, PANEL_BD, rx=12))
+    s.append(_t(60, 132, "How the bias is derived", 17, weight="bold"))
+    s.append(_t(60, 158, "arc this run measured:  hold(CP, D)", 14, fill=DATA,
+                weight="bold"))
+    s.append(_t(60, 178, "(the engine's default in --netlist mode; sides = CD, SE, SI)",
+                12, fill=MUTE))
+    s.append(_t(60, 206, "test:  d(capture)/d(D) = 1  under a static side-pin hold,",
+                13))
+    s.append(_t(60, 224, "then toggle each side pin 0/1 and watch capture:", 13))
+
+    # derivation table
+    tx, ty, rw = 60, 250, 560
+    cols = [tx + 12, tx + 150, tx + 430, tx + 510]
+    s.append(_rect(tx, ty, rw, 34, "#eef2ff", PANEL_BD))
+    for cx, lab in zip(cols, ["side pin", "toggling it changes capture?",
+                              "role", "bias"]):
+        s.append(_t(cx, ty + 22, lab, 12, weight="bold"))
+    rows = [("CD", "yes -- a clear destroys the captured value", "required", "0", DATA),
+            ("SE", "yes -- selects the D path vs the SI path", "required", "0", DATA),
+            ("SI", "no  -- capture independent of it at SE=0", "masked", "1", CLK)]
+    for i, (pin, eff, role, bias, col) in enumerate(rows):
+        ry = ty + 34 + i * 40
+        s.append(_rect(tx, ry, rw, 40, "white", PANEL_BD))
+        s.append(_t(cols[0], ry + 25, pin, 14, weight="bold"))
+        s.append(_t(cols[1], ry + 25, eff, 12, fill=INK))
+        s.append(_t(cols[2], ry + 25, role, 12, weight="bold", fill=col))
+        s.append(_t(cols[3], ry + 25, bias, 14, weight="bold", fill=col))
+    s.append(_t(60, ty + 200, "=> D controls capture; SI masked  =>  ", 14,
+                weight="bold"))
+    s.append(_t(430, ty + 200, "P1 PASS", 15, weight="bold", fill=PASS))
+    s.append(_t(60, ty + 226, "result:  biases {CD=0, SE=0, SI=1}", 13, fill=MUTE))
+
+    # right panel: reading bias vs template.tcl define_arc (WHEN)
+    s.append(_rect(670, 100, 610, 470, "#fffbeb", "#fde68a", rx=12))
+    s.append(_t(690, 132, "Reading the bias vs template.tcl define_arc (WHEN)",
+                16, weight="bold"))
+    s.append(_t(690, 160, "the bias above is derived from PHYSICS, independent of "
+                "define_arc;", 13))
+    s.append(_t(690, 178, "the engine then cross-checks it against the arc's WHEN:",
+                13))
+    cases = [
+        (DATA, "REQUIRED pin agrees with WHEN",
+         "AGREE -- the arc as written sensitizes the path"),
+        (CLR, "REQUIRED pin conflicts with WHEN",
+         "DISAGREE (named) -- arc would mis-sensitize: investigate"),
+        (MUTE, "REQUIRED pin missing from WHEN",
+         "engine supplies it; WHEN is incomplete -- add it"),
+        (CLK, "MASKED pin (any value in WHEN)",
+         "non-critical hold; mismatch is harmless"),
+    ]
+    cy = 210
+    for col, head, body in cases:
+        s.append(f"<circle cx='702' cy='{cy-4}' r='5' fill='{col}'/>")
+        s.append(_t(718, cy, head, 13, weight="bold", fill=col))
+        s.append(_t(718, cy + 19, body, 12.5, fill=INK))
+        cy += 52
+    s.append(_rect(690, cy - 8, 570, 70, "white", "#fde68a", rx=8))
+    s.append(_t(704, cy + 14, "actionable signal = the set-pin AGREE / DISAGREE.",
+                13, weight="bold"))
+    s.append(_t(704, cy + 34, "MASKED pins are don't-cares; do not chase them.",
+                12.5, fill=MUTE))
+    s.append(_t(704, cy + 52, "example:  arc.when {SE:0, SI:1} vs derived {SE=0} -> "
+               "AGREE [set pins match]", 11.5, fill=MUTE))
+
+    # bottom banner: per-arc warning
+    s.append(_rect(40, 590, 1240, 50, "#fef2f2", "#fecaca", rx=10))
+    s.append(_t(60, 612, "Sensitization is PER ARC.", 15, weight="bold", fill=CLR))
+    s.append(_t(255, 612, "the CD min-pulse-width arc (rel=constr=CD, "
+               "WHEN=CP,D,SE,SI) has a different side set and a different bias --",
+               13.5))
+    s.append(_t(60, 631, "specify the arc; do not read this hold(CP,D) bias as the "
+               "MPW bias. (rel==constr MPW is a current engine gap.)", 13.5))
+    s.append("</svg>")
+    return "".join(s)
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
-    for name, fn in (("s0_rmerge.svg", fig_s0), ("s1_storage.svg", fig_s1)):
+    for name, fn in (("s0_rmerge.svg", fig_s0), ("s1_storage.svg", fig_s1),
+                     ("s2_sensitize.svg", fig_s2)):
         path = os.path.join(OUT, name)
         with open(path, "w", encoding="ascii") as fh:
             fh.write(fn())
