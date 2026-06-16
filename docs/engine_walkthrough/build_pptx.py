@@ -41,7 +41,7 @@ SLIDES = [
      "union_find.svg"),
     ("Channel-Connected Components (CCC) -- group the 92 nets by transistor channels",
      "source-drain channels link nets (gate excluded); rails/inputs are "
-     "boundaries; 82 internal nets -> 39 CCCs, 8 with storage",
+     "boundaries; CCC is a partition, NOT the latches -- a storage loop spans CCCs",
      "ccc.svg"),
     ("Stage 1 -- HOW storage is found: channel graph (CCC) + feedback loops (SCC)",
      "build the influence digraph, find strongly-connected loops, keep the ones "

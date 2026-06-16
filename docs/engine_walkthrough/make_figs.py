@@ -699,65 +699,79 @@ def fig_ccc():
     s.append(_t(60, 462, "inputs CD/CP/D/SE/SI -> only the 82", 12))
     s.append(_t(60, 480, "internal nets get grouped", 12))
 
-    # panel 2 -- channel graph + union-find -> components
+    # panel 2 -- channel graph + union-find -> components (REAL placeholder CCCs)
     s.append(_rect(470, 92, 560, 446, "#f1f5f9", PANEL_BD, rx=12))
     s.append(_t(490, 120, "2) channel graph -> union-find -> components", 14.5,
                 weight="bold"))
-    # three illustrative components, colored
-    comp1 = {"mq": (640, 200), "mq_a": (760, 175), "mq_b": (780, 250),
-             "mq_x": (660, 270)}
-    e1 = [("mq", "mq_a"), ("mq_a", "mq_b"), ("mq_b", "mq_x"), ("mq_x", "mq")]
-    comp2 = {"mi": (640, 360), "seb": (760, 360)}
-    e2 = [("mi", "seb")]
-    comp3 = {"clkb": (910, 200), "ckx": (980, 260)}
-    e3 = [("clkb", "ckx")]
-    for net, edges, col in [(comp1, e1, DATA), (comp2, e2, NET), (comp3, e3, CLK)]:
+    # real CCCs from the placeholder: {mi,ml_a}, {ml_b,sl_a}, {Q}, {clkb}, {seb}
+    comp1 = {"mi": (610, 180), "ml_a": (740, 175)}
+    e1 = [("mi", "ml_a")]
+    comp2 = {"ml_b": (620, 290), "sl_a": (760, 300)}
+    e2 = [("ml_b", "sl_a")]
+    singles = [("Q", (920, 175), CLR), ("clkb", (920, 250), CLK),
+               ("seb", (920, 320), MUTE)]
+    for net, edges, col in [(comp1, e1, DATA), (comp2, e2, NET)]:
         for a, b in edges:
             ax, ay = net[a]; bx, by = net[b]
-            s.append(_line(ax, ay, bx, by, col, 2, marker=False))
+            s.append(_line(ax, ay, bx, by, col, 2.5, marker=False))
         for nm, (nx, ny) in net.items():
-            s.append(f"<circle cx='{nx}' cy='{ny}' r='20' fill='white' stroke='{col}' "
-                     f"stroke-width='2'/>")
-            s.append(_t(nx, ny + 4, nm, 10, anchor="middle"))
-    # rails as boundary boxes that edges touch but do not cross
-    s.append(_rect(890, 350, 64, 30, "#e5e7eb", MUTE, rx=4))
-    s.append(_t(922, 370, "VSS", 11, anchor="middle", fill=MUTE))
-    s.append(_t(922, 405, "(rail = boundary;", 10.5, anchor="middle", fill=MUTE))
-    s.append(_t(922, 420, "stops the group)", 10.5, anchor="middle", fill=MUTE))
-    s.append(_t(490, 470, "the SAME union-find as S0, now over source-drain edges",
-                12.5, fill=MUTE))
-    s.append(_t(490, 492, "82 internal nets  ->  ", 13))
-    s.append(_t(620, 492, "39 channel-connected components", 13, weight="bold",
-                fill=DATA))
-    s.append(_t(490, 514, "(each color above = one CCC)", 12, fill=MUTE))
-
-    # panel 3 -- what a CCC is
-    s.append(_rect(1050, 92, 350, 446, DATA_BG, DATA, rx=12))
-    s.append(_t(1070, 120, "3) what one CCC is", 14.5, weight="bold", fill=DATA))
-    c = {"mq": (1170, 200), "mq_a": (1270, 185), "mq_b": (1285, 260),
-         "mq_x": (1185, 270)}
-    for a, b in [("mq", "mq_a"), ("mq_a", "mq_b"), ("mq_b", "mq_x"), ("mq_x", "mq")]:
-        ax, ay = c[a]; bx, by = c[b]
-        s.append(_line(ax, ay, bx, by, DATA, 2, marker=False))
-    for nm, (nx, ny) in c.items():
-        s.append(f"<circle cx='{nx}' cy='{ny}' r='21' fill='white' stroke='{DATA}' "
+            s.append(f"<circle cx='{nx}' cy='{ny}' r='22' fill='white' stroke='{col}' "
+                     f"stroke-width='2.5'/>")
+            s.append(_t(nx, ny + 4, nm, 10.5, anchor="middle"))
+    for nm, (nx, ny), col in singles:
+        s.append(f"<circle cx='{nx}' cy='{ny}' r='22' fill='white' stroke='{col}' "
                  f"stroke-width='2'/>")
         s.append(_t(nx, ny + 4, nm, 10.5, anchor="middle"))
-    s.append(_t(1070, 330, "a CCC = nets that share charge", 12.5))
-    s.append(_t(1070, 348, "through channels (a switch-level", 12, fill=MUTE))
-    s.append(_t(1070, 366, "node group)", 12, fill=MUTE))
-    s.append(_t(1070, 398, "39 CCCs total;  8 of them contain", 12.5, weight="bold"))
-    s.append(_t(1070, 416, "a cross-coupled feedback loop", 12.5, weight="bold"))
-    s.append(_t(1070, 434, "= the 8 latches", 12.5, weight="bold", fill=PASS))
-    s.append(_t(1070, 462, "(the loop is found by SCC inside", 12, fill=MUTE))
-    s.append(_t(1070, 480, "the CCC -- the S1 process figure)", 12, fill=MUTE))
+    s.append(_t(490, 372, "each colored group = one CCC (a singleton is a CCC too).",
+                12, fill=MUTE))
+    s.append(_t(490, 392, "note: the {ml_b, sl_a} CCC mixes nets from the MASTER and",
+                12, fill=INK))
+    s.append(_t(490, 410, "the SLAVE latch -- CCCs cut across latch boundaries.",
+                12, fill=INK))
+    s.append(_t(490, 442, "the SAME union-find as S0, now over source-drain edges:",
+                12.5, fill=MUTE))
+    s.append(_t(490, 466, "82 internal nets  ->  ", 13))
+    s.append(_t(620, 466, "39 channel-connected components", 13, weight="bold",
+                fill=DATA))
+    s.append(_t(490, 492, "(many are singletons; rails/inputs are boundaries)",
+                12, fill=MUTE))
 
-    # banner -- CCC vs SCC
+    # panel 3 -- a CCC is NOT a latch (the honest relationship)
+    s.append(_rect(1050, 92, 350, 446, "#fef2f2", "#fecaca", rx=12))
+    s.append(_t(1070, 120, "3) a CCC is NOT a latch", 14.5, weight="bold", fill=CLR))
+    # master latch storage loop: ml_a <-> ml_b via GATES (dashed), in different CCCs
+    a = (1130, 200)
+    b = (1320, 200)
+    s.append(_arc(1147, 193, 1303, 193, INK, -26))
+    s.append(_arc(1303, 207, 1147, 207, INK, 26))
+    s.append(f"<circle cx='{a[0]}' cy='{a[1]}' r='24' fill='white' stroke='{DATA}' "
+             f"stroke-width='2.5'/>")
+    s.append(_t(a[0], a[1] + 4, "ml_a", 11, anchor="middle"))
+    s.append(f"<circle cx='{b[0]}' cy='{b[1]}' r='24' fill='white' stroke='{NET}' "
+             f"stroke-width='2.5'/>")
+    s.append(_t(b[0], b[1] + 4, "ml_b", 11, anchor="middle"))
+    s.append(_t(1130, 245, "in CCC[2]", 10.5, anchor="middle", fill=DATA))
+    s.append(_t(1320, 245, "in CCC[3]", 10.5, anchor="middle", fill=NET))
+    s.append(_t(1225, 175, "gate coupling", 10.5, anchor="middle", fill=MUTE))
+    s.append(_t(1070, 290, "the master latch = one feedback LOOP;", 12.5))
+    s.append(_t(1070, 308, "its two storage nodes ml_a, ml_b sit in", 12, fill=MUTE))
+    s.append(_t(1070, 326, "DIFFERENT CCCs -- the cross-coupling is", 12, fill=MUTE))
+    s.append(_t(1070, 344, "through GATES, not channels.", 12, fill=MUTE))
+    s.append(_t(1070, 378, "=> CCC != latch. Storage is found by", 12.5, weight="bold"))
+    s.append(_t(1070, 396, "SCC on the influence graph (next fig),", 12.5,
+                weight="bold"))
+    s.append(_t(1070, 414, "and a loop SPANS several CCCs.", 12.5, weight="bold",
+                fill=CLR))
+    s.append(_t(1070, 446, "CCC is the engine's channel-level", 12, fill=MUTE))
+    s.append(_t(1070, 464, "decomposition; it is reported as", 12, fill=MUTE))
+    s.append(_t(1070, 482, "context, not used to find latches.", 12, fill=MUTE))
+
+    # banner -- CCC vs SCC (corrected)
     s.append(_rect(40, 554, 1360, 48, GREEN_BG, GREEN_BD, rx=10))
-    s.append(_t(58, 583, "CCC (undirected, source-drain) = the partition.", 13.5,
-               weight="bold", fill="#065f46"))
-    s.append(_t(530, 583, "SCC (directed influence graph) = finds the bistable loop "
-               "inside a CCC.   39 groups, 8 with storage.", 13))
+    s.append(_t(58, 583, "Two independent views:", 13.5, weight="bold", fill="#065f46"))
+    s.append(_t(245, 583, "CCC (source-drain channels) = a charge-sharing partition;  "
+               "SCC (gate-based feedback) = the 8 latches. A latch's nodes span "
+               "multiple CCCs.", 13))
     s.append("</svg>")
     return "".join(s)
 
