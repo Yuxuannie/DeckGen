@@ -597,75 +597,76 @@ def _mos(x, y, color=INK, hl=False):
 # UNION-FIND -- how raw nodes merge into logical nets (S0 detail)
 # ---------------------------------------------------------------------------
 def fig_union_find():
-    W, H = 1400, 600
+    W, H = 1480, 560
     s = [_header(W, H)]
     s.append(_t(40, 44, "Union-find: how raw nodes merge into logical nets (S0)",
                 23, weight="bold"))
-    s.append(_t(40, 70, "a disjoint-set structure with two ops -- find(x) = which "
-                "group is x in;  union(a, b) = merge two groups", 14, fill=MUTE))
+    s.append(_t(40, 70, "find(x) = your group's root;  union(a, b) = merge two "
+                "groups -- ALWAYS root-to-root", 14, fill=MUTE))
+    # legend
+    s.append(f"<circle cx='760' cy='40' r='9' fill='{DATA}'/>")
+    s.append(_t(774, 44, "= root (points to itself)", 12, fill=MUTE))
+    s.append(f"<circle cx='980' cy='40' r='9' fill='white' stroke='{DATA}' "
+             f"stroke-width='2'/>")
+    s.append(_t(994, 44, "= member;  arrow = 'my parent'", 12, fill=MUTE))
 
-    # panel 1 -- singletons
-    s.append(_rect(40, 92, 380, 430, PANEL, PANEL_BD, rx=12))
-    s.append(_t(60, 120, "1) start: each raw node = its own set", 14.5, weight="bold"))
-    raws = ["ml_a#1", "XMSA4#d", "XMSA5#d", "XMLA0#g", "XMLA1#g", "XMFA1#d"]
-    for i, r in enumerate(raws):
-        cx, cy = 110 + (i % 2) * 180, 180 + (i // 2) * 90
-        s.append(f"<circle cx='{cx}' cy='{cy}' r='28' fill='white' stroke='{RAW}' "
-                 f"stroke-width='2'/>")
-        s.append(_t(cx, cy + 4, r, 10.5, anchor="middle"))
-    s.append(_t(60, 500, "689 singletons;  find(x) = x", 12.5, fill=MUTE))
+    def mnode(cx, cy, letter, root):
+        if root:
+            return (f"<circle cx='{cx}' cy='{cy}' r='14' fill='{DATA}'/>"
+                    + _t(cx, cy + 4, letter, 12, anchor="middle", fill="white",
+                         weight="bold"))
+        return (f"<circle cx='{cx}' cy='{cy}' r='14' fill='white' stroke='{DATA}' "
+                f"stroke-width='2'/>"
+                + _t(cx, cy + 4, letter, 12, anchor="middle", fill=DATA,
+                     weight="bold"))
 
-    # panel 2 -- process resistors, build the tree
-    s.append(_rect(440, 92, 470, 430, "#f1f5f9", PANEL_BD, rx=12))
-    s.append(_t(460, 120, "2) for each resistor R(a, b):  union(a, b)", 14.5,
-                weight="bold"))
-    rlines = ["R41:  ml_a#1  --  XMSA4#d", "R42:  XMSA4#d  --  XMSA5#d",
-              "R43:  XMSA5#d  --  XMLA0#g", "R44:  XMLA0#g  --  XMLA1#g",
-              "R47:  XMFA1#d  --  ml_a#1"]
-    for i, ln in enumerate(rlines):
-        s.append(_t(462, 150 + i * 19, ln, 12, fill=MUTE))
-    # the resulting tree: root (smallest name) with members pointing up
-    root = (675, 300)
-    kids = [(520, 400), (600, 430), (680, 410), (760, 430), (840, 400)]
-    s.append(_node(root[0], root[1], "root", DATA, 26))
-    for kx, ky in kids:
-        s.append(_edge(kx, ky, root[0], root[1], INK, 24))
-        s.append(f"<circle cx='{kx}' cy='{ky}' r='20' fill='white' stroke='{INK}' "
-                 f"stroke-width='1.5'/>")
-    s.append(_t(460, 470, "child -> parent edges; root = the set's representative",
-                12, fill=MUTE))
-    s.append(_t(460, 490, "(deterministic: the smaller raw-node name becomes root)",
-                12, fill=MUTE))
-    s.append(_t(460, 510, "find(x): walk to root, then re-point x straight at it "
-               "(path compression)", 12, fill=MUTE))
+    def frame(fx, fy, title, roots, arrows, caption, hot=False):
+        P = {"a": (fx + 62, fy + 92), "b": (fx + 62, fy + 172),
+             "c": (fx + 182, fy + 92), "d": (fx + 182, fy + 172)}
+        bg = "#fef9ec" if hot else PANEL
+        bd = CLK if hot else PANEL_BD
+        out = [_rect(fx, fy, 252, 232, bg, bd, rx=10),
+               _t(fx + 16, fy + 26, title, 13.5, fill=(CLK if hot else INK),
+                  weight="bold")]
+        for ch, pa in arrows:
+            out.append(_edge(P[ch][0], P[ch][1], P[pa][0], P[pa][1], INK, 15))
+        for letter in "abcd":
+            out.append(mnode(P[letter][0], P[letter][1], letter, letter in roots))
+        out.append(_t(fx + 16, fy + 218, caption, 11, fill=MUTE))
+        return "".join(out)
 
-    # panel 3 -- result = one logical net
-    s.append(_rect(930, 92, 430, 430, DATA_BG, DATA, rx=12))
-    s.append(_t(950, 120, "3) one set = one logical net", 14.5, weight="bold",
-                fill=DATA))
-    rc = (1145, 250)
-    s.append(_node(rc[0], rc[1], "rep", DATA, 28))
-    for ang in range(0, 360, 60):
-        rx = rc[0] + int(120 * math.cos(math.radians(ang)))
-        ry = rc[1] + int(95 * math.sin(math.radians(ang)))
-        s.append(_edge(rx, ry, rc[0], rc[1], "#93c5fd", 28))
-        s.append(f"<circle cx='{rx}' cy='{ry}' r='16' fill='white' stroke='{DATA}' "
-                 f"stroke-width='1.5'/>")
-    s.append(_t(rc[0], 410, "this set = logical net  ml_a", 14, anchor="middle",
-                weight="bold"))
-    s.append(_t(950, 445, "after path compression every member points straight at the",
-                12, fill=MUTE))
-    s.append(_t(950, 463, "representative -> find is near O(1)", 12, fill=MUTE))
-    s.append(_t(950, 488, "the NAME 'ml_a' = the most common base#k among members",
-                12, fill=MUTE))
-    s.append(_t(950, 506, "(cosmetic; the representative is just an internal id)",
-                12, fill=MUTE))
+    y0 = 118
+    s.append(frame(56, y0, "start", set("abcd"), [],
+                   "parent[x] = x (self)"))
+    s.append(frame(338, y0, "union(a, b)", set("acd"), [("b", "a")],
+                   "b's parent = a"))
+    s.append(frame(620, y0, "union(c, d)", set("ac"), [("b", "a"), ("d", "c")],
+                   "d's parent = c"))
+    s.append(frame(902, y0, "union(b, c)", set("a"),
+                   [("b", "a"), ("c", "a"), ("d", "c")],
+                   "find roots a, c -> c points to a", hot=True))
+    s.append(frame(1184, y0, "find(d): compress", set("a"),
+                   [("b", "a"), ("c", "a"), ("d", "a")],
+                   "d re-points straight to a"))
+    # little arrows between frames
+    for fx in (308, 590, 872, 1154):
+        s.append(_line(fx, y0 + 116, fx + 30, y0 + 116, MUTE, 2))
+
+    # grouping + real example
+    gy = y0 + 256
+    s.append(_t(56, gy, "Then GROUP by root:", 15, fill=INK, weight="bold"))
+    s.append(_t(232, gy, "every node with the same root = one logical net.", 14,
+                fill="#374151"))
+    s.append(_t(56, gy + 26, "real example -- ml_a:  7 resistors (R41..R47) merge 8 "
+               "raw nodes {ml_a#1, XMSA4#d, ..., ml_a#2} into ONE net.", 13, fill=MUTE))
+    s.append(_t(56, gy + 46, "the root is just an internal id;  the NAME 'ml_a' = the "
+               "most common base among members (cosmetic).", 13, fill=MUTE))
 
     # banner
-    s.append(_rect(40, 538, 1320, 48, GREEN_BG, GREEN_BD, rx=10))
-    s.append(_t(58, 567, "689 raw nodes  --[1033 unions over resistors]->  92 logical "
-               "nets.", 14, weight="bold", fill="#065f46"))
-    s.append(_t(720, 567, "The SAME union-find runs again in S1 over transistor "
+    s.append(_rect(56, H - 64, W - 112, 46, GREEN_BG, GREEN_BD, rx=10))
+    s.append(_t(74, H - 35, "689 raw nodes  --[1033 unions over resistors]->  92 "
+               "logical nets.", 14, weight="bold", fill="#065f46"))
+    s.append(_t(720, H - 35, "the SAME union-find runs again in S1 over transistor "
                "channels -> 39 CCCs.", 13))
     s.append("</svg>")
     return "".join(s)
