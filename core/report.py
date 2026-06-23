@@ -172,139 +172,68 @@ def build_report(rows, context):
 # ---------------------------------------------------------------------------
 
 _CSS = """
-:root {
-  --blue: #2563eb; --green: #16a34a; --red: #dc2626; --amber: #d97706;
-  --ink: #1f2937; --muted: #6b7280; --line: #e5e7eb; --soft: #f9fafb;
-}
-* { box-sizing: border-box; }
-body {
-  margin: 0; padding: 24px; background: #ffffff; color: var(--ink);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
-    Arial, sans-serif;
-  font-size: 14px; line-height: 1.5;
-}
-.wrap { max-width: 1100px; margin: 0 auto; }
-h1 { font-size: 22px; font-weight: 600; margin: 0 0 4px 0; }
-h2 { font-size: 16px; font-weight: 600; margin: 0; }
-.sub { color: var(--muted); margin: 0 0 20px 0; font-size: 13px; }
-.controls { margin: 0 0 16px 0; }
-.controls button {
-  font: inherit; background: #fff; color: var(--ink); border: 1px solid var(--line);
-  border-radius: 6px; padding: 5px 12px; cursor: pointer; margin-right: 8px;
-}
-.controls button:hover { background: var(--soft); }
-.verdict {
-  border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px;
-  margin: 0 0 18px 0; background: var(--soft);
-}
-.badge {
-  display: inline-block; padding: 2px 10px; border-radius: 999px;
-  font-weight: 600; font-size: 13px; color: #fff;
-}
-.badge.ok { background: var(--green); }
-.badge.fail { background: var(--red); }
-.badge.warn { background: var(--amber); }
-.badge.neutral { background: var(--muted); }
-.tiles { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0 0 0; }
-.tile {
-  border: 1px solid var(--line); border-radius: 6px; padding: 8px 14px;
-  min-width: 84px; text-align: center; background: #fff;
-}
-.tile .n { font-size: 20px; font-weight: 600; }
-.tile .l { font-size: 11px; color: var(--muted); text-transform: uppercase;
-  letter-spacing: .04em; }
-.tile.ok .n { color: var(--green); }
-.tile.fail .n { color: var(--red); }
-.tile.skip .n { color: var(--amber); }
-.tile.error .n { color: var(--red); }
-section.card {
-  border: 1px solid var(--line); border-radius: 8px; margin: 0 0 12px 0;
-  overflow: hidden;
-}
-.card-head {
-  display: flex; align-items: center; gap: 8px; padding: 12px 16px;
-  cursor: pointer; user-select: none; background: #fff;
-}
-.card-head:hover { background: var(--soft); }
-.card-head .tw {
-  display: inline-block; width: 14px; color: var(--muted); font-size: 12px;
-  transition: transform .12s ease;
-}
-.card.collapsed .tw { transform: rotate(-90deg); }
-.card-head .count { color: var(--muted); font-weight: 400; font-size: 13px; }
-.card-body { padding: 0 16px 16px 16px; }
-.card.collapsed .card-body { display: none; }
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line);
-  vertical-align: top; }
-th { color: var(--muted); font-weight: 600; font-size: 11px;
-  text-transform: uppercase; letter-spacing: .03em; }
-.mini { width: auto; margin: 6px 18px 6px 0; display: inline-block;
-  vertical-align: top; }
-.mini caption { text-align: left; font-weight: 600; font-size: 12px;
-  color: var(--muted); padding: 4px 0; }
-.minis { display: flex; flex-wrap: wrap; gap: 0 12px; }
-.st { font-weight: 600; }
-.st.OK { color: var(--green); }
-.st.FAIL { color: var(--red); }
-.st.ERROR { color: var(--red); }
-.st.SKIP { color: var(--amber); }
-.reason { color: var(--red); }
-.warn-list { margin: 0; padding-left: 18px; }
-.warn-list li { color: var(--amber); margin: 2px 0; }
-tr.arc-row { cursor: pointer; }
-tr.arc-row:hover td { background: var(--soft); }
-tr.arc-detail td { background: var(--soft); }
-tr.arc-detail.hidden { display: none; }
-pre.deck {
-  margin: 8px 0 0 0; padding: 10px 12px; background: #0f172a; color: #e2e8f0;
-  border-radius: 6px; overflow-x: auto; font-size: 12px; line-height: 1.45;
-  white-space: pre; max-height: 420px;
-}
-dl.kv { margin: 0; display: grid; grid-template-columns: max-content 1fr;
-  gap: 2px 12px; }
-dl.kv dt { color: var(--muted); }
-dl.kv dd { margin: 0; }
-.empty { color: var(--muted); font-style: italic; padding: 4px 0; }
-code.tw-arrow { color: var(--blue); }
+*{box-sizing:border-box}
+body{margin:0;padding:28px 16px;background:#f1f5f9;color:#111827;
+ font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+ font-size:14px;line-height:1.5}
+.wrap{max-width:1040px;margin:0 auto}
+h1{font-size:22px;margin:0 0 4px} .sub{color:#6b7280;margin:0 0 14px;font-size:13px}
+.verdict{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:20px 22px;
+ margin:0 0 16px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+.badge{display:inline-block;padding:3px 12px;border-radius:999px;color:#fff;font-weight:600;font-size:12px}
+.badge.ok{background:#16a34a}.badge.fail{background:#dc2626}.badge.warn{background:#b45309}.badge.neutral{background:#6b7280}
+.tiles{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0 0}
+.tile{flex:1 1 90px;border:1px solid #e5e7eb;border-radius:10px;padding:12px 10px;text-align:center;background:#f8fafc}
+.tile .n{font-size:24px;font-weight:700;line-height:1}
+.tile .l{font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-top:4px}
+.tile.ok .n{color:#16a34a}.tile.fail .n{color:#dc2626}.tile.skip .n{color:#b45309}.tile.error .n{color:#dc2626}
+.minis{display:flex;flex-wrap:wrap;gap:24px;margin-top:16px}
+table.mini{border-collapse:collapse;font-size:12px}
+table.mini caption{text-align:left;font-weight:600;color:#6b7280;padding:0 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+table.mini th,table.mini td{padding:3px 12px 3px 0;text-align:left}
+table.mini th{color:#6b7280;font-weight:600}
+.controls{display:flex;gap:8px;margin:0 0 14px}
+.controls button{font:inherit;font-size:12px;cursor:pointer;padding:6px 12px;background:#fff;color:#111827;border:1px solid #e5e7eb;border-radius:8px}
+.controls button:hover{background:#f8fafc}
+summary{list-style:none} summary::-webkit-details-marker{display:none}
+.tw{display:inline-block;color:#9ca3af;font-size:11px;transition:transform .12s;flex:0 0 auto}
+details[open]>summary .tw{transform:rotate(90deg)}
+details.card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;margin:0 0 12px;box-shadow:0 1px 2px rgba(0,0,0,.04);overflow:hidden}
+details.card>summary{cursor:pointer;padding:14px 18px;display:flex;align-items:center;gap:10px;font-weight:600;user-select:none}
+details.card>summary:hover{background:#f8fafc}
+.count{margin-left:auto;color:#6b7280;font-weight:400;font-size:12px}
+.card-body{padding:2px 18px 18px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid #e5e7eb;vertical-align:top}
+th{color:#6b7280;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.03em}
+.st{font-weight:600}.st.OK{color:#16a34a}.st.FAIL,.st.ERROR{color:#dc2626}.st.SKIP{color:#b45309}
+.reason{color:#dc2626}
+.warn-list{margin:0;padding-left:18px}.warn-list li{color:#b45309;margin:3px 0}
+.empty{color:#6b7280;font-style:italic;padding:6px 0}
+details.arc{border:1px solid #e5e7eb;border-radius:10px;margin:8px 0;background:#fff}
+details.arc>summary{cursor:pointer;padding:10px 14px;display:flex;align-items:center;gap:12px;user-select:none;flex-wrap:wrap}
+details.arc>summary:hover{background:#f8fafc}
+.pill{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;color:#fff}
+.pill.OK{background:#16a34a}.pill.FAIL,.pill.ERROR{background:#dc2626}.pill.SKIP{background:#b45309}
+.cell{font-weight:600}
+.adir{color:#6b7280;font-family:Menlo,Consolas,monospace;font-size:12px}
+.awhen{color:#6b7280;font-size:12px;margin-left:auto}
+.arc-body{padding:6px 14px 14px}
+dl.kv{margin:0 0 10px;display:grid;grid-template-columns:max-content 1fr;gap:3px 14px;font-size:12px}
+dl.kv dt{color:#6b7280}dl.kv dd{margin:0;word-break:break-all}
+pre.deck{margin:0;padding:12px 14px;background:#0f172a;color:#e2e8f0;border-radius:8px;overflow:auto;font-size:12px;line-height:1.5;white-space:pre;max-height:460px;font-family:Menlo,Consolas,monospace}
 """
 
 _JS = """
-(function () {
-  function setCollapsed(card, collapsed) {
-    if (collapsed) { card.classList.add('collapsed'); }
-    else { card.classList.remove('collapsed'); }
+(function(){
+  function setAll(open){
+    var ds=document.querySelectorAll('details');
+    for(var i=0;i<ds.length;i++){ds[i].open=open;}
   }
-  var heads = document.querySelectorAll('.card-head');
-  for (var i = 0; i < heads.length; i++) {
-    heads[i].addEventListener('click', function (ev) {
-      var card = ev.currentTarget.parentNode;
-      setCollapsed(card, !card.classList.contains('collapsed'));
-    });
-  }
-  var rows = document.querySelectorAll('tr.arc-row');
-  for (var j = 0; j < rows.length; j++) {
-    rows[j].addEventListener('click', function (ev) {
-      var id = ev.currentTarget.getAttribute('data-detail');
-      var det = document.getElementById(id);
-      if (det) { det.classList.toggle('hidden'); }
-    });
-  }
-  var ex = document.getElementById('expand-all');
-  var co = document.getElementById('collapse-all');
-  function allCards() { return document.querySelectorAll('section.card'); }
-  if (ex) {
-    ex.addEventListener('click', function () {
-      var cs = allCards();
-      for (var k = 0; k < cs.length; k++) { setCollapsed(cs[k], false); }
-    });
-  }
-  if (co) {
-    co.addEventListener('click', function () {
-      var cs = allCards();
-      for (var k = 0; k < cs.length; k++) { setCollapsed(cs[k], true); }
-    });
-  }
+  var ex=document.getElementById('expand-all');
+  var co=document.getElementById('collapse-all');
+  if(ex){ex.addEventListener('click',function(){setAll(true);});}
+  if(co){co.addEventListener('click',function(){setAll(false);});}
 })();
 """
 
@@ -369,14 +298,12 @@ def _mini_table(caption, mapping):
 
 
 def _card(title, body_html, count_text="", collapsed=True):
-    cls = "card collapsed" if collapsed else "card"
-    head = ['<div class="card-head"><span class="tw">&#9662;</span>'
-            '<h2>%s</h2>' % _esc(title)]
-    if count_text:
-        head.append('<span class="count">%s</span>' % _esc(count_text))
-    head.append('</div>')
-    return ('<section class="%s">%s<div class="card-body">%s</div></section>'
-            % (cls, "".join(head), body_html))
+    op = "" if collapsed else " open"
+    cnt = ('<span class="count">%s</span>' % _esc(count_text)) if count_text else ""
+    return ('<details class="card"%s><summary><span class="tw">&#9656;</span>'
+            '<span class="ctitle">%s</span>%s</summary>'
+            '<div class="card-body">%s</div></details>'
+            % (op, _esc(title), cnt, body_html))
 
 
 def _failures_body(failures):
@@ -420,38 +347,29 @@ def _warnings_body(warnings, unmatched):
 def _arc_rows_body(rows):
     if not rows:
         return '<div class="empty">No arcs.</div>'
-    parts = ['<table><tr><th>cell</th><th>arc_type</th>'
-             '<th>rel -&gt; probe</th><th>dirs</th><th>when</th>'
-             '<th>corner</th><th>template</th><th>status</th></tr>']
-    for idx, r in enumerate(rows):
-        det_id = "arc-detail-%d" % idx
-        parts.append(
-            '<tr class="arc-row" data-detail="%s">'
-            '<td>%s</td><td>%s</td>'
-            '<td>%s <code class="tw-arrow">-&gt;</code> %s</td>'
-            '<td>%s/%s</td><td>%s</td><td>%s</td><td>%s</td>'
-            '<td class="st %s">%s</td></tr>'
-            % (det_id,
-               _esc(r["cell"]), _esc(r["arc_type"]),
-               _esc(r["rel_pin"]), _esc(r["probe_pin"]),
-               _esc(r["rel_dir"]), _esc(r["constr_dir"]),
-               _esc(r["when"]), _esc(r["corner"]), _esc(r["template"]),
-               _esc(r["status"]), _esc(r["status"])))
-
+    parts = []
+    for r in rows:
+        summary = (
+            '<span class="tw">&#9656;</span>'
+            '<span class="pill %s">%s</span>'
+            '<span class="cell">%s</span>'
+            '<span class="adir">%s %s &#8594; %s %s</span>'
+            '<span class="awhen">when %s</span>'
+            % (_esc(r["status"]), _esc(r["status"]), _esc(r["cell"]),
+               _esc(r["rel_pin"]), _esc(r["rel_dir"]),
+               _esc(r["probe_pin"]), _esc(r["constr_dir"]), _esc(r["when"])))
         kv = ['<dl class="kv">']
-        for label, key in (("index_1", "index_1"), ("index_2", "index_2"),
+        for label, key in (("template", "template"), ("corner", "corner"),
+                           ("index_1", "index_1"), ("index_2", "index_2"),
                            ("deck_path", "deck_path"), ("reason", "reason")):
             kv.append('<dt>%s</dt><dd>%s</dd>' % (_esc(label), _esc(r[key])))
         kv.append('</dl>')
         deck = r["deck_text"]
-        if deck:
-            deck_html = '<pre class="deck">%s</pre>' % _esc(deck)
-        else:
-            deck_html = '<div class="empty">No deck text.</div>'
-        parts.append(
-            '<tr class="arc-detail hidden" id="%s"><td colspan="8">%s%s</td></tr>'
-            % (det_id, "".join(kv), deck_html))
-    parts.append('</table>')
+        deck_html = ('<pre class="deck">%s</pre>' % _esc(deck)) if deck \
+            else '<div class="empty">No deck text.</div>'
+        parts.append('<details class="arc"><summary>%s</summary>'
+                     '<div class="arc-body">%s%s</div></details>'
+                     % (summary, "".join(kv), deck_html))
     return "".join(parts)
 
 
