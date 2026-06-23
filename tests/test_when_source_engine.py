@@ -35,6 +35,35 @@ def test_bridge_derives_sensitizing_hold_for_nand():
     assert biasesB == {"A": 1}
 
 
+# A 2:1 mux Z = (!S & I0) | (S & I1), transmission-gate style. SN = !S; TG0
+# passes I0->Z when S=0, TG1 passes I1->Z when S=1. Exercises the engine on a
+# 3-input function with masking (the unselected data input is irrelevant).
+MUX2 = """\
+.subckt MUX2 I0 I1 S Z VDD VSS VPP VBB
+XPsn SN S VDD VPP pch_svt_mac L=3e-09 W=2e-08
+XNsn SN S VSS VBB nch_svt_mac L=3e-09 W=2e-08
+XNtg0 Z SN I0 VBB nch_svt_mac L=3e-09 W=2e-08
+XPtg0 Z S  I0 VPP pch_svt_mac L=3e-09 W=2e-08
+XNtg1 Z S  I1 VBB nch_svt_mac L=3e-09 W=2e-08
+XPtg1 Z SN I1 VPP pch_svt_mac L=3e-09 W=2e-08
+.ends MUX2
+"""
+
+
+def test_bridge_derives_holds_for_mux_with_masking():
+    # I0 controls Z only when S=0; the other data input I1 is then masked.
+    b0, r0 = derive_combinational_biases(MUX2, "MUX2", "I0", "Z", ["I1", "S"])
+    assert b0["S"] == 0, r0
+    assert "masked=['I1']" in r0                # I1 irrelevant for the I0 arc
+    # I1 controls Z only when S=1; I0 masked.
+    b1, r1 = derive_combinational_biases(MUX2, "MUX2", "I1", "Z", ["I0", "S"])
+    assert b1["S"] == 1, r1
+    assert "masked=['I0']" in r1
+    # The select flips Z only when the two data inputs differ.
+    bs, rs = derive_combinational_biases(MUX2, "MUX2", "S", "Z", ["I0", "I1"])
+    assert bs == {"I0": 0, "I1": 1}, rs
+
+
 def test_bridge_degrades_on_placeholder():
     placeholder = ".subckt CELL A ZN VDD VSS\n* (no devices)\n.ends CELL\n"
     biases, reason = derive_combinational_biases(
