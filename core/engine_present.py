@@ -101,6 +101,65 @@ def topology_view(netlist_path, cell, corner=None, arc_type="hold",
     }
 
 
+def combinational_sensitization_view(netlist_path, cell, rel_pin,
+                                     output=None, when_strings=None):
+    """Run S0-S1 + combinational sensitization on an LPE/synthetic netlist and
+    return demo-ready JSON for the GUI: the SENSITIZING / BLOCKED regions, the
+    per-state conduction signature SIG, and the region-equivalence verdict
+    (MATCH / DIVERGENCE + differing states / UNSUPPORTED-WHEN) against the
+    collateral -when set. NEVER raises: failures come back as {"status":"ERROR"}.
+
+    when_strings: the kit's -when conjunctions for this (rel_pin -> output) arc
+    group (e.g. ["A1&!A2", "!A1&A2", "!A1&!A2"]); [] / None -> unconditional arc.
+    """
+    from engine.stages import stage0_parse, stage1_ccc, stage2_sensitize
+    from engine.types import Arc
+
+    try:
+        with open(netlist_path, "r") as fh:
+            src = fh.read()
+    except OSError as e:
+        return {"status": "ERROR", "error": "cannot read netlist: %s" % e}
+
+    try:
+        graph = stage0_parse.parse(src, cell)
+        ccc = stage1_ccc.decompose(graph)
+        arc = Arc(cell=cell, arc_type="combinational", rel_pin=rel_pin,
+                  rel_dir="rise", constr_pin=(output or ""), constr_dir="rise",
+                  when="NO_CONDITION", measurement="",
+                  raw={"probe_pin": output} if output else {})
+        if not stage2_sensitize.is_combinational_arc(graph, arc, ccc):
+            return {"status": "NA",
+                    "error": "arc CCC has a state node -- not combinational"}
+        res = stage2_sensitize.derive_combinational(graph, arc, ccc)
+        verdict = stage2_sensitize.comb_verdict(res, list(when_strings or []))
+    except Exception as e:
+        tb = traceback.format_exc().splitlines()[-3:]
+        return {"status": "ERROR", "error": str(e), "traceback_tail": tb}
+
+    def _state(cs):
+        return {"label": cs.label, "assign": dict(cs.assign),
+                "out_dir": cs.out_dir, "sig": sorted(cs.sig)}
+
+    return {
+        "status": "OK",
+        "rel_pin": res.rel_pin,
+        "output": res.output,
+        "side_pins": list(res.side_pins),
+        "sensitizing": [_state(cs) for cs in res.sensitizing],
+        "blocked": [_state(cs) for cs in res.blocked],
+        "needs_split": res.needs_split,
+        "verdict": {
+            "status": verdict.status.value,
+            "cover": verdict.cover,
+            "missing": verdict.missing,
+            "extra": verdict.extra,
+            "detail": verdict.detail,
+        },
+        "notes": list(res.notes),
+    }
+
+
 CSV_COLUMNS = ["cell", "arc", "corner", "P1", "P2", "P3",
                "bias_match", "arc_check", "notes"]
 

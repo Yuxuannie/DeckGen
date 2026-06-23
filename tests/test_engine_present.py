@@ -4,10 +4,11 @@ Spec: docs/superpowers/specs/2026-06-10-gui-all-features-showcase-design.md
 import os
 import xml.dom.minidom as minidom
 
-from core.engine_present import topology_view
+from core.engine_present import topology_view, combinational_sensitization_view
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SDFX = os.path.join(REPO, "engine", "fixtures", "SDFX_LPE_PLACEHOLDER.subckt")
+AIOI21 = os.path.join(REPO, "engine", "fixtures", "AIOI21_RECON.subckt")
 
 
 class TestTopologyView:
@@ -104,3 +105,40 @@ def test_audit_accepts_structured_arc_dicts(tmp_path):
     assert out["rows"][0]["cell"] == "DFFQ1"
     # must NOT be the unparseable-arc error path
     assert out["rows"][0]["notes"] != "unparseable arc id"
+
+
+class TestCombinationalSensitizationView:
+    def test_exposes_region_sig_and_match_verdict(self):
+        # AIOI21 B->ZN with correct collateral -when -> MATCH; region + SIG present.
+        r = combinational_sensitization_view(
+            AIOI21, "AIOI21", rel_pin="B", output="ZN",
+            when_strings=["A1&!A2", "!A1&A2", "!A1&!A2"])
+        assert r["status"] == "OK"
+        assert r["rel_pin"] == "B" and r["output"] == "ZN"
+        sens = {s["label"] for s in r["sensitizing"]}
+        assert sens == {"!A1&!A2", "!A1&A2", "A1&!A2"}
+        assert {b["label"] for b in r["blocked"]} == {"A1&A2"}
+        # every sensitizing state carries a SIG (partition hook, demoable)
+        assert all(len(s["sig"]) > 0 for s in r["sensitizing"])
+        assert r["needs_split"] is True
+        assert r["verdict"]["status"] == "MATCH"
+
+    def test_catch_divergence_names_states(self):
+        # kit asserts timing on the BLOCKED state A1&A2 -> DIVERGENCE in the JSON.
+        r = combinational_sensitization_view(
+            AIOI21, "AIOI21", rel_pin="B", output="ZN",
+            when_strings=["A1&!A2", "!A1&A2", "A1&A2"])
+        assert r["verdict"]["status"] == "DIVERGENCE"
+        assert "A1&A2" in r["verdict"]["extra"]
+        assert "!A1&!A2" in r["verdict"]["missing"]
+
+    def test_unsupported_when_not_divergence(self):
+        r = combinational_sensitization_view(
+            AIOI21, "AIOI21", rel_pin="B", output="ZN",
+            when_strings=["!A1 | !A2"])
+        assert r["verdict"]["status"] == "UNSUPPORTED-WHEN"
+
+    def test_missing_netlist_returns_error_not_raise(self):
+        r = combinational_sensitization_view(
+            "/no/such/file.subckt", "AIOI21", rel_pin="B", output="ZN")
+        assert r["status"] == "ERROR"
