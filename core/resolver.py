@@ -459,6 +459,27 @@ def resolve_all_from_collateral(
             rel_pin=rel_pin, rel_pin_dir=rel_dir,
             when=arc.get('when', ''))
 
+        # If a delay rule matched (e.g. a per-cell hack path) but that template
+        # file is absent on disk, fall back to the COMMON delay template instead
+        # of falling through to the registry, which can mis-select an MPW
+        # template for a combinational arc. Only adopt the common path if it,
+        # too, exists; otherwise leave tmpl_rel as-is (existing fallback applies).
+        if tmpl_rel:
+            from config.delay_template_rules import _try_common_delay
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            templates_dir = os.path.normpath(
+                os.path.join(script_dir, '..', 'templates'))
+            bases = [b for b in (
+                os.path.join(templates_dir, node) if node else None,
+                templates_dir,
+            ) if b is not None]
+            if not any(os.path.isfile(os.path.join(b, tmpl_rel)) for b in bases):
+                common_rel = _try_common_delay(constr_dir, rel_dir)
+                if common_rel and any(
+                        os.path.isfile(os.path.join(b, common_rel))
+                        for b in bases):
+                    tmpl_rel = common_rel
+
         # Then try MCQC JSON rules (hold/setup/mpw/etc.)
         if not tmpl_rel:
             from core.template_rules import match_template
