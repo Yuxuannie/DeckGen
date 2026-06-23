@@ -96,4 +96,27 @@ def test_run_action_without_cell_prompts(root):
     state = {"root": root, "node": NODE, "lib": LIB, "corner": CORNER,
              "cell": "", "method": "generator"}
     results, rid = G.run_action(state)
-    assert rid is None and "Enter a cell" in results
+    assert rid is None and "all cells" in results
+
+
+def test_parse_cells_splits_on_commas_and_whitespace():
+    assert G._parse_cells("A, B  C\nD") == ["A", "B", "C", "D"]
+    assert G._parse_cells("") == []
+    assert G._parse_cells(None) == []
+
+
+def test_run_action_all_cells_aggregates_report(root):
+    # the fixture lib has DFFQ1; "all cells" must enumerate and report it
+    state = {"root": root, "node": NODE, "lib": LIB, "corner": CORNER,
+             "all_cells": "1", "method": "generator"}
+    results, rid = G.run_action(state)
+    assert rid is not None and "<iframe" in results
+    assert "all cells" in results
+    assert "DFFQ1" in G._REPORTS[rid]
+
+
+def test_render_form_shows_all_cells_checkbox(root):
+    state = {"root": root, "node": NODE, "lib": LIB, "corner": CORNER,
+             "all_cells": "1"}
+    form = G.render_form(state)
+    assert "name='all_cells'" in form and "checked" in form

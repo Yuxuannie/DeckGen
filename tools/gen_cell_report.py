@@ -48,23 +48,14 @@ def _combinational_arcs(parsed, cell):
     return out
 
 
-def run(collateral_root, node, lib_type, corner, cell, output,
-        method="template"):
-    os.makedirs(output, exist_ok=True)
-    # 1. manifest (build if missing)
-    manifest = os.path.join(collateral_root, node, lib_type, "manifest.json")
-    if not os.path.isfile(manifest):
-        build_manifest(collateral_root, node, lib_type)
-    store = CollateralStore(collateral_root, node, lib_type, skip_autoscan=True)
-
-    # 2. enumerate combinational arcs from the cell's template.tcl
-    tcl = store.get_template_tcl(corner)
-    parsed = parse_template_tcl_full(tcl)
+def _collect_cell_rows(parsed, node, lib_type, corner, cell, deck_dir,
+                       collateral_root, method):
+    """Generate decks for one cell's combinational arcs; return outcome rows.
+    Writes each deck under deck_dir. Never raises per-arc -- failures become FAIL
+    rows so no arc is dropped silently."""
     cell_info = parsed.get("cells", {}).get(cell, {})
     out_pins = cell_info.get("output_pins", [])
     arcs = _combinational_arcs(parsed, cell)
-
-    deck_dir = os.path.join(output, cell)
     os.makedirs(deck_dir, exist_ok=True)
 
     rows = []
@@ -115,21 +106,50 @@ def run(collateral_root, node, lib_type, corner, cell, output,
             row["status"] = "FAIL"
             row["reason"] = str(e)[:300]
         rows.append(row)
+    return rows
+
+
+def run_cells(collateral_root, node, lib_type, corner, cells, output,
+              method="template"):
+    """Generate decks + ONE aggregated report for several cells. `cells` is a
+    list; an empty list means every cell in the corner's template.tcl."""
+    os.makedirs(output, exist_ok=True)
+    manifest = os.path.join(collateral_root, node, lib_type, "manifest.json")
+    if not os.path.isfile(manifest):
+        build_manifest(collateral_root, node, lib_type)
+    store = CollateralStore(collateral_root, node, lib_type, skip_autoscan=True)
+    parsed = parse_template_tcl_full(store.get_template_tcl(corner))
+
+    if not cells:
+        cells = sorted(parsed.get("cells", {}).keys())
+
+    rows = []
+    for cell in cells:
+        rows.extend(_collect_cell_rows(
+            parsed, node, lib_type, corner, cell,
+            os.path.join(output, cell), collateral_root, method))
 
     context = {"node": node, "lib_type": lib_type, "corner": corner,
                "collateral_root": collateral_root, "output_dir": output,
-               "tool_version": TOOL_VERSION}
+               "tool_version": TOOL_VERSION, "cells": len(cells)}
     report = build_report(rows, context)
     html_path = os.path.join(output, "report.html")
     with open(html_path, "w", encoding="ascii", errors="replace") as fh:
         fh.write(render_html(report))
 
     s = report["summary"]
-    print(f"cell {cell}: {s['total']} combinational arc(s) -> "
+    print(f"{len(cells)} cell(s): {s['total']} combinational arc(s) -> "
           f"OK={s['ok']} FAIL={s['fail']} SKIP={s['skip']} ERROR={s.get('error', 0)}")
-    print(f"decks : {deck_dir}/")
+    print(f"decks : {output}/")
     print(f"report: {html_path}   (open in a browser)")
     return report
+
+
+def run(collateral_root, node, lib_type, corner, cell, output,
+        method="template"):
+    """Single-cell entry point (back-compat wrapper over run_cells)."""
+    return run_cells(collateral_root, node, lib_type, corner, [cell], output,
+                     method=method)
 
 
 def main(argv=None):
@@ -138,12 +158,23 @@ def main(argv=None):
     ap.add_argument("--node", required=True)
     ap.add_argument("--lib_type", required=True)
     ap.add_argument("--corner", required=True)
-    ap.add_argument("--cell", required=True)
+    ap.add_argument("--cell", help="one cell (or use --cells / --all_cells)")
+    ap.add_argument("--cells", help="comma-separated cell names")
+    ap.add_argument("--all_cells", action="store_true",
+                    help="every cell in the corner's template.tcl")
     ap.add_argument("--output", default="./mvp_out")
     ap.add_argument("--method", default="template", choices=["template", "generator"])
     args = ap.parse_args(argv)
-    run(args.collateral_root, args.node, args.lib_type, args.corner, args.cell,
-        args.output, method=args.method)
+
+    cells = []
+    if args.cells:
+        cells += [c.strip() for c in args.cells.split(",") if c.strip()]
+    if args.cell:
+        cells.append(args.cell)
+    if not cells and not args.all_cells:
+        ap.error("provide --cell, --cells, or --all_cells")
+    run_cells(args.collateral_root, args.node, args.lib_type, args.corner,
+              cells, args.output, method=args.method)
     return 0
 
 

@@ -159,16 +159,20 @@ def render_form(state):
         "<label>node%s</label>"
         "<label>lib_type%s</label>"
         "<label>corner%s</label>"
-        "<label>cell<input type='text' name='cell' value='%s' list='cells' "
-        "placeholder='type a cell'></label>"
+        "<label>cell(s)<input type='text' name='cell' value='%s' list='cells' "
+        "placeholder='one or more, space/comma separated'></label>"
         "<datalist id='cells'>%s</datalist>"
+        "<label class='methods'><input type='checkbox' name='all_cells' "
+        "value='1'%s> all cells</label>"
         "<div class='methods'>%s</div>"
         "<button type='submit'>Run</button>"
         "</form>"
         "<div class='muted' style='margin-top:8px'>%d cell(s) in this lib/corner."
+        " Enter several cells, or tick \"all cells\"."
         " Method 'diff' compares template vs generator line-by-line.</div>"
         % (_esc(root), _select("node", nodes, node), _select("lib", libs, lib),
-           _select("corner", corners, corner), _esc(cell), dl, radios, len(cells)))
+           _select("corner", corners, corner), _esc(cell), dl,
+           " checked" if state.get("all_cells") else "", radios, len(cells)))
 
 
 def _tiles(pairs):
@@ -178,19 +182,29 @@ def _tiles(pairs):
                       for lbl, n, cls in pairs) + "</div>")
 
 
+def _parse_cells(cell_field):
+    """Split the cell field on commas/whitespace/newlines into a clean list."""
+    return [c for c in (cell_field or "").replace(",", " ").split() if c]
+
+
 def run_action(state):
     """Execute the chosen method. Returns (results_html, report_id_or_None)."""
     root = state.get("root") or _DEFAULT_ROOT
     node, lib = state.get("node"), state.get("lib")
-    corner, cell = state.get("corner"), state.get("cell")
+    corner = state.get("corner")
     method = state.get("method") or "generator"
-    if not cell:
-        return "<div class='muted'>Enter a cell name, then Run.</div>", None
+    all_cells = bool(state.get("all_cells"))
+    cells = _parse_cells(state.get("cell"))
+    if not cells and not all_cells:
+        return ("<div class='muted'>Enter one or more cell names (or tick "
+                "\"all cells\"), then Run.</div>", None)
     out = tempfile.mkdtemp(prefix="deckgen_gui_")
+    label = "all cells" if all_cells else ", ".join(cells)
 
     if method == "diff":
         from tools.deck_diff import run as diff_run
-        rows, ok = diff_run(root, node, lib, corner, [cell], out_path=None)
+        diff_cells = list_cells(root, node, lib, corner) if all_cells else cells
+        rows, ok = diff_run(root, node, lib, corner, diff_cells, out_path=None)
         nm = sum(1 for r in rows if r["status"] == "MATCH")
         nd = sum(1 for r in rows if r["status"] == "DIFF")
         ne = sum(1 for r in rows if r["status"] == "ERROR")
@@ -207,11 +221,13 @@ def run_action(state):
                 body.append("<h4>%s</h4><pre>%s</pre>"
                             % (_esc(r["arc"]), _esc(r["diff"])))
         verdict = "ALL MATCH" if ok else "DIFFERENCES FOUND"
-        return ("<h3>Cross-validation: %s</h3>%s" % (verdict, "".join(body)), None)
+        return ("<h3>Cross-validation (%s): %s</h3>%s"
+                % (_esc(label), verdict, "".join(body)), None)
 
-    # template / generator -> the report
-    from tools.gen_cell_report import run as gen_run
-    report = gen_run(root, node, lib, corner, cell, out, method=method)
+    # template / generator -> the report ([] means every cell in the corner)
+    from tools.gen_cell_report import run_cells
+    report = run_cells(root, node, lib, corner, [] if all_cells else cells, out,
+                       method=method)
     s = report["summary"]
     _rid[0] += 1
     rid = str(_rid[0])
@@ -220,7 +236,7 @@ def run_action(state):
                     ("fail", s["fail"], "fail"), ("skip", s["skip"], "")])
     return ("<h3>%s decks for %s</h3>%s"
             "<iframe src='/report?id=%s' title='report'></iframe>"
-            % (_esc(method), _esc(cell), tiles, rid), rid)
+            % (_esc(method), _esc(label), tiles, rid), rid)
 
 
 def page(state, results_html=""):
@@ -257,7 +273,7 @@ class Handler(BaseHTTPRequestHandler):
         state = {"root": q.get("root") or self.COLLATERAL_ROOT,
                  "node": q.get("node"), "lib": q.get("lib"),
                  "corner": q.get("corner"), "cell": q.get("cell"),
-                 "method": q.get("method")}
+                 "method": q.get("method"), "all_cells": q.get("all_cells")}
         if u.path == "/run":
             try:
                 results, _ = run_action(state)
