@@ -7,9 +7,11 @@ a malformed row is recorded as status ERROR with a reason, not raised.
 Public API:
     build_report(rows, context) -> dict
     render_html(report) -> str   (complete <!doctype...></html> document)
+    rows_from_batch(jobs, results) -> list  (core.batch output -> rows)
 """
 
 import html as _html
+import os
 
 # Canonical statuses. Anything else is normalized to ERROR.
 _STATUSES = ("OK", "FAIL", "SKIP", "ERROR")
@@ -512,3 +514,57 @@ def render_html(report):
         "</body></html>",
     ]
     return "".join(doc)
+
+
+def rows_from_batch(jobs, results=None, read_deck=True):
+    """Bridge core.batch output (jobs + execute results) into report rows.
+
+    This connects the report to the EXISTING feasibility pipeline (collateral
+    resolution in core.batch): a planned job whose `error` is set could not be
+    generated -> FAIL with that error as the reason; a job with a successful
+    execute result -> OK with the written deck; a planned-but-not-executed job
+    -> SKIP. Never raises for a bad job (it is skipped or recorded).
+    """
+    res_by_id = {}
+    for r in (results or []):
+        if isinstance(r, dict) and "id" in r:
+            res_by_id[r["id"]] = r
+    rows = []
+    for j in (jobs or []):
+        if not isinstance(j, dict):
+            continue
+        ai = j.get("arc_info") or {}
+        row = {
+            "cell": j.get("cell", ""),
+            "arc_type": j.get("arc_type", ""),
+            "rel_pin": ai.get("REL_PIN", ""),
+            "rel_dir": ai.get("REL_PIN_DIR", ""),
+            "probe_pin": ai.get("PROBE_PIN_1", "") or ai.get("CONSTR_PIN", ""),
+            "constr_dir": ai.get("CONSTR_PIN_DIR", ""),
+            "when": ai.get("WHEN", "") or j.get("arc_id", ""),
+            "corner": j.get("corner", ""),
+            "template": _basename(ai.get("TEMPLATE_DECK_PATH", "")) if ai else "",
+            "index_1": ai.get("INDEX_1_VALUE", ""),
+            "index_2": ai.get("INDEX_2_VALUE", ""),
+        }
+        if j.get("error"):
+            row["status"], row["reason"] = "FAIL", j["error"]
+        else:
+            r = res_by_id.get(j.get("id"))
+            if r is None:
+                row["status"], row["reason"] = "SKIP", "planned but not executed"
+            elif r.get("success"):
+                row["status"] = "OK"
+                deck = r.get("nominal") or r.get("mc") or ""
+                row["deck_path"] = deck
+                if read_deck and deck and os.path.isfile(deck):
+                    try:
+                        with open(deck, "r", encoding="ascii", errors="replace") as fh:
+                            row["deck_text"] = fh.read()
+                    except OSError:
+                        pass
+            else:
+                row["status"] = "FAIL"
+                row["reason"] = r.get("error") or "execution failed"
+        rows.append(row)
+    return rows
