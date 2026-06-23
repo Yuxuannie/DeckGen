@@ -28,8 +28,10 @@ from itertools import product
 from typing import Dict, List, Optional, Tuple
 
 from engine import switchlevel
-from engine.types import Arc, CCCResult, Derivation, DeviceGraph, SensitizationResult
-from engine.whencond import parse_when
+from engine.types import (Arc, CCCResult, CombSensitizationResult, CombState,
+                          CombStatus, CombVerdict, Derivation, DeviceGraph,
+                          SensitizationResult)
+from engine.whencond import parse_when, parse_when_conjunction
 
 STAGE = "S2.sens"
 RAILS = {"VDD", "VSS", "VPP", "VBB", "0"}
@@ -159,3 +161,170 @@ def derive(graph: DeviceGraph, arc: Arc, ccc: CCCResult) -> SensitizationResult:
         p1_obligation=obligation, proven=proven, clock_phase=clock_phase,
         set_pins=set_pins, masked_pins=masked_pins, arc_check=arc_check,
     )
+
+
+# ---------------------------------------------------------------------------
+# Combinational sensitization REGION (spec 2026-06-24, AOI/OAI accuracy).
+# Boolean difference over the switch-level model: for the toggling pin P and each
+# side-pin state s, does toggling P change the output O? -- gives SENSITIZING /
+# BLOCKED region + a conduction-path signature SIG(s) per sensitizing state.
+# ---------------------------------------------------------------------------
+COMB_STAGE = "S2.comb"
+
+
+def _inputs_outputs(graph: DeviceGraph):
+    driven = {d.terminals["d"] for d in graph.devices}
+    inputs = [p for p in graph.ports if p not in RAILS and p not in driven]
+    outputs = [p for p in graph.ports if p in driven and p not in RAILS]
+    return inputs, outputs
+
+
+def _label(side: List[str], a: Dict[str, int]) -> str:
+    return "&".join((p if a[p] else "!" + p) for p in side) or "(uncond)"
+
+
+def _sig(graph: DeviceGraph, assign: Dict[str, int], out: str) -> frozenset:
+    """SIG(s): the set of ON transistors in the output's channel-connected group
+    -- the active conducting path to O under `assign`. Distinguishes e.g. a
+    parallel-PMOS pull from a single-PMOS pull (the partition datum, SS3.5)."""
+    v = switchlevel.evaluate(graph, assign)
+    parent = {n: n for n in graph.nets}
+
+    def find(x: str) -> str:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    on = []
+    for d in graph.devices:
+        g = v[d.terminals["g"]]
+        if (d.kind == "nmos" and g == 1) or (d.kind == "pmos" and g == 0):
+            on.append(d)
+            da, db = find(d.terminals["d"]), find(d.terminals["s"])
+            if da != db:
+                parent[max(da, db)] = min(da, db)
+    grp = find(out)
+    return frozenset(d.name for d in on
+                     if find(d.terminals["d"]) == grp or find(d.terminals["s"]) == grp)
+
+
+def _arc_ccc_has_state(graph: DeviceGraph, arc: Arc, ccc: CCCResult, out: str) -> bool:
+    """True iff the channel-connected component FEEDING THIS ARC's output holds a
+    state node. CCC-scoped (not whole-cell) so mixed cells need no rework."""
+    comp = next((c for c in ccc.components if out in c), None)
+    if comp is None:
+        return bool(ccc.state_nodes)        # fall back to cell-level signal
+    comp_nets = set(comp)
+    return any(sn.net in comp_nets for sn in ccc.state_nodes)
+
+
+def is_combinational_arc(graph: DeviceGraph, arc: Arc, ccc: CCCResult) -> bool:
+    """Dispatch on STRUCTURE, not on arc_type: combinational iff the arc's CCC has
+    no storage/feedback node (topology can't lie; the label can)."""
+    _, outputs = _inputs_outputs(graph)
+    out = _resolve_output(arc, outputs)
+    return not _arc_ccc_has_state(graph, arc, ccc, out)
+
+
+def _resolve_output(arc: Arc, outputs: List[str]) -> str:
+    probe = arc.raw.get("probe_pin") or arc.constr_pin
+    if probe in outputs:
+        return probe
+    return outputs[0] if outputs else (probe or "")
+
+
+def derive_combinational(graph: DeviceGraph, arc: Arc,
+                         ccc: CCCResult) -> CombSensitizationResult:
+    """Derive the sensitization REGION of arc (rel_pin P -> output O) from topology
+    alone (no read of arc.when). For each side-pin state, Boolean difference over
+    the switch-level model decides SENSITIZING vs BLOCKED; SIG(s) is recorded per
+    sensitizing state (partition hook)."""
+    inputs, outputs = _inputs_outputs(graph)
+    P = arc.rel_pin
+    O = _resolve_output(arc, outputs)
+    side = [i for i in inputs if i != P]
+
+    sensitizing: List[CombState] = []
+    blocked: List[CombState] = []
+    for combo in product((0, 1), repeat=len(side)):
+        s = dict(zip(side, combo))
+        o0 = switchlevel.evaluate(graph, {**s, P: 0}).get(O)
+        o1 = switchlevel.evaluate(graph, {**s, P: 1}).get(O)
+        lbl = _label(side, s)
+        if o0 is not None and o1 is not None and o0 != o1:
+            out_dir = "R" if o1 > o0 else "F"          # output edge when P rises
+            sig = _sig(graph, {**s, P: 1}, O)
+            sensitizing.append(CombState(lbl, dict(s), out_dir, sig))
+        else:
+            blocked.append(CombState(lbl, dict(s), None, frozenset()))
+
+    sig_groups = {cs.sig for cs in sensitizing}
+    needs_split = len(sig_groups) > 1
+    deriv = Derivation(
+        [cs.label for cs in sensitizing],
+        f"d(O={O})/d(P={P}) over switch-level model: {len(sensitizing)} sensitizing "
+        f"state(s), {len(blocked)} blocked; {len(sig_groups)} SIG group(s)",
+        COMB_STAGE)
+    notes = [
+        f"SENSITIZING({len(sensitizing)}/{2 ** len(side)}): "
+        f"{[cs.label for cs in sensitizing]}",
+        f"BLOCKED: {[cs.label for cs in blocked]}",
+        f"SIG groups among sensitizing: {len(sig_groups)} "
+        f"(needs_split={needs_split})",
+    ]
+    return CombSensitizationResult(
+        rel_pin=P, output=O, side_pins=side, sensitizing=sensitizing,
+        blocked=blocked, needs_split=needs_split, derivation=deriv, notes=notes)
+
+
+def comb_verdict(result: CombSensitizationResult,
+                 when_strings: List[str]) -> CombVerdict:
+    """Region-equivalence verdict (spec SS3). cover(W_coll) vs SENSITIZING:
+      MATCH iff cover == SENSITIZING and cover disjoint from BLOCKED.
+    Unconditional arc (no -when): Option A -- cover := SENSITIZING, MATCH iff
+      SENSITIZING != empty (a pin that can control O). Full-S is NOT assumed.
+    Non-conjunction -when (OR): UNSUPPORTED-WHEN, never DIVERGENCE (SCLD guard)."""
+    side = result.side_pins
+    sens_keys = {_key(side, cs.assign) for cs in result.sensitizing}
+    blocked_keys = {_key(side, cs.assign) for cs in result.blocked}
+    all_states = [dict(zip(side, c)) for c in product((0, 1), repeat=len(side))]
+
+    parsed = []
+    for w in when_strings:
+        c = parse_when_conjunction(w)
+        if c is None:
+            return CombVerdict(CombStatus.UNSUPPORTED_WHEN, [], [], [],
+                               f"kit -when {w!r} is not a pure conjunction "
+                               f"(OR/contradiction) -- cannot compute cover")
+        parsed.append(c)
+
+    unconditional = (not parsed) or any(len(c) == 0 for c in parsed)
+    if unconditional:
+        cover_keys = set(sens_keys)        # Option A: delegated to characterizer
+    else:
+        cover_keys = set()
+        for c in parsed:
+            for st in all_states:
+                if all(st.get(p) == v for p, v in c.items()):
+                    cover_keys.add(_key(side, st))
+
+    def lbls(keys):
+        return sorted(_label(side, dict(k)) for k in keys)
+
+    missing = sens_keys - cover_keys       # topology sensitizes, kit omits
+    extra = cover_keys - sens_keys         # kit marks sensitizing where blocked
+    if unconditional:
+        ok = len(sens_keys) > 0
+        detail = (f"unconditional arc: SENSITIZING={lbls(sens_keys)} "
+                  f"(non-empty={ok}); cover:=SENSITIZING per Option A")
+    else:
+        ok = (cover_keys == sens_keys) and not (cover_keys & blocked_keys)
+        detail = (f"cover={lbls(cover_keys)} vs SENSITIZING={lbls(sens_keys)}; "
+                  f"missing={lbls(missing)} extra={lbls(extra)}")
+    status = CombStatus.MATCH if ok else CombStatus.DIVERGENCE
+    return CombVerdict(status, lbls(cover_keys), lbls(missing), lbls(extra), detail)
+
+
+def _key(side: List[str], a: Dict[str, int]):
+    return tuple((p, a[p]) for p in side)

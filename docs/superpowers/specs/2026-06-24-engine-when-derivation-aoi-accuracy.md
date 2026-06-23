@@ -109,8 +109,19 @@ Definitions:
   created/broken). `SENSITIZING = { s : SENS(s) }`; `BLOCKED = S \ SENSITIZING`.
 - `cover(W_coll) =` union, over every collateral `-when` conjunction `c` for arcs
   matching `(P, dir, O)`, of `{ s in S : s |= c }`. A conjunction fixing `k` of
-  `n` side pins covers `2^(n-k)` states. An unconditional arc (no `-when`) covers
-  all of `S`.
+  `n` side pins covers `2^(n-k)` states.
+- **Unconditional arc (no `-when`) -- Option A semantics (adjudicated 2026-06-24).**
+  A when-less arc does NOT mean "P sensitizes O in all of `S`". It asserts "P
+  sensitizes O, characterized at its natural sensitizing region" -- the kit
+  delegated the condition to the characterizer (it had no need to split). So for
+  an unconditional arc, `cover := SENSITIZING` by definition. Treating it as
+  full-`S` would FALSE-FLAG any complex-gate input that controls O only in a
+  subset of states (e.g. AIOI21 `A1`, which sensitizes only at `A2&B`). MATCH for
+  an unconditional arc therefore reduces to `SENSITIZING != ∅` (the arc names a
+  pin that CAN control O); DIVERGENCE only if `SENSITIZING == ∅` (a dead arc).
+  Partition tie-in (still DEFERRED, SS3.5): an unconditional arc whose
+  `SENSITIZING` spans `>= 2` distinct `SIG` groups is a PARTITION-WARN candidate
+  (the kit arguably should have split it).
 
 Verdicts:
 - **(i) MATCH** -- `cover(W_coll) == SENSITIZING` AND
@@ -198,16 +209,37 @@ broken direction/region model is caught before AOI22/OAI build on it. For the
   "narrower-than-full region <=> conditional arc" and "fixed output direction per
   input edge". XOR2 violates both. (XNOR2 added too if cheap.)
 
+## 5.9 Vector-gate RED step (MANDATORY for every synthetic anchor)
+
+A reconstructed netlist can silently encode the WRONG Boolean function and still
+"pass" if you only check it against itself (this happened in the first 2a draft:
+a netlist computing `B + A1*A2` was verified against its own output, contradicting
+the cell's `-vector` directions). To close the loophole, EVERY anchor's RED phase
+MUST, BEFORE any region is derived, assert that `switchlevel.evaluate` on the
+reconstructed netlist reproduces the cell's `template.tcl` `-vector` transition
+directions -- the per-arc INPUT and OUTPUT polarity (unate sense). For AIOI21 the
+vectors are in PROJECT_NOTES SS2.4 (`A1->ZN {RxxF}` = A1 rise, ZN fall =
+negative-unate; `B->ZN {xxRR}` = positive-unate). For a cell reconstructed from a
+function, emit the expected vectors and assert switchlevel matches. Only after the
+vector gate passes may sensitization regions be derived from the netlist. The
+`-vector` direction is the independent signal that a truth table alone does not
+give.
+
 ## 6. Phasing (after approval; one step per turn, test-first)
 
-- **2a -- AIOI21.** Reconstruct the AIOI21 netlist; feed to the engine; assert it
-  INDEPENDENTLY derives, in REGION terms: `B -> ZN` `SENSITIZING == !(A1*A2)` =
-  `{!A1&!A2, A1&!A2, !A1&A2}`, `BLOCKED == {A1&A2}`; `A1 -> ZN` and `A2 -> ZN`
-  `SENSITIZING == full` (unconditional). And that `SIG(s)` distinguishes the
-  parallel-PMOS state (`!A1&!A2`) from the single-PMOS states (the partition
-  datum -- computed, NOT gated). `test_aioi21_ground_truth.py` is parser-only --
-  ADD engine-derivation assertions (new `tests/engine/test_aioi21_sensitize.py`);
-  do not weaken or duplicate the parser test.
+- **2a -- AIOI21** (`ZN = B*!(A1*A2)`; adjudicated 2026-06-24 -- positive-unate in
+  B, negative-unate in A1/A2, B inverted internally). Reconstruct the netlist;
+  pass the SS5.9 vector gate (truth table incl. `(A1=1,A2=1,B=0) -> ZN=0`, and
+  `A1->ZN {RxxF}`, `A2->ZN {xRxF}`, `B->ZN {xxRR}` directions); THEN feed to the
+  engine and assert it INDEPENDENTLY derives, in REGION terms:
+  `B -> ZN` `SENSITIZING == !(A1*A2)` = `{!A1&!A2, A1&!A2, !A1&A2}`,
+  `BLOCKED == {A1&A2}` (conditional); `A1 -> ZN` `SENSITIZING == {A2&B}` and
+  `A2 -> ZN` `SENSITIZING == {A1&B}` (one state each -> unconditional-correct per
+  Option A, NOT full-S). And that `SIG(s)` distinguishes the parallel-PMOS state
+  (`!A1&!A2`) from the single-PMOS states (the partition datum -- computed, NOT
+  gated). `test_aioi21_ground_truth.py` is parser-only -- ADD engine-derivation
+  assertions (new `tests/engine/test_aioi21_sensitize.py`); do not weaken or
+  duplicate the parser test.
 - **2b -- XOR2 / XNOR2 (binate).** Per SS5: `SENSITIZING == full`, `BLOCKED == ∅`,
   no spurious conditional WHEN; output direction tracked per side-state.
 - **2c -- AOI22 / OAI22.** Two-and-two structure; verifies split with 2 side

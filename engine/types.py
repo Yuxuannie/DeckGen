@@ -137,6 +137,54 @@ class SensitizationResult:
 
 
 # ---------------------------------------------------------------------------
+# Stage 2 (combinational) -- per-arc sensitization REGION + partition hook
+# (spec 2026-06-24, AOI/OAI accuracy). Sibling of SensitizationResult; the
+# sequential contract above is untouched.
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class CombState:
+    """One side-pin assignment and what the engine found there.
+
+    `sig` is the conduction-path signature (SS3.5 partition hook): the set of ON
+    transistors forming the active path to the output under this state and the
+    related pin's transition. Computed for SENSITIZING states (empty for BLOCKED).
+    """
+    label: str                    # "!A1&!A2"
+    assign: Dict[str, int]        # side pin -> 0/1
+    out_dir: Optional[str]        # "R"/"F" output edge when rel pin rises; None if blocked
+    sig: frozenset                # SIG(s): ON devices in the output's conducting path
+
+
+@dataclass
+class CombSensitizationResult:
+    rel_pin: str                  # toggling input P
+    output: str                   # output net O
+    side_pins: List[str]          # SIDE = inputs \ {P}
+    sensitizing: List[CombState]  # states where toggling P changes O
+    blocked: List[CombState]      # states where it cannot (hidden, never a timing arc)
+    needs_split: bool             # SENSITIZING spans >= 2 distinct SIG groups (partition datum)
+    derivation: Derivation        # summary provenance
+    notes: List[str] = field(default_factory=list)
+
+
+class CombStatus(Enum):
+    MATCH = "MATCH"
+    DIVERGENCE = "DIVERGENCE"
+    UNSUPPORTED_WHEN = "UNSUPPORTED-WHEN"   # non-conjunction kit -when (SCLD guard)
+
+
+@dataclass
+class CombVerdict:
+    """Region-equivalence verdict of engine-derived SENSITIZING vs collateral -when
+    (spec SS3). `cover`/`missing`/`extra` are state LABELS for inspection."""
+    status: CombStatus
+    cover: List[str]              # states covered by the collateral -when set
+    missing: List[str]            # SENSITIZING \ cover: topology sensitizes, kit omits
+    extra: List[str]              # cover \ SENSITIZING: kit marks sensitizing where blocked
+    detail: str
+
+
+# ---------------------------------------------------------------------------
 # Stage 3 output -- initialization (drive-and-settle) + P2 probes
 # ---------------------------------------------------------------------------
 @dataclass

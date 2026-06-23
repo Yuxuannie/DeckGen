@@ -1,0 +1,20 @@
+* AIOI21 reconstructed netlist -- SYNTHETIC anchor for engine WHEN-derivation.
+* Function (adjudicated 2026-06-24, PROJECT_NOTES 2.4): ZN = B * !(A1*A2)
+*   = !(A1*A2 + !B).  Positive-unate in B, negative-unate in A1/A2; B is
+*   inverted internally (bbar = !B), then an AOI21 core computes ZN.
+* Reconstruction confirmed by the vector gate: switchlevel reproduces the
+* truth table (incl. A1=1,A2=1,B=0 -> ZN=0) AND every template.tcl -vector
+* direction (A1->ZN {RxxF}, A2->ZN {xRxF}, B->ZN {xxRR}).
+.subckt AIOI21 A1 A2 B ZN VDD VSS
+* input inverter on B:  bbar = !B
+XIP  bbar B    VDD VDD pch_svt_mac
+XIN  bbar B    VSS VSS nch_svt_mac
+* AOI21 core pull-down: (A1 series A2) || bbar  -> VSS
+XN1  ZN   A1   na  VSS nch_svt_mac
+XN2  na   A2   VSS VSS nch_svt_mac
+XNB  ZN   bbar VSS VSS nch_svt_mac
+* AOI21 core pull-up: bbar-pmos series (A1-pmos || A2-pmos) -> VDD
+XPB  pp   bbar VDD VDD pch_svt_mac
+XPA1 ZN   A1   pp  VDD pch_svt_mac
+XPA2 ZN   A2   pp  VDD pch_svt_mac
+.ends
