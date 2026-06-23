@@ -48,7 +48,8 @@ def _combinational_arcs(parsed, cell):
     return out
 
 
-def run(collateral_root, node, lib_type, corner, cell, output):
+def run(collateral_root, node, lib_type, corner, cell, output,
+        method="template"):
     os.makedirs(output, exist_ok=True)
     # 1. manifest (build if missing)
     manifest = os.path.join(collateral_root, node, lib_type, "manifest.json")
@@ -92,12 +93,17 @@ def run(collateral_root, node, lib_type, corner, cell, output):
                 row["reason"] = "no template matched for this arc"
                 rows.append(row)
                 continue
-            lines = build_deck(
-                info, slew=(info.get("INDEX_1_VALUE") or "0",
-                            info.get("INDEX_1_VALUE") or "0"),
-                load=info.get("INDEX_2_VALUE") or "0",
-                when=info.get("WHEN", when),
-                max_slew=info.get("MAX_SLEW") or "1n")
+            if method == "generator":
+                from core.deck_recipe import build_combinational_deck
+                lines = [ln + "\n" for ln in build_combinational_deck(info)]
+                row["template"] = "deck_recipe (generator)"
+            else:
+                lines = build_deck(
+                    info, slew=(info.get("INDEX_1_VALUE") or "0",
+                                info.get("INDEX_1_VALUE") or "0"),
+                    load=info.get("INDEX_2_VALUE") or "0",
+                    when=info.get("WHEN", when),
+                    max_slew=info.get("MAX_SLEW") or "1n")
             deck_text = "".join(lines)
             path = os.path.join(deck_dir, _arc_id(cell, a, probe) + ".sp")
             with open(path, "w", encoding="ascii", errors="replace") as fh:
@@ -134,9 +140,10 @@ def main(argv=None):
     ap.add_argument("--corner", required=True)
     ap.add_argument("--cell", required=True)
     ap.add_argument("--output", default="./mvp_out")
+    ap.add_argument("--method", default="template", choices=["template", "generator"])
     args = ap.parse_args(argv)
     run(args.collateral_root, args.node, args.lib_type, args.corner, args.cell,
-        args.output)
+        args.output, method=args.method)
     return 0
 
 
