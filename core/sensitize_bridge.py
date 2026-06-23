@@ -29,15 +29,26 @@ def side_inputs(netlist_pins: str, rel_pin: str, output_pins: str) -> List[str]:
 
 def derive_combinational_biases(
         netlist_text: str, cell: str, rel_pin: str, probe_pin: str,
-        side_pins: List[str]) -> Tuple[Optional[Dict[str, int]], str]:
+        side_pins: List[str],
+        fixed: Optional[Dict[str, int]] = None,
+        ) -> Tuple[Optional[Dict[str, int]], str]:
     """Return ({side_pin: 0|1}, reason) for a sensitizing hold, or (None, reason).
 
     The returned bias holds every side pin at a value under which toggling
     rel_pin flips probe_pin. Pins whose value never matters are still given a
     concrete (valid) hold; the reason notes which were masked.
+
+    `fixed` constrains specific side pins (e.g. a collateral WHEN): the search
+    ranges only over the remaining free pins, so a non-None result means the
+    fixed assignment CAN sensitize the arc and None means it cannot. This is how
+    a collateral WHEN is verified -- two equally valid sensitizing vectors (or a
+    held don't-care) are not a contradiction; only a WHEN that fails to
+    sensitize is.
     """
-    if len(side_pins) > 16:                     # guard the 2^n search
-        return None, "too many side inputs (%d) for exhaustive search" % len(side_pins)
+    fixed = dict(fixed or {})
+    free = [p for p in side_pins if p not in fixed]
+    if len(free) > 16:                          # guard the 2^n search
+        return None, "too many free side inputs (%d) for exhaustive search" % len(free)
     try:
         from engine.stages import stage0_parse
         from engine import switchlevel
@@ -56,15 +67,16 @@ def derive_combinational_biases(
         return switchlevel.evaluate(graph, assign).get(probe_pin)
 
     found = None
-    for vals in product((0, 1), repeat=len(side_pins)):
-        a = dict(zip(side_pins, vals))
+    for vals in product((0, 1), repeat=len(free)):
+        a = {**fixed, **dict(zip(free, vals))}
         v0, v1 = out({rel_pin: 0, **a}), out({rel_pin: 1, **a})
         if v0 is not None and v1 is not None and v0 != v1:
             found = a
             break
     if found is None:
-        return None, ("no static side bias makes %s control %s (searched %s)"
-                      % (rel_pin, probe_pin, side_pins))
+        constr = (" with %s fixed" % fixed) if fixed else ""
+        return None, ("no static side bias makes %s control %s%s (searched %s)"
+                      % (rel_pin, probe_pin, constr, free))
 
     masked = []
     for s in side_pins:

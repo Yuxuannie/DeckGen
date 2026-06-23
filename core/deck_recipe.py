@@ -131,31 +131,45 @@ def _timestamps(info, opts):
 def _side_pins(info, opts, notes=None):
     """Hold the non-measured inputs at their WHEN values (V<pin> 'vdd/vss_value').
     SOURCE: collateral (template.tcl WHEN) by default. With opts.when_source ==
-    'engine', DERIVE the holds from the LPE netlist (Boolean difference) and flag
-    any disagreement with the collateral WHEN; degrade to collateral cleanly if
-    the engine cannot derive."""
+    'engine', VERIFY against the LPE netlist that the collateral WHEN actually
+    sensitizes the arc (Boolean difference). If it does, keep it (the deck is
+    unchanged) -- two equally valid sensitizing vectors or a held don't-care are
+    NOT a contradiction. Only when the collateral WHEN fails to sensitize do we
+    flag a DIVERGENCE and substitute the engine-derived holds. Degrade to
+    collateral cleanly if the engine cannot run."""
     when = _g(info, "WHEN")
     rel, constr = _g(info, "REL_PIN"), _g(info, "CONSTR_PIN")
 
     if opts.when_source == "engine":
-        biases, reason = _engine_biases(info)
+        engine_holds, reason = _engine_biases(info)          # unconstrained
         coll = _coll_biases(when, rel, constr)
-        if biases is not None:
+        if engine_holds is None:
             if notes is not None:
-                notes.append("engine sensitization: %s" % reason)
-                for pin in sorted(set(biases) & set(coll)):
-                    if biases[pin] != coll[pin]:
-                        notes.append("  DIVERGENCE %s: engine=%d collateral=%d"
-                                     % (pin, biases[pin], coll[pin]))
-            out = ["* Pin definitions"]
-            for pin in _side_pin_list(info):
-                if pin in biases:
-                    val = "'vdd_value'" if biases[pin] == 1 else "'vss_value'"
-                    out.append("V%s %s 0 %s" % (pin, pin, val))
-            return out
-        if notes is not None:
-            notes.append("engine sensitization unavailable (%s); "
-                         "used collateral WHEN" % reason)
+                notes.append("engine sensitization unavailable (%s); "
+                             "used collateral WHEN" % reason)
+        else:
+            coll_ok, _ = _engine_biases(info, fixed=coll)    # does WHEN sensitize?
+            if coll_ok is not None:
+                if notes is not None:
+                    notes.append("engine verified collateral WHEN sensitizes "
+                                 "%s->%s" % (rel, _g(info, "PROBE_PIN_1")))
+                # fall through: emit the collateral holds (deck unchanged)
+            else:
+                if notes is not None:
+                    notes.append("collateral WHEN %r does not sensitize %s->%s; "
+                                 "using engine holds"
+                                 % (when, rel, _g(info, "PROBE_PIN_1")))
+                    for pin in sorted(set(engine_holds) & set(coll)):
+                        if engine_holds[pin] != coll[pin]:
+                            notes.append("  DIVERGENCE %s: engine=%d collateral=%d"
+                                         % (pin, engine_holds[pin], coll[pin]))
+                out = ["* Pin definitions"]
+                for pin in _side_pin_list(info):
+                    if pin in engine_holds:
+                        val = ("'vdd_value'" if engine_holds[pin] == 1
+                               else "'vss_value'")
+                        out.append("V%s %s 0 %s" % (pin, pin, val))
+                return out
 
     out = ["* Pin definitions"]
     if when and when != "NO_CONDITION":
@@ -182,8 +196,9 @@ def _coll_biases(when, rel, constr):
     return collateral_biases(when, rel, constr)
 
 
-def _engine_biases(info):
-    """({pin:0/1}, reason) from the netlist, or (None, reason). Lazy + safe."""
+def _engine_biases(info, fixed=None):
+    """({pin:0/1}, reason) from the netlist, or (None, reason). Lazy + safe.
+    `fixed` constrains side pins (used to verify a collateral WHEN)."""
     import os
     from core.sensitize_bridge import derive_combinational_biases
     path = _g(info, "NETLIST_PATH")
@@ -196,7 +211,7 @@ def _engine_biases(info):
         return None, "cannot read netlist: %s" % e
     return derive_combinational_biases(
         text, _g(info, "CELL_NAME"), _g(info, "REL_PIN"),
-        _g(info, "PROBE_PIN_1"), _side_pin_list(info))
+        _g(info, "PROBE_PIN_1"), _side_pin_list(info), fixed=fixed)
 
 
 def _toggling(info):

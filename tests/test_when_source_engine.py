@@ -108,3 +108,32 @@ def test_recipe_engine_mode_flags_divergence(tmp_path):
     # engine derives B=1 (correct), overriding the collateral !B
     assert "VB B 0 'vdd_value'" in eng
     assert any("DIVERGENCE B: engine=1 collateral=0" in n for n in notes)
+
+
+def test_recipe_engine_verifies_valid_when_without_false_divergence(tmp_path):
+    """A collateral WHEN that holds a MASKED don't-care pin, or picks the other
+    of two equally valid sensitizing vectors, must VERIFY -- not be flagged as a
+    divergence. (Real MUX2 arcs exposed this false positive.)"""
+    p = tmp_path / "MUX2.spi"
+    p.write_text(MUX2)
+    base = {"HEADER_INFO": "", "CELL_NAME": "MUX2",
+            "NETLIST_PINS": "I0 I1 S Z VDD VSS VPP VBB",
+            "PROBE_PIN_1": "Z", "OUTPUT_PINS": "Z", "NETLIST_PATH": str(p)}
+
+    # I0->Z with I1 held HIGH: I1 is masked when S=0, so this still sensitizes.
+    info = dict(base, REL_PIN="I0", REL_PIN_DIR="rise", CONSTR_PIN="I0",
+                CONSTR_PIN_DIR="rise", PROBE_PIN_DIR="rise", WHEN="I1&!S")
+    notes = []
+    eng = build_combinational_deck(info, RecipeOpts(when_source="engine"), notes)
+    coll = build_combinational_deck(info, RecipeOpts(when_source="collateral"))
+    assert eng == coll                                   # deck unchanged
+    assert not any("DIVERGENCE" in n for n in notes)     # no false alarm
+    assert any("verified" in n for n in notes)
+    assert "VI1 I1 0 'vdd_value'" in "\n".join(eng)      # kept collateral I1=1
+
+    # S->Z picking the opposite valid vector (I0=1,I1=0) must also verify.
+    info_s = dict(base, REL_PIN="S", REL_PIN_DIR="rise", CONSTR_PIN="S",
+                  CONSTR_PIN_DIR="rise", PROBE_PIN_DIR="rise", WHEN="I0&!I1")
+    notes_s = []
+    build_combinational_deck(info_s, RecipeOpts(when_source="engine"), notes_s)
+    assert not any("DIVERGENCE" in n for n in notes_s)
