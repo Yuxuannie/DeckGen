@@ -73,7 +73,10 @@ def _collect_cell_rows(parsed, node, lib_type, corner, cell, deck_dir,
                 rel_pin=rel_pin, rel_dir=rel_dir, constr_pin=probe,
                 constr_dir=constr_dir, probe_pin=probe, node=node,
                 lib_type=lib_type, corner_name=corner,
-                collateral_root=collateral_root)
+                collateral_root=collateral_root,
+                # nominal index point (1,1): selects the first slew/load value so
+                # the deck carries real cl/rel_pin_slew instead of '0'.
+                overrides={"index_1_index": 1, "index_2_index": 1})
             info = info[0] if isinstance(info, list) else info
             tmpl = info.get("TEMPLATE_DECK_PATH") or ""
             row["template"] = os.path.basename(tmpl)

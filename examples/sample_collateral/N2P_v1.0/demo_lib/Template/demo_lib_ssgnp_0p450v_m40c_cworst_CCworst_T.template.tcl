@@ -1,6 +1,14 @@
 # Example ALAPI template.tcl (one inverter, two combinational arcs).
 # Mirror this structure with your real cells: each cell is wrapped in an
 # ALAPI_active_cell block with a define_cell and one define_arc per edge.
+
+# The lookup table for the delay template: index_1 = input slews,
+# index_2 = output loads. The nominal point (i1=i2=1) drives the deck's
+# rel_pin_slew / cl params.
+define_template delay_template 8x8_8P7_1065 \
+  -index_1 { 0.0015 0.0030 0.0060 0.0120 0.0240 0.0480 0.0960 0.1920 } \
+  -index_2 { 0.0003 0.0006 0.0012 0.0024 0.0048 0.0096 0.0192 0.0384 }
+
 if {[ALAPI_active_cell "INVD1"]} {
   define_cell \
     -output { ZN } \

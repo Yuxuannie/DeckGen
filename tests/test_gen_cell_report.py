@@ -48,3 +48,16 @@ def test_mvp_cell_to_decks_and_report(tmp_path, collateral_root):
     assert '<style' in html and '<script' in html
     assert 'DFFQ1' in html
     assert all(ord(c) < 128 for c in html)
+
+
+def test_deck_carries_nominal_index_values(tmp_path, collateral_root):
+    """The nominal index point (i1=i2=1) must write the first slew/load into the
+    deck -- not fall back to '0'. fixture index_1[0]=0.05, index_2[0]=0.0005."""
+    out = str(tmp_path / 'out')
+    run(collateral_root, NODE, LIB, CORNER, 'DFFQ1', out, method='generator')
+    deck_dir = os.path.join(out, 'DFFQ1')
+    deck = open(os.path.join(deck_dir, os.listdir(deck_dir)[0]), encoding='ascii').read()
+    assert ".param cl = '0'" not in deck
+    assert ".param rel_pin_slew = '0'" not in deck
+    assert ".param rel_pin_slew = '0.05n'" in deck     # index_1[0]
+    assert ".param cl = '0.0005p'" in deck             # index_2[0]

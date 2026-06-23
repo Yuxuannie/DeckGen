@@ -70,7 +70,10 @@ def diff_cell(collateral_root, node, lib_type, corner, cell):
                 rel_pin=a.get("rel_pin", ""), rel_dir=a.get("rel_pin_dir", ""),
                 constr_pin=probe, constr_dir=a.get("pin_dir", ""),
                 probe_pin=probe, node=node, lib_type=lib_type,
-                corner_name=corner, collateral_root=collateral_root)
+                corner_name=corner, collateral_root=collateral_root,
+                # nominal index point (1,1) -- same on both paths, so the deck
+                # carries real slew/load and the diff stays a fair comparison.
+                overrides={"index_1_index": 1, "index_2_index": 1})
             info = info[0] if isinstance(info, list) else info
             tmpl = _template_lines(info)
             gen = build_combinational_deck(info)
