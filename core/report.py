@@ -172,56 +172,76 @@ def build_report(rows, context):
 # ---------------------------------------------------------------------------
 
 _CSS = """
+:root{
+ --purple:#5B3E8E;--purple2:#7E5BB5;--gold:#9C7A12;--ink:#26223a;--muted:#7a748f;
+ --line:#e8e3f1;--soft:#faf9fd;--bg:#f5f3fa;--green:#1f7a4d;--red:#c0392b;--amber:#9a6b00;
+}
 *{box-sizing:border-box}
-body{margin:0;padding:28px 16px;background:#f1f5f9;color:#111827;
+body{margin:0;padding:30px 16px;background:var(--bg);color:var(--ink);
  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
- font-size:14px;line-height:1.5}
+ font-size:14px;line-height:1.55}
 .wrap{max-width:1040px;margin:0 auto}
-h1{font-size:22px;margin:0 0 4px} .sub{color:#6b7280;margin:0 0 14px;font-size:13px}
-.verdict{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:20px 22px;
- margin:0 0 16px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
-.badge{display:inline-block;padding:3px 12px;border-radius:999px;color:#fff;font-weight:600;font-size:12px}
-.badge.ok{background:#16a34a}.badge.fail{background:#dc2626}.badge.warn{background:#b45309}.badge.neutral{background:#6b7280}
+a{color:var(--purple)}
+h1{font-size:21px;margin:0;color:var(--purple);letter-spacing:.2px}
+.sub{color:var(--muted);margin:6px 0 0;font-size:13px}
+.verdict{background:#fff;border:1px solid var(--line);border-top:3px solid var(--gold);
+ border-radius:14px;padding:20px 22px;margin:0 0 16px;box-shadow:0 1px 3px rgba(40,30,70,.05)}
+.vhead{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap}
+.vhead .grow{flex:1 1 auto}
+.badge{display:inline-block;padding:4px 13px;border-radius:999px;font-weight:600;font-size:12px;white-space:nowrap}
+.badge.ok{color:var(--green);background:#eef6f1;border:1px solid #cfe6da}
+.badge.fail{color:var(--red);background:#fbeeec;border:1px solid #f1cfca}
+.badge.warn{color:var(--amber);background:#fbf4e6;border:1px solid #ecdcb8}
+.badge.neutral{color:var(--muted);background:var(--soft);border:1px solid var(--line)}
 .tiles{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0 0}
-.tile{flex:1 1 90px;border:1px solid #e5e7eb;border-radius:10px;padding:12px 10px;text-align:center;background:#f8fafc}
-.tile .n{font-size:24px;font-weight:700;line-height:1}
-.tile .l{font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-top:4px}
-.tile.ok .n{color:#16a34a}.tile.fail .n{color:#dc2626}.tile.skip .n{color:#b45309}.tile.error .n{color:#dc2626}
-.minis{display:flex;flex-wrap:wrap;gap:24px;margin-top:16px}
-table.mini{border-collapse:collapse;font-size:12px}
-table.mini caption{text-align:left;font-weight:600;color:#6b7280;padding:0 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
-table.mini th,table.mini td{padding:3px 12px 3px 0;text-align:left}
-table.mini th{color:#6b7280;font-weight:600}
+.tile{flex:1 1 84px;border:1px solid var(--line);border-radius:10px;padding:12px 8px;text-align:center;background:#fff}
+.tile .n{font-size:25px;font-weight:700;line-height:1}
+.tile .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:5px}
+.tile.total .n{color:var(--purple)}.tile.ok .n{color:var(--green)}
+.tile.fail .n{color:var(--red)}.tile.skip .n{color:var(--amber)}.tile.error .n{color:var(--red)}
 .controls{display:flex;gap:8px;margin:0 0 14px}
-.controls button{font:inherit;font-size:12px;cursor:pointer;padding:6px 12px;background:#fff;color:#111827;border:1px solid #e5e7eb;border-radius:8px}
-.controls button:hover{background:#f8fafc}
-summary{list-style:none} summary::-webkit-details-marker{display:none}
-.tw{display:inline-block;color:#9ca3af;font-size:11px;transition:transform .12s;flex:0 0 auto}
+.controls button{font:inherit;font-size:12px;cursor:pointer;padding:6px 13px;background:#fff;
+ color:var(--purple);border:1px solid var(--line);border-radius:8px}
+.controls button:hover{background:var(--soft);border-color:#d9d0ea}
+summary{list-style:none}summary::-webkit-details-marker{display:none}
+.tw{display:inline-block;color:var(--gold);font-size:11px;transition:transform .12s;flex:0 0 auto}
 details[open]>summary .tw{transform:rotate(90deg)}
-details.card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;margin:0 0 12px;box-shadow:0 1px 2px rgba(0,0,0,.04);overflow:hidden}
-details.card>summary{cursor:pointer;padding:14px 18px;display:flex;align-items:center;gap:10px;font-weight:600;user-select:none}
-details.card>summary:hover{background:#f8fafc}
-.count{margin-left:auto;color:#6b7280;font-weight:400;font-size:12px}
+details.card{background:#fff;border:1px solid var(--line);border-radius:12px;margin:0 0 12px;
+ box-shadow:0 1px 3px rgba(40,30,70,.04);overflow:hidden}
+details.card>summary{cursor:pointer;padding:14px 18px;display:flex;align-items:center;gap:10px;
+ font-weight:600;color:var(--purple);user-select:none}
+details.card>summary:hover{background:var(--soft)}
+.ctitle{flex:0 1 auto}.count{margin-left:auto;color:var(--muted);font-weight:400;font-size:12px}
 .card-body{padding:2px 18px 18px}
 table{width:100%;border-collapse:collapse;font-size:13px}
-th,td{text-align:left;padding:7px 10px;border-bottom:1px solid #e5e7eb;vertical-align:top}
-th{color:#6b7280;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.03em}
-.st{font-weight:600}.st.OK{color:#16a34a}.st.FAIL,.st.ERROR{color:#dc2626}.st.SKIP{color:#b45309}
-.reason{color:#dc2626}
-.warn-list{margin:0;padding-left:18px}.warn-list li{color:#b45309;margin:3px 0}
-.empty{color:#6b7280;font-style:italic;padding:6px 0}
-details.arc{border:1px solid #e5e7eb;border-radius:10px;margin:8px 0;background:#fff}
-details.arc>summary{cursor:pointer;padding:10px 14px;display:flex;align-items:center;gap:12px;user-select:none;flex-wrap:wrap}
-details.arc>summary:hover{background:#f8fafc}
-.pill{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;color:#fff}
-.pill.OK{background:#16a34a}.pill.FAIL,.pill.ERROR{background:#dc2626}.pill.SKIP{background:#b45309}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.03em}
+.st{font-weight:600}.st.OK{color:var(--green)}.st.FAIL,.st.ERROR{color:var(--red)}.st.SKIP{color:var(--amber)}
+.reason{color:var(--red)}
+.warn-list{margin:0;padding-left:18px}.warn-list li{color:var(--amber);margin:3px 0}
+.empty{color:var(--muted);font-style:italic;padding:6px 0}
+.minis{display:flex;flex-wrap:wrap;gap:26px;align-items:flex-start}
+table.mini{border-collapse:collapse;font-size:12px}
+table.mini caption{text-align:left;font-weight:600;color:var(--purple);padding:0 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+table.mini th,table.mini td{padding:3px 12px 3px 0;text-align:left;border:none}
+table.mini th{color:var(--muted);font-weight:600}
+.scrollbox{max-height:320px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px 12px;background:var(--soft)}
+details.arc{border:1px solid var(--line);border-radius:10px;margin:8px 0;background:#fff}
+details.arc>summary{cursor:pointer;padding:10px 14px;display:flex;align-items:center;gap:11px;user-select:none;flex-wrap:wrap}
+details.arc>summary:hover{background:var(--soft)}
+.pill{font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;border:1px solid}
+.pill.OK{color:var(--green);background:#eef6f1;border-color:#cfe6da}
+.pill.FAIL,.pill.ERROR{color:var(--red);background:#fbeeec;border-color:#f1cfca}
+.pill.SKIP{color:var(--amber);background:#fbf4e6;border-color:#ecdcb8}
 .cell{font-weight:600}
-.adir{color:#6b7280;font-family:Menlo,Consolas,monospace;font-size:12px}
-.awhen{color:#6b7280;font-size:12px;margin-left:auto}
+.adir{color:var(--muted);font-family:Menlo,Consolas,monospace;font-size:12px}
+.awhen{color:var(--muted);font-size:12px;margin-left:auto}
 .arc-body{padding:6px 14px 14px}
 dl.kv{margin:0 0 10px;display:grid;grid-template-columns:max-content 1fr;gap:3px 14px;font-size:12px}
-dl.kv dt{color:#6b7280}dl.kv dd{margin:0;word-break:break-all}
-pre.deck{margin:0;padding:12px 14px;background:#0f172a;color:#e2e8f0;border-radius:8px;overflow:auto;font-size:12px;line-height:1.5;white-space:pre;max-height:460px;font-family:Menlo,Consolas,monospace}
+dl.kv dt{color:var(--muted)}dl.kv dd{margin:0;word-break:break-all}
+pre.deck{margin:0;padding:12px 14px;background:var(--soft);color:#2c2740;border:1px solid var(--line);
+ border-radius:8px;overflow:auto;font-size:12px;line-height:1.5;white-space:pre;max-height:460px;
+ font-family:Menlo,Consolas,monospace}
 """
 
 _JS = """
@@ -420,10 +440,13 @@ def render_html(report):
 
     # Section 1: headline verdict (always visible).
     verdict = ['<div class="verdict">']
+    verdict.append('<div class="vhead"><div class="grow">')
     verdict.append('<h1>Deck Generation Report</h1>')
     verdict.append('<p class="sub">Coverage summary across %d arc%s.</p>'
                    % (total, "" if total == 1 else "s"))
+    verdict.append('</div>')
     verdict.append('<span class="badge %s">%s</span>' % (badge_cls, _esc(word)))
+    verdict.append('</div>')
     verdict.append('<div class="tiles">')
     verdict.append(_tile("total", total, "total"))
     verdict.append(_tile("ok", n_ok, "ok"))
@@ -431,11 +454,15 @@ def render_html(report):
     verdict.append(_tile("skip", n_skip, "skip"))
     verdict.append(_tile("error", n_err, "error"))
     verdict.append('</div>')
-    verdict.append('<div class="minis">')
-    verdict.append(_mini_table("By arc type", summary.get("by_arc_type", {})))
-    verdict.append(_mini_table("By cell", summary.get("by_cell", {})))
     verdict.append('</div>')
-    verdict.append('</div>')
+
+    # Coverage breakdown (by type / by cell) -- collapsible + scrollable, since a
+    # run may have thousands of cells.
+    by_cell = summary.get("by_cell", {})
+    breakdown = ('<div class="minis">%s'
+                 '<div><div class="scrollbox">%s</div></div></div>'
+                 % (_mini_table("By arc type", summary.get("by_arc_type", {})),
+                    _mini_table("By cell", by_cell)))
 
     n_actionable = n_fail + n_err
     sections = []
@@ -444,7 +471,12 @@ def render_html(report):
         "Failures and errors", _failures_body(failures),
         count_text="%d row%s" % (n_actionable, "" if n_actionable == 1 else "s"),
         collapsed=False))
-    # Section 3: warnings (collapsed).
+    # Section 3: coverage breakdown by type / cell (collapsed; scrollable).
+    sections.append(_card(
+        "Coverage breakdown -- by type / by cell", breakdown,
+        count_text="%d cell%s" % (len(by_cell), "" if len(by_cell) == 1 else "s"),
+        collapsed=True))
+    # Section 4: warnings (collapsed).
     sections.append(_card(
         "Warnings", _warnings_body(warnings, unmatched),
         count_text="%d" % (len(warnings) + len(unmatched)),
