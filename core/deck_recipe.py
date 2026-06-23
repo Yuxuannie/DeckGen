@@ -126,13 +126,36 @@ def _timestamps(info, opts):
             ".param related_pin_t01 = %s" % opts.related_pin_t01]
 
 
-def _side_pins(info, opts):
+def _side_pins(info, opts, notes=None):
     """Hold the non-measured inputs at their WHEN values (V<pin> 'vdd/vss_value').
-    SOURCE: collateral (template.tcl WHEN). The one place the engine can take over
-    (opts.when_source == 'engine' -> derive by P1; Step 4). Today: collateral."""
-    out = ["* Pin definitions"]
+    SOURCE: collateral (template.tcl WHEN) by default. With opts.when_source ==
+    'engine', DERIVE the holds from the LPE netlist (Boolean difference) and flag
+    any disagreement with the collateral WHEN; degrade to collateral cleanly if
+    the engine cannot derive."""
     when = _g(info, "WHEN")
     rel, constr = _g(info, "REL_PIN"), _g(info, "CONSTR_PIN")
+
+    if opts.when_source == "engine":
+        biases, reason = _engine_biases(info)
+        coll = _coll_biases(when, rel, constr)
+        if biases is not None:
+            if notes is not None:
+                notes.append("engine sensitization: %s" % reason)
+                for pin in sorted(set(biases) & set(coll)):
+                    if biases[pin] != coll[pin]:
+                        notes.append("  DIVERGENCE %s: engine=%d collateral=%d"
+                                     % (pin, biases[pin], coll[pin]))
+            out = ["* Pin definitions"]
+            for pin in _side_pin_list(info):
+                if pin in biases:
+                    val = "'vdd_value'" if biases[pin] == 1 else "'vss_value'"
+                    out.append("V%s %s 0 %s" % (pin, pin, val))
+            return out
+        if notes is not None:
+            notes.append("engine sensitization unavailable (%s); "
+                         "used collateral WHEN" % reason)
+
+    out = ["* Pin definitions"]
     if when and when != "NO_CONDITION":
         for cond in when.split("&"):
             cond = cond.strip()
@@ -144,6 +167,34 @@ def _side_pins(info, opts):
             val = "'vss_value'" if cond.startswith("!") else "'vdd_value'"
             out.append("V%s %s 0 %s" % (pin, pin, val))
     return out
+
+
+def _side_pin_list(info):
+    from core.sensitize_bridge import side_inputs
+    return side_inputs(_g(info, "NETLIST_PINS"), _g(info, "REL_PIN"),
+                       _g(info, "OUTPUT_PINS") or _g(info, "PROBE_PIN_1"))
+
+
+def _coll_biases(when, rel, constr):
+    from core.sensitize_bridge import collateral_biases
+    return collateral_biases(when, rel, constr)
+
+
+def _engine_biases(info):
+    """({pin:0/1}, reason) from the netlist, or (None, reason). Lazy + safe."""
+    import os
+    from core.sensitize_bridge import derive_combinational_biases
+    path = _g(info, "NETLIST_PATH")
+    if not path or not os.path.isfile(path):
+        return None, "no readable NETLIST_PATH"
+    try:
+        with open(path, "r", encoding="ascii", errors="replace") as fh:
+            text = fh.read()
+    except OSError as e:
+        return None, "cannot read netlist: %s" % e
+    return derive_combinational_biases(
+        text, _g(info, "CELL_NAME"), _g(info, "REL_PIN"),
+        _g(info, "PROBE_PIN_1"), _side_pin_list(info))
 
 
 def _toggling(info):
@@ -174,9 +225,13 @@ def _tran(info, opts):
     return ["* Transient Sim Command", opts.tran]
 
 
-def build_combinational_deck(info, opts=None):
+def build_combinational_deck(info, opts=None, notes=None):
     """Assemble a combinational FMC deck from arc_info + opts. Returns a list of
-    lines (no trailing newline). Default opts reproduce the template deck."""
+    lines (no trailing newline). Default opts reproduce the template deck.
+
+    `notes` (optional list): when opts.when_source == 'engine', divergence and
+    derivation notes are appended to it (the deck content itself is unaffected
+    beyond the derived side pins)."""
     if opts is None:
         opts = RecipeOpts()
     emitted_inc = set()
@@ -190,7 +245,7 @@ def build_combinational_deck(info, opts=None):
         _output_load(info),
         _subckt(info),
         _timestamps(info, opts),
-        _side_pins(info, opts),
+        _side_pins(info, opts, notes),
         _toggling(info),
         _measurements(info),
         _tran(info, opts),
