@@ -1,11 +1,20 @@
-# Sample collateral (one inverter)
+# Sample collateral (inverter + 2:1 mux)
 
 A minimal, **synthetic** collateral bundle that the deck-generation flow can run
 end-to-end against. Use it as the template for your own packages: drop your real
 files into the same directory layout and point the GUI/CLI at the root.
 
-The cell `INVD1` is a plain inverter (`ZN = !I`). The netlist is a 2-transistor
-stub, not real IP -- it only illustrates the format.
+Two cells, both with reconstructed (synthetic, not IP) netlists that illustrate
+the format:
+
+- `INVD1` -- a plain inverter (`ZN = !I`); two arcs, no WHEN. The simplest case.
+- `MUX2MDLIMZD0P7BWP130HPNPN3P48CPD` -- a 2:1 mux (`Z = (!S & I0) | (S & I1)`);
+  six arcs **with WHEN side-pin conditions** (each data-input arc holds the
+  select and enumerates the other, masked, data input; the select arc needs the
+  two data inputs to differ). The arcs are transcribed from the real cell's
+  template.tcl; the netlist is a transmission-gate reconstruction whose function
+  is confirmed by the cell's own WHEN conditions. Exercises the multi-input /
+  WHEN path and the engine's sensitization check.
 
 ## Layout
 

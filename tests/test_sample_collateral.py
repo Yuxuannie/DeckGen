@@ -14,7 +14,8 @@ ROOT = os.path.normpath(os.path.join(
 NODE = 'N2P_v1.0'
 LIB = 'demo_lib'
 CORNER = 'ssgnp_0p450v_m40c_cworst_CCworst_T'
-CELL = 'INVD1'
+INV = 'INVD1'
+MUX = 'MUX2MDLIMZD0P7BWP130HPNPN3P48CPD'
 
 
 @pytest.fixture(autouse=True)
@@ -26,7 +27,16 @@ def _clean_manifest():
 
 
 def test_sample_inverter_cross_validates():
-    rows, ok = diff_run(ROOT, NODE, LIB, CORNER, [CELL], out_path=None)
+    rows, ok = diff_run(ROOT, NODE, LIB, CORNER, [INV], out_path=None)
     assert ok, [r for r in rows if r['status'] != 'MATCH']
     assert len(rows) == 2                      # FR and RF arcs
+    assert all(r['status'] == 'MATCH' for r in rows)
+
+
+def test_sample_mux_cross_validates():
+    """The multi-input mux (WHEN side-pin holds) also generates identically on
+    both paths -- six arcs (I0/I1/S -> Z, rise+fall)."""
+    rows, ok = diff_run(ROOT, NODE, LIB, CORNER, [MUX], out_path=None)
+    assert ok, [r for r in rows if r['status'] != 'MATCH']
+    assert len(rows) == 6
     assert all(r['status'] == 'MATCH' for r in rows)
