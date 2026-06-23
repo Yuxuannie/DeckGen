@@ -59,6 +59,10 @@ def test_generator_byte_parity_all_directions(collateral_root):
             info = dict(base)
             info['REL_PIN_DIR'] = rd
             info['CONSTR_PIN_DIR'] = cd
+            # cd is the OUTPUT (probe) transition here -- it names the template's
+            # `delay_%s` suffix. Set the true output-direction field accordingly
+            # so the generated deck matches the selected template.
+            info['PROBE_PIN_DIR'] = cd
             info['TEMPLATE_DECK_PATH'] = os.path.join(
                 DELAY, 'template_common_inpin_%s_delay_%s.sp' % (rd, cd))
             tmpl = _template_lines(info)
@@ -86,3 +90,22 @@ def test_generator_fall_output_uses_70_30():
             'WHEN': 'NO_CONDITION'}
     g = '\n'.join(build_combinational_deck(base))
     assert "val='vdd_value*0.7' cross=1 targ v(Z) val='vdd_value*0.3'" in g
+
+
+def test_inverting_cell_slew_window_follows_output_not_input():
+    """Regression: an inverting combinational arc (input rise -> output fall) must
+    measure the OUTPUT slew 0.7 -> 0.3. CONSTR_PIN_DIR mirrors the related pin
+    (rise) for non-cons arcs, so the window must follow PROBE_PIN_DIR (the true
+    output edge). Surfaced by the first real unseen cell (an inverter)."""
+    inv_rise_in = {'HEADER_INFO': '', 'CELL_NAME': 'INV', 'NETLIST_PINS': 'I ZN',
+                   'REL_PIN': 'I', 'REL_PIN_DIR': 'rise', 'PROBE_PIN_1': 'ZN',
+                   'CONSTR_PIN': 'I', 'CONSTR_PIN_DIR': 'rise',  # mirrors rel pin
+                   'PROBE_PIN_DIR': 'fall', 'OUTPUT_PINS': 'ZN',
+                   'WHEN': 'NO_CONDITION'}
+    g = '\n'.join(build_combinational_deck(inv_rise_in))
+    assert "val='vdd_value*0.7' cross=1 targ v(ZN) val='vdd_value*0.3'" in g
+
+    inv_fall_in = dict(inv_rise_in, REL_PIN_DIR='fall', CONSTR_PIN_DIR='fall',
+                       PROBE_PIN_DIR='rise')               # input fall -> out rise
+    g2 = '\n'.join(build_combinational_deck(inv_fall_in))
+    assert "val='vdd_value*0.3' cross=1 targ v(ZN) val='vdd_value*0.7'" in g2

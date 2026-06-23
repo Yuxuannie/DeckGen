@@ -195,6 +195,11 @@ def build_arc_info(arc, cell_info, template_info, chartcl, corner,
         # non-cons: CONSTR_PIN mirrors REL_PIN
         'CONSTR_PIN':       arc.get('rel_pin', ''),
         'CONSTR_PIN_DIR':   arc.get('rel_pin_dir', ''),
+        # The measured pin's own transition (the output edge for a combinational
+        # arc). Distinct from CONSTR_PIN_DIR, which mirrors the related pin for
+        # non-cons arcs -- so for an inverting cell (input rise -> output fall)
+        # this is the only field that carries the true output direction.
+        'PROBE_PIN_DIR':    arc.get('pin_dir', ''),
         'OUTPUT_PINS':      ' '.join(cell_info.get('output_pins', [])),
         'SIDE_PIN_STATES':  '',
         'DONT_TOUCH_PINS':  '',

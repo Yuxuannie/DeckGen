@@ -121,8 +121,10 @@ def _subckt(info):
 def _timestamps(info, opts):
     """Input-edge timing. SOURCE: convention (max_slew from collateral; t01 fixed
     settling time)."""
+    # max_slew falls back to '1n' when the collateral omits it -- matches the
+    # template path (build_deck uses `MAX_SLEW or "1n"`).
     return ["* Waveform timestamps",
-            ".param max_slew = '%s'" % _g(info, "MAX_SLEW"),
+            ".param max_slew = '%s'" % _g(info, "MAX_SLEW", "1n"),
             ".param related_pin_t01 = %s" % opts.related_pin_t01]
 
 
@@ -211,7 +213,13 @@ def _measurements(info):
     slew via the 30/70 (70/30 for a falling output) half-transition x2."""
     probe = _g(info, "PROBE_PIN_1")
     rel = _g(info, "REL_PIN")
-    lo, hi = ("0.3", "0.7") if _g(info, "CONSTR_PIN_DIR") != "fall" else ("0.7", "0.3")
+    # The slew window follows the OUTPUT (probe) transition, not the related
+    # pin: a rising output is measured 30%->70%, a falling output 70%->30%. Use
+    # PROBE_PIN_DIR (the true output edge); fall back to CONSTR_PIN_DIR only when
+    # the output direction was not resolved (it mirrors the related pin and is
+    # therefore wrong for an inverting cell, e.g. an inverter).
+    out_dir = _g(info, "PROBE_PIN_DIR") or _g(info, "CONSTR_PIN_DIR")
+    lo, hi = ("0.3", "0.7") if out_dir != "fall" else ("0.7", "0.3")
     return ["* Measurements",
             ".meas tran meas_delay trig v(%s) val='vdd_value/2' cross=1 "
             "targ v(%s) val='vdd_value/2' cross=1" % (rel, probe),
