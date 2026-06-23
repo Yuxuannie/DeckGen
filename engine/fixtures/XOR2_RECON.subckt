@@ -1,0 +1,22 @@
+* XOR2 reconstructed netlist -- SYNTHETIC BINATE anchor (spec SS5, EDIT 4).
+* Z = A ^ B = !(A*B + !A*!B)  (AOI22 over (A,B),(abar,bbar) with input inverters).
+* Binate: A controls Z in EVERY side-state (SENSITIZING == full, BLOCKED == empty
+* -> unconditional), but the output DIRECTION depends on B (A-rise@B=0 -> Z rise;
+* A-rise@B=1 -> Z fall). The engine must not mistake direction-variance for
+* conditional sensitization.
+.subckt XOR2 A B Z VDD VSS
+XIPA abar A VDD VDD pch_svt_mac
+XINA abar A VSS VSS nch_svt_mac
+XIPB bbar B VDD VDD pch_svt_mac
+XINB bbar B VSS VSS nch_svt_mac
+* PDN: (A series B) || (abar series bbar) -> VSS
+XNA Z   A    nab VSS nch_svt_mac
+XNB nab B    VSS VSS nch_svt_mac
+XNC Z   abar ncd VSS nch_svt_mac
+XND ncd bbar VSS VSS nch_svt_mac
+* PUN: (A-p || B-p) series (abar-p || bbar-p) -> VDD
+XPA Z   A    mid VDD pch_svt_mac
+XPB Z   B    mid VDD pch_svt_mac
+XPC mid abar VDD VDD pch_svt_mac
+XPD mid bbar VDD VDD pch_svt_mac
+.ends

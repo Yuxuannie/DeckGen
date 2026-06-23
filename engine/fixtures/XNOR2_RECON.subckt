@@ -1,0 +1,20 @@
+* XNOR2 reconstructed netlist -- SYNTHETIC BINATE anchor (spec SS5, EDIT 4).
+* Z = !(A ^ B) = !(A*!B + !A*B)  (AOI22 over (A,bbar),(abar,B) with inverters).
+* Binate like XOR2 but opposite output polarity: A-rise@B=0 -> Z fall;
+* A-rise@B=1 -> Z rise. SENSITIZING == full, BLOCKED == empty (unconditional).
+.subckt XNOR2 A B Z VDD VSS
+XIPA abar A VDD VDD pch_svt_mac
+XINA abar A VSS VSS nch_svt_mac
+XIPB bbar B VDD VDD pch_svt_mac
+XINB bbar B VSS VSS nch_svt_mac
+* PDN: (A series bbar) || (abar series B) -> VSS
+XNA Z   A    n1  VSS nch_svt_mac
+XNB n1  bbar VSS VSS nch_svt_mac
+XNC Z   abar n2  VSS nch_svt_mac
+XND n2  B    VSS VSS nch_svt_mac
+* PUN: (A-p || bbar-p) series (abar-p || B-p) -> VDD
+XPA Z   A    mid VDD pch_svt_mac
+XPB Z   bbar mid VDD pch_svt_mac
+XPC mid abar VDD VDD pch_svt_mac
+XPD mid B    VDD VDD pch_svt_mac
+.ends
