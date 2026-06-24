@@ -321,9 +321,9 @@ def render_svg(blocks: List[dict], on=None, rel_pin: Optional[str] = None,
                  % (x + 16, _PAD + 11, label))
         return "".join(s), x + 16 + len(label) * 6 + 16
     for fill, stroke, lab, star in [
-            (_ON, _ON, "conducting (this state)", False),
+            (_ON, _ON, "conducting", False),
             ("#ffffff", _COL["pmos"], "PMOS (pull-up)", False),
-            ("#ffffff", _COL["nmos"], "PMOS/NMOS (pull-down)", False),
+            ("#ffffff", _COL["nmos"], "NMOS (pull-down)", False),
             (None, None, "toggling pin", True)]:
         frag, lx = _leg(lx, fill, stroke, lab, star)
         parts.append(frag)
