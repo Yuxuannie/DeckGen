@@ -55,13 +55,12 @@ class TestVerdicts:
         for rel in ("A1", "A2", "B"):
             assert _row(report, "AIOI21", rel)["status"] == "MATCH"
 
-    def test_aioi21_b_region_and_sig_present(self, report):
+    def test_aioi21_b_matches(self, report):
+        # Audit rows are verdict-level (light); B->ZN with correct kit -when is
+        # MATCH. The full region + SIG are verified in tests/test_arc_detail.py
+        # (recomputed by arc_detail_view when a row is clicked).
         b = _row(report, "AIOI21", "B")
-        sens = {s["label"] for s in b["sensitizing"]}
-        assert sens == {"!A1&!A2", "!A1&A2", "A1&!A2"}
-        assert {x["label"] for x in b["blocked"]} == {"A1&A2"}
-        assert all(s["sig"] for s in b["sensitizing"])     # SIG surfaced
-        assert b["needs_split"] is True
+        assert b["status"] == "MATCH"
 
     def test_aoi22_divergence_names_states(self, report):
         r = _row(report, "AOI22", "A1")

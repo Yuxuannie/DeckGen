@@ -47,11 +47,21 @@ class TestMultiOutputGrouping:
                  if r["cell"] == "HA" and r["output"] == "S")
         assert r["rel_pin"] == "A"
         assert r["status"] == "MATCH"
-        assert {s["label"] for s in r["sensitizing"]} == {"!B", "B"}  # full
 
     def test_a_to_c_conditional_match(self, report):
         r = next(r for r in report["rows"]
                  if r["cell"] == "HA" and r["output"] == "C")
         assert r["status"] == "MATCH"
-        assert {s["label"] for s in r["sensitizing"]} == {"B"}        # only B=1
-        assert {x["label"] for x in r["blocked"]} == {"!B"}
+
+
+class TestMultiOutputRegions:
+    """Per-output regions are recomputed by arc_detail (audit rows are light).
+    Verify the multi-output split there: A->S sensitizes for all B, A->C only B=1."""
+    def test_regions_per_output(self):
+        from core.arc_detail import arc_detail
+        net = os.path.join(NETDIR, "HA.spi")
+        ds = arc_detail(net, "HA", "A", "S", when_strings=[])
+        assert {r["label"] for r in ds["region"] if r["engine"] == "SENS"} == {"!B", "B"}
+        dc = arc_detail(net, "HA", "A", "C", when_strings=["B"])
+        assert {r["label"] for r in dc["region"] if r["engine"] == "SENS"} == {"B"}
+        assert {r["label"] for r in dc["region"] if r["engine"] == "BLOCKED"} == {"!B"}

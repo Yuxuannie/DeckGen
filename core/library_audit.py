@@ -26,9 +26,12 @@ import os
 from collections import defaultdict
 from typing import Dict, List, Optional
 
-from core.engine_present import combinational_sensitization_view
 from core.parsers.template_tcl import parse_template_tcl_full
 from core.resolver import NetlistResolver, ResolutionError
+
+# Above this many side pins, exhaustive 2^n enumeration is too slow; mark the arc
+# OUT-OF-SCOPE rather than hang the whole library run on one wide cell.
+_MAX_SIDE_PINS = 12
 
 # Verdict importance: lower sorts first (most actionable on top).
 _RANK = {"DIVERGENCE": 0, "UNSUPPORTED-WHEN": 1, "ERROR": 2,
@@ -87,35 +90,39 @@ def _combinational_groups(parsed: dict):
     return groups
 
 
-def _audit_one(netlist_path: Optional[str], cell: str, rel: str, output: str,
+def _row(cell, rel, out, status, whens, **extra):
+    r = {"cell": cell, "rel_pin": rel, "output": out, "status": status,
+         "kit_whens": whens}
+    r.update(extra)
+    return r
+
+
+def _audit_arc(graph, ccc, cell: str, rel: str, output: str,
                whens: List[str]) -> dict:
-    """One (cell, rel_pin -> output) arc group -> a result row. Never raises."""
-    if not netlist_path:
-        return {"cell": cell, "rel_pin": rel, "output": output, "status": "ERROR",
-                "detail": "no netlist .spi resolved for cell", "kit_whens": whens}
-    # NO_CONDITION-only groups are unconditional arcs; pass [] so the verdict uses
-    # Option A (cover := SENSITIZING), not a literal "NO_CONDITION" cover.
+    """One (cell, rel_pin -> output) arc group -> a verdict-level row, using a
+    pre-parsed graph (parsed once per cell, reused across its arcs). Never raises.
+    The rich region/topology data is recomputed on demand by arc_detail_view when
+    a row is clicked, so the list rows stay light."""
+    from engine.stages import stage2_sensitize
+    from engine.types import Arc
+    arc = Arc(cell=cell, arc_type="combinational", rel_pin=rel, rel_dir="rise",
+              constr_pin=output, constr_dir="rise", when="NO_CONDITION",
+              measurement="", raw={"probe_pin": output})
+    if not stage2_sensitize.is_combinational_arc(graph, arc, ccc):
+        return _row(cell, rel, output, "OUT-OF-SCOPE", whens,
+                    detail="arc CCC has a state node -- sequential, not combinational")
+    # cap the 2^n enumeration so one wide cell can't hang the whole run
+    inputs, _ = stage2_sensitize._inputs_outputs(graph)
+    n_side = len([p for p in inputs if p != rel])
+    if n_side > _MAX_SIDE_PINS:
+        return _row(cell, rel, output, "OUT-OF-SCOPE", whens,
+                    detail="too many inputs (%d side pins) for exhaustive "
+                           "enumeration -- skipped" % n_side)
     when_args = [w for w in whens if w not in ("NO_CONDITION", "", "NONE")]
-    view = combinational_sensitization_view(
-        netlist_path, cell, rel_pin=rel, output=output, when_strings=when_args)
-    if view.get("status") != "OK":
-        return {"cell": cell, "rel_pin": rel, "output": output, "status": "ERROR",
-                "detail": view.get("error", "engine could not derive"),
-                "kit_whens": whens}
-    v = view["verdict"]
-    return {
-        "cell": cell, "rel_pin": rel, "output": output,
-        "status": v["status"],
-        "kit_whens": whens,
-        "side_pins": view["side_pins"],
-        "sensitizing": view["sensitizing"],   # [{label,assign,out_dir,sig}]
-        "blocked": view["blocked"],
-        "needs_split": view["needs_split"],
-        "cover": v["cover"],
-        "missing": v["missing"],
-        "extra": v["extra"],
-        "detail": v["detail"],
-    }
+    res = stage2_sensitize.derive_combinational(graph, arc, ccc)
+    v = stage2_sensitize.comb_verdict(res, when_args)
+    return _row(cell, rel, output, v.status.value, whens,
+                missing=v.missing, extra=v.extra, detail=v.detail)
 
 
 def _sort_key(row: dict):
@@ -137,30 +144,49 @@ def audit_from_paths(template_tcl_path: str, netlist_dir: Optional[str],
         groups = {k: v for k, v in groups.items() if k[0] in want}
 
     resolver = NetlistResolver(netlist_dir) if netlist_dir else None
-    netlist_cache: Dict[str, Optional[str]] = {}
+    graph_cache: Dict[str, tuple] = {}        # cell -> (graph|None, ccc|None, err)
 
-    def resolve(cell: str) -> Optional[str]:
-        if cell in netlist_cache:
-            return netlist_cache[cell]
+    def cell_graph(cell: str):
+        """Parse a cell's netlist ONCE (graph + CCC), reused across all its arcs.
+        Re-parsing the same large LPE netlist per arc was the main slowdown."""
+        if cell in graph_cache:
+            return graph_cache[cell]
+        from engine.stages import stage0_parse, stage1_ccc
+        graph = ccc = None
+        err = None
         path = None
         if resolver is not None:
             try:
                 path = resolver.resolve(cell)[0]
-            except (ResolutionError, Exception):
+            except Exception:
                 path = None
-        netlist_cache[cell] = path
-        return path
+        if not path:
+            err = "no netlist .spi resolved for cell"
+        else:
+            try:
+                with open(path, encoding="ascii", errors="replace") as fh:
+                    src = fh.read()
+                graph = stage0_parse.parse(src, cell)
+                ccc = stage1_ccc.decompose(graph)
+            except Exception as e:
+                graph = ccc = None
+                err = "parse failed: %s" % e
+        graph_cache[cell] = (graph, ccc, err)
+        return graph_cache[cell]
 
     rows: List[dict] = []
     items = sorted(groups.items())
     total = len(items)
     for i, ((cell, rel, out), g) in enumerate(items):
         try:
-            row = _audit_one(resolve(cell), cell, rel, out, g["whens"])
+            graph, ccc, err = cell_graph(cell)
+            if graph is None:
+                row = _row(cell, rel, out, "ERROR", g["whens"], detail=err)
+            else:
+                row = _audit_arc(graph, ccc, cell, rel, out, g["whens"])
         except Exception as e:                      # isolation: one cell never aborts
-            row = {"cell": cell, "rel_pin": rel, "output": out,
-                   "status": "ERROR", "detail": "audit exception: %s" % e,
-                   "kit_whens": g.get("whens", [])}
+            row = _row(cell, rel, out, "ERROR", g.get("whens", []),
+                       detail="audit exception: %s" % e)
         rows.append(row)
         if progress is not None:
             try:
