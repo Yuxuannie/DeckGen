@@ -31,8 +31,11 @@ from core.parsers.template_tcl import parse_template_tcl_full
 from core.resolver import NetlistResolver, ResolutionError
 
 # Verdict importance: lower sorts first (most actionable on top).
-_RANK = {"DIVERGENCE": 0, "UNSUPPORTED-WHEN": 1, "ERROR": 2, "MATCH": 3}
+_RANK = {"DIVERGENCE": 0, "UNSUPPORTED-WHEN": 1, "ERROR": 2,
+         "OUT-OF-SCOPE": 3, "MATCH": 4}
 _FLAGGED = {"DIVERGENCE", "UNSUPPORTED-WHEN", "ERROR"}
+# OUT-OF-SCOPE = sequential/clock cells the combinational engine cannot audit;
+# they are NOT flagged (not divergences) and NOT trust -- their own bucket.
 
 
 def _output_from_vector(pinlist: List[str], vector: str,
@@ -159,6 +162,7 @@ def audit_from_paths(template_tcl_path: str, netlist_dir: Optional[str],
     rows.sort(key=_sort_key)
     flagged = [r for r in rows if r["status"] in _FLAGGED]
     trust = [r for r in rows if r["status"] == "MATCH"]
+    out_of_scope = [r for r in rows if r["status"] == "OUT-OF-SCOPE"]
     counts: Dict[str, int] = defaultdict(int)
     for r in rows:
         counts[r["status"]] += 1
@@ -169,10 +173,12 @@ def audit_from_paths(template_tcl_path: str, netlist_dir: Optional[str],
         "divergence": counts.get("DIVERGENCE", 0),
         "unsupported": counts.get("UNSUPPORTED-WHEN", 0),
         "error": counts.get("ERROR", 0),
+        "out_of_scope": counts.get("OUT-OF-SCOPE", 0),
         "flagged": len(flagged),
     }
     return {"summary": summary, "rows": rows,
-            "cohorts": {"flagged": flagged, "trust": trust}}
+            "cohorts": {"flagged": flagged, "trust": trust,
+                        "out_of_scope": out_of_scope}}
 
 
 def audit_combinational_library(collateral_root: str, node: str, lib_type: str,

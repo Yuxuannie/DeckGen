@@ -169,3 +169,23 @@ class TestVerdictMatchAndCatch:
         res, _, _ = _regions("B")
         v = stage2_sensitize.comb_verdict(res, ["!A1 | !A2"])
         assert v.status is CombStatus.UNSUPPORTED_WHEN
+
+
+class TestOutOfScopeGuard:
+    """Empty SENSITIZING -> OUT-OF-SCOPE (sequential/clock pin), never DIVERGENCE.
+    This is the guard that stopped the real run flooding the report with 79 false
+    divergences on CK (clock-gating latch) cells: combinational Boolean difference
+    sees no state where toggling the pin changes the output, because the output
+    depends on stored state."""
+
+    def test_empty_sensitizing_not_divergence(self):
+        from engine.types import (CombSensitizationResult, Derivation,
+                                   CombStatus)
+        res = CombSensitizationResult(
+            rel_pin="CP", output="Q", side_pins=["TE", "E"],
+            sensitizing=[], blocked=[], needs_split=False,
+            derivation=Derivation([], "none", "test"))
+        # kit asserts timing in several states; engine found no comb. sensitization
+        v = stage2_sensitize.comb_verdict(res, ["TE&E", "!TE&E", "TE&!E"])
+        assert v.status is CombStatus.OUT_OF_SCOPE
+        assert "sequential" in v.detail.lower()

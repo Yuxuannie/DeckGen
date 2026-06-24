@@ -161,7 +161,11 @@ CSS_COMPONENTS += """
 CSS_COMPONENTS += """
 /* the audit view is a single full-width panel, NOT the explore two-column flex
    row (.main>.panel:last-child pins width to 380px) -- override to block. */
-#view-comb-audit{display:block !important;}
+/* full-width ONLY when this view is the active one -- the :not(.view-hidden)
+   guard is essential: a bare #id{display:block!important} outranks
+   .view-hidden{display:none!important} and would pin the audit view visible on
+   top of every tab. */
+#view-comb-audit:not(.view-hidden){display:block !important;}
 #view-comb-audit>.panel{flex:none !important;min-width:0 !important;
   border-right:none;}
 .tab.active{color:#5b2a86 !important;border-bottom-color:#5b2a86 !important;}

@@ -285,6 +285,20 @@ def comb_verdict(result: CombSensitizationResult,
     Unconditional arc (no -when): Option A -- cover := SENSITIZING, MATCH iff
       SENSITIZING != empty (a pin that can control O). Full-S is NOT assumed.
     Non-conjunction -when (OR): UNSUPPORTED-WHEN, never DIVERGENCE (SCLD guard)."""
+    # A genuine combinational delay arc MUST sensitize in >= 1 state. An EMPTY
+    # SENSITIZING set means toggling the related pin never changes the output in
+    # the (memoryless) switch-level model -- i.e. the cell is SEQUENTIAL (the
+    # output depends on stored state, e.g. a clock-gating latch CP->Q) or the pin
+    # is a clock. The engine cannot audit that combinationally, so it is OUT-OF-
+    # SCOPE, NOT a divergence. This prevents flooding the report with false
+    # positives on every clock/latch cell (the cry-wolf failure mode).
+    if not result.sensitizing:
+        return CombVerdict(
+            CombStatus.OUT_OF_SCOPE, [], [], [],
+            f"no combinational sensitization for {result.rel_pin}->{result.output}: "
+            f"toggling the pin never changes the output in the switch-level model "
+            f"-- cell is sequential (clock/latch) or the pin does not "
+            f"combinationally drive the output; out of combinational audit scope")
     side = result.side_pins
     sens_keys = {_key(side, cs.assign) for cs in result.sensitizing}
     blocked_keys = {_key(side, cs.assign) for cs in result.blocked}

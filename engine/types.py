@@ -171,6 +171,9 @@ class CombStatus(Enum):
     MATCH = "MATCH"
     DIVERGENCE = "DIVERGENCE"
     UNSUPPORTED_WHEN = "UNSUPPORTED-WHEN"   # non-conjunction kit -when (SCLD guard)
+    OUT_OF_SCOPE = "OUT-OF-SCOPE"           # no combinational sensitization at all
+    #                                         (sequential cell / clock pin) -- the
+    #                                         engine cannot audit it combinationally
 
 
 @dataclass
