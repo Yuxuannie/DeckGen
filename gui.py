@@ -1452,6 +1452,7 @@ function exportHtml(){post('/api/validate_html',{
     window.open('/api/validate_html_serve?path='+encodeURIComponent(d.html_path));}
   else{alert('Export failed: '+(d.error||'unknown error'));}});}
 loadNodes();
+// audit-first landing happens after the engine tabs are in the DOM (see comb_audit_js)
 // ---- Built-in source viewer (no CDN dependency) ----
 var _srcState={fileId:null,total:0,loadedStart:1,loadedEnd:0,history:[],histIdx:-1,lines:[]};
 function openSourceViewer(filePath,targetLine){

@@ -157,6 +157,34 @@ CSS_COMPONENTS += """
 .ca-why{font:12px/1.5 var(--font-mono);color:#5b2a86;margin:0 0 8px;min-height:18px;}
 """
 
+# Chrome polish (2026-06-24): purple nav identity, compact toolbar, framed panes.
+CSS_COMPONENTS += """
+/* the audit view is a single full-width panel, NOT the explore two-column flex
+   row (.main>.panel:last-child pins width to 380px) -- override to block. */
+#view-comb-audit{display:block !important;}
+#view-comb-audit>.panel{flex:none !important;min-width:0 !important;
+  border-right:none;}
+.tab.active{color:#5b2a86 !important;border-bottom-color:#5b2a86 !important;}
+.brand{color:#5b2a86 !important;}
+.ca-bar{display:flex;align-items:center;gap:10px;margin:2px 0 12px;flex-wrap:wrap;}
+.ca-lbl{font:600 11px var(--font-ui);text-transform:uppercase;letter-spacing:.04em;
+  color:var(--text-mut);}
+.ca-sel{padding:6px 9px;border:1px solid var(--border);border-radius:5px;
+  font:13px var(--font-ui);min-width:230px;background:var(--surface);}
+.ca-note{font:12px/1.45 var(--font-ui);color:var(--text-mut);max-width:560px;}
+.ca-note code{font:11px var(--font-mono);background:var(--surface-2);padding:0 4px;
+  border-radius:3px;color:#5b2a86;}
+/* frame the two panes as cards instead of bare columns */
+.ca-list{border:1px solid var(--border);border-radius:8px;background:var(--surface);
+  padding:8px 10px;}
+.ca-detail{border:1px solid var(--border);border-radius:8px;background:var(--surface);
+  padding:16px;}
+.ca-split{background:transparent;}
+.ca-empty{display:flex;align-items:center;justify-content:center;height:100%;
+  min-height:160px;color:var(--text-mut);font:13px var(--font-ui);text-align:center;}
+.eng-stat{border-radius:8px;}
+"""
+
 
 def topology_tab_html():
     return """
@@ -383,15 +411,15 @@ def comb_audit_tab_html():
     return """
 <div class="main view-hidden" id="view-comb-audit">
   <div class="panel eng-panel">
-    <div class="eng-tab-title">Audit -- the engine derives each combinational arc's
-      sensitizing region from the .subckt topology and checks it against the kit
-      -when. Pick a flagged arc to see why it diverges.</div>
-    <div class="eng-controls">
-      <div class="eng-field"><label>Corner</label>
-        <select id="engCAudCorner"></select></div>
+    <div class="ca-bar">
+      <span class="ca-lbl">Corner</span>
+      <select id="engCAudCorner" class="ca-sel"></select>
       <button class="btn btn-primary" onclick="engCombAudit()">Run audit</button>
+      <span class="ca-note">Engine derives each combinational arc's sensitizing
+        region from the <code>.subckt</code> and checks it against the kit
+        <code>-when</code>. Flagged = engine disagrees; click one to see why.</span>
     </div>
-    <div id="eng-caud-summary" style="margin-bottom:6px"></div>
+    <div id="eng-caud-summary"></div>
     <div class="ca-ws">
       <div class="ca-list" id="ca-list">
         <div class="ca-empty">Run the audit to list arcs.</div>
@@ -550,4 +578,7 @@ function engRenderDetail(d){
   dt.innerHTML=h;
   engShowState();
 }
+// This script block is emitted AFTER the engine tab divs, so view-comb-audit now
+// exists in the DOM -- safe to land on the audit workspace here.
+if(typeof showTab==='function') showTab('comb-audit');
 """
