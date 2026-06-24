@@ -1,0 +1,28 @@
+* Half-adder -- MULTI-OUTPUT combinational anchor for the audit (S and C).
+*   S = A XOR B   (AOI22 over (A,B),(abar,bbar))
+*   C = A AND B   (NAND then inverter)
+* The audit must use each arc's -vector to decide WHICH output it targets:
+*   A -> S sensitizes for all B (unconditional);  A -> C only at B=1.
+.subckt HA A B S C VDD VSS
+* input inverters
+XIA  abar A VDD VDD pch_svt_mac
+XINA abar A VSS VSS nch_svt_mac
+XIB  bbar B VDD VDD pch_svt_mac
+XINB bbar B VSS VSS nch_svt_mac
+* S = A XOR B : PDN (A.B) || (abar.bbar) ; PUN (A||B).(abar||bbar)
+XSN1 S    A    nab  VSS nch_svt_mac
+XSN2 nab  B    VSS  VSS nch_svt_mac
+XSN3 S    abar ncd  VSS nch_svt_mac
+XSN4 ncd  bbar VSS  VSS nch_svt_mac
+XSP1 S    A    smid VDD pch_svt_mac
+XSP2 S    B    smid VDD pch_svt_mac
+XSP3 smid abar VDD  VDD pch_svt_mac
+XSP4 smid bbar VDD  VDD pch_svt_mac
+* C = A AND B : NAND(A,B) -> nand, then inverter -> C
+XCN1 nand A   cn  VSS nch_svt_mac
+XCN2 cn   B   VSS VSS nch_svt_mac
+XCP1 nand A   VDD VDD pch_svt_mac
+XCP2 nand B   VDD VDD pch_svt_mac
+XCIN C    nand VSS VSS nch_svt_mac
+XCIP C    nand VDD VDD pch_svt_mac
+.ends

@@ -35,12 +35,33 @@ _RANK = {"DIVERGENCE": 0, "UNSUPPORTED-WHEN": 1, "ERROR": 2, "MATCH": 3}
 _FLAGGED = {"DIVERGENCE", "UNSUPPORTED-WHEN", "ERROR"}
 
 
+def _output_from_vector(pinlist: List[str], vector: str,
+                        output_pins: List[str]) -> Optional[str]:
+    """Which output pin does this arc's -vector say is toggling?
+
+    The -vector is one char per pin in pinlist order (R/F = transition, x = static;
+    PROJECT_NOTES SS2.3). For a multi-output cell, only the -vector tells which
+    output a given arc measures -- output_pins[0] would mis-assign carry/sum arcs.
+    Returns None if it cannot be determined (caller falls back to output_pins[0]).
+    """
+    v = (vector or "").strip()
+    if not v or not pinlist or len(v) != len(pinlist):
+        return None
+    outs = set(output_pins)
+    for pin, ch in zip(pinlist, v):
+        if pin in outs and ch in "RFrf":
+            return pin
+    return None
+
+
 def _combinational_groups(parsed: dict):
-    """{(cell, rel_pin): {output, whens[]}} for combinational arcs only.
+    """{(cell, rel_pin, output): {output, whens[]}} for combinational arcs only.
 
     The collateral encodes a split sensitizing region as several arcs sharing
-    (cell, rel_pin); we collect their distinct -when conjunctions into one set
-    (W_coll) -- that is what region equivalence compares against.
+    (cell, rel_pin, output); we collect their distinct -when conjunctions into one
+    set (W_coll) -- that is what region equivalence compares against. The output is
+    taken from each arc's -vector (multi-output correctness), falling back to the
+    cell's first output pin when the vector cannot disambiguate.
     """
     cells = parsed.get("cells", {})
     groups: Dict[tuple, dict] = {}
@@ -49,11 +70,14 @@ def _combinational_groups(parsed: dict):
         if arc.get("arc_type") != "combinational":
             continue
         cell, rel = arc["cell"], arc["rel_pin"]
-        outs = cells.get(cell, {}).get("output_pins") or []
+        cinfo = cells.get(cell, {})
+        outs = cinfo.get("output_pins") or []
         if not outs:
             continue
-        key = (cell, rel)
-        groups.setdefault(key, {"output": outs[0], "n_outputs": len(outs)})
+        pinlist = (cinfo.get("pinlist") or "").split()
+        out = _output_from_vector(pinlist, arc.get("vector", ""), outs) or outs[0]
+        key = (cell, rel, out)
+        groups.setdefault(key, {"output": out, "n_outputs": len(outs)})
         whens[key].add(arc.get("when", "NO_CONDITION"))
     for key, g in groups.items():
         g["whens"] = sorted(whens[key])
@@ -124,11 +148,11 @@ def audit_from_paths(template_tcl_path: str, netlist_dir: Optional[str],
         return path
 
     rows: List[dict] = []
-    for (cell, rel), g in sorted(groups.items()):
+    for (cell, rel, out), g in sorted(groups.items()):
         try:
-            rows.append(_audit_one(resolve(cell), cell, rel, g["output"], g["whens"]))
+            rows.append(_audit_one(resolve(cell), cell, rel, out, g["whens"]))
         except Exception as e:                      # isolation: one cell never aborts
-            rows.append({"cell": cell, "rel_pin": rel, "output": g.get("output", ""),
+            rows.append({"cell": cell, "rel_pin": rel, "output": out,
                          "status": "ERROR", "detail": "audit exception: %s" % e,
                          "kit_whens": g.get("whens", [])})
 
