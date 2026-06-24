@@ -198,3 +198,143 @@ def device_names(sp) -> List[str]:
     for c in sp[1]:
         out.extend(device_names(c))
     return out
+
+
+# ---------------------------------------------------------------------------
+# SVG renderer -- the audit detail "signature": VDD top / VSS bottom like a real
+# CMOS gate, series = vertical stack, parallel = side-by-side, PMOS rose / NMOS
+# blue, ON transistors energized teal (the one bold thing), rel_pin gold-ringed.
+# Pure string building, ASCII, no external assets (airgap-safe).
+# ---------------------------------------------------------------------------
+_DW, _DH = 72, 30          # device box
+_VGAP, _HGAP = 20, 18      # series gap (vertical), parallel gap (horizontal)
+_PAD = 18                  # panel padding
+_RAILH = 26                # rail band height
+_COL = {"pmos": "#b14a6f", "nmos": "#2f6fb0"}
+_ON = "#0a9a9a"
+
+
+def _measure(sp):
+    if not sp or sp[0] == "dev":
+        return (_DW, _DH)
+    sizes = [_measure(c) for c in sp[1]]
+    if sp[0] == "series":
+        return (max(w for w, _ in sizes),
+                sum(h for _, h in sizes) + _VGAP * (len(sizes) - 1))
+    # parallel / flat: side by side
+    return (sum(w for w, _ in sizes) + _HGAP * (len(sizes) - 1),
+            max(h for _, h in sizes))
+
+
+def _esc(s):
+    return (str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+
+
+def _draw(sp, x, y, w, h, on, rel_pin, parts):
+    """Place `sp` centered in box (x,y,w,h). Return center x for connectors."""
+    cx = x + w / 2.0
+    if not sp:
+        return cx
+    if sp[0] == "dev":
+        _, name, gate, kind = sp
+        bx, by = cx - _DW / 2.0, y + h / 2.0 - _DH / 2.0
+        lit = name in on
+        fill = _ON if lit else "#ffffff"
+        stroke = _ON if lit else _COL.get(kind, "#888")
+        sw = 2.4 if lit else 1.3
+        ring = (' style="filter:drop-shadow(0 0 0 2px #b8860b)"'
+                if gate == rel_pin else "")
+        parts.append(
+            '<rect class="dev%s" data-dev="%s" x="%.1f" y="%.1f" width="%d" '
+            'height="%d" rx="5" fill="%s" stroke="%s" stroke-width="%.1f"%s/>'
+            % (" on" if lit else "", _esc(name), bx, by, _DW, _DH, fill, stroke,
+               sw, ring))
+        tcol = "#ffffff" if lit else _COL.get(kind, "#333")
+        gl = _esc(gate) + ("*" if gate == rel_pin else "")
+        parts.append('<text x="%.1f" y="%.1f" text-anchor="middle" '
+                     'font-family="ui-monospace,monospace" font-size="12" '
+                     'font-weight="600" fill="%s">%s</text>'
+                     % (cx, by + _DH / 2.0 + 4, tcol, gl))
+        # connector stubs to the allocated top/bottom
+        parts.append('<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="#b9bec6"/>'
+                     % (cx, y, cx, by))
+        parts.append('<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="#b9bec6"/>'
+                     % (cx, by + _DH, cx, y + h))
+        return cx
+    sizes = [_measure(c) for c in sp[1]]
+    if sp[0] == "series":
+        cy = y
+        prev_cx = None
+        for c, (cw, ch) in zip(sp[1], sizes):
+            ccx = _draw(c, x, cy, w, ch, on, rel_pin, parts)
+            cy += ch + _VGAP
+            prev_cx = ccx
+        return cx
+    # parallel / flat: lay children left to right; bus them top and bottom
+    cxs = []
+    cxleft = x
+    for c, (cw, ch) in zip(sp[1], sizes):
+        ccx = _draw(c, cxleft, y + h / 2.0 - ch / 2.0, cw, ch, on, rel_pin, parts)
+        cxs.append(ccx)
+        cxleft += cw + _HGAP
+    if len(cxs) > 1:
+        parts.append('<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="#b9bec6"/>'
+                     % (min(cxs), y, max(cxs), y))                       # top bus
+        parts.append('<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="#b9bec6"/>'
+                     % (min(cxs), y + h, max(cxs), y + h))               # bottom bus
+    return cx
+
+
+def render_svg(blocks: List[dict], on=None, rel_pin: Optional[str] = None,
+               output: Optional[str] = None) -> str:
+    """One stacked panel per driven net: VDD rail, PUN, net line, PDN, VSS rail.
+    ON devices (from `conducting`) light teal. Returns an SVG string."""
+    on = set(on or ())
+    panels = []
+    total_h = _PAD
+    maxw = 360
+    for b in blocks:
+        pw, ph = _measure(b["pun"])
+        dw_, dh = _measure(b["pdn"])
+        inner_w = max(pw, dw_, 240)
+        maxw = max(maxw, inner_w + 2 * _PAD)
+        panels.append((b, inner_w, ph, dh))
+        total_h += _RAILH + ph + 28 + dh + _RAILH + 34
+    W = maxw
+    parts = ['<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" '
+             'viewBox="0 0 %d %d" font-family="ui-monospace,monospace">'
+             % (W, int(total_h), W, int(total_h))]
+    y = _PAD
+    for b, inner_w, ph, dh in panels:
+        x = (W - inner_w) / 2.0
+        net = b["net"]
+        tag = net + ("  (output)" if b["is_output"] else "  (internal)")
+        parts.append('<text x="%.1f" y="%.1f" font-size="12" font-weight="700" '
+                     'fill="#5b2a86">%s</text>' % (x, y + 12, _esc(tag)))
+        y += 18
+        # VDD rail
+        parts.append('<rect x="%.1f" y="%.1f" width="%d" height="14" rx="3" '
+                     'fill="#f3eef8" stroke="#d9cde8"/>' % (x, y, inner_w))
+        parts.append('<text x="%.1f" y="%.1f" font-size="10" fill="#7a5b9a">VDD</text>'
+                     % (x + 6, y + 11))
+        y += 14
+        _draw(b["pun"], x, y, inner_w, ph, on, rel_pin, parts)
+        y += ph
+        # net line
+        parts.append('<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" '
+                     'stroke="#5b2a86" stroke-width="2"/>' % (x, y + 14, x + inner_w, y + 14))
+        nlab = _esc(net) + (" = out" if b["is_output"] else "")
+        parts.append('<text x="%.1f" y="%.1f" font-size="11" font-weight="600" '
+                     'fill="#5b2a86" text-anchor="middle">%s</text>'
+                     % (x + inner_w / 2.0, y + 10, nlab))
+        y += 28
+        _draw(b["pdn"], x, y, inner_w, dh, on, rel_pin, parts)
+        y += dh
+        # VSS rail
+        parts.append('<rect x="%.1f" y="%.1f" width="%d" height="14" rx="3" '
+                     'fill="#eef2f8" stroke="#cdd8e8"/>' % (x, y, inner_w))
+        parts.append('<text x="%.1f" y="%.1f" font-size="10" fill="#5a6b8a">VSS</text>'
+                     % (x + 6, y + 11))
+        y += 14 + 20
+    parts.append('</svg>')
+    return "".join(parts)

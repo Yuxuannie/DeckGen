@@ -82,3 +82,30 @@ class TestTextHelpers:
         b = _block(_graph("AOI22"), "ZN")
         assert "||" in T.sp_to_text(b["pun"])
         assert "-" in T.sp_to_text(b["pun"])
+
+
+class TestRenderSvg:
+    def test_valid_svg_with_on_highlight(self):
+        import xml.dom.minidom as md
+        g = _graph("AIOI21")
+        blocks = T.pull_networks(g)
+        on = T.conducting(g, {"A1": 0, "A2": 0, "B": 1})
+        svg = T.render_svg(blocks, on=on, rel_pin="B", output="ZN")
+        md.parseString(svg)                       # raises on malformed XML
+        assert 'class="dev on"' in svg            # conducting devices highlighted
+        assert svg.startswith("<svg") and svg.rstrip().endswith("</svg>")
+        for pin in ("A1", "A2", "B"):
+            assert pin in svg
+
+    def test_parallel_pmos_both_lit_vs_single(self):
+        # the partition signal, made visible: B rising at !A1&!A2 lights BOTH
+        # stage-1 PMOS (parallel, fast); at !A1&A2 only one of them lights.
+        g = _graph("AIOI21")
+        blocks = T.pull_networks(g)
+        par = T.render_svg(blocks, on=T.conducting(g, {"A1": 0, "A2": 0, "B": 1}))
+        single = T.render_svg(blocks, on=T.conducting(g, {"A1": 0, "A2": 1, "B": 1}))
+
+        def lit(svg, dev):
+            return ('class="dev on" data-dev="%s"' % dev) in svg
+        assert lit(par, "XPA1") and lit(par, "XPA2")          # both PMOS lit
+        assert [lit(single, d) for d in ("XPA1", "XPA2")].count(True) == 1
