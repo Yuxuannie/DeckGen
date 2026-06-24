@@ -84,6 +84,33 @@ CSS_COMPONENTS += """
 .eng-trace-card summary{cursor:pointer;list-style:revert;}
 """
 
+# Library-audit cohort report -- purple+gold accents (engine region/verdict view).
+CSS_COMPONENTS += """
+.ca-cohort{margin:0 0 18px;}
+.ca-cohort-h{font:600 15px var(--font-ui);color:var(--text);margin:0 0 10px;
+  display:flex;align-items:center;gap:8px;}
+.ca-flagged-h{color:#5b2a86;border-left:4px solid #b8860b;padding-left:10px;}
+details.ca-cohort>summary.ca-cohort-h{cursor:pointer;list-style:revert;}
+.ca-card{background:var(--surface);border:1px solid var(--border);
+  border-left:3px solid #5b2a86;border-radius:var(--r-card);margin:0 0 8px;}
+.ca-card>summary{cursor:pointer;padding:10px 12px;font:600 13px var(--font-mono);
+  display:flex;align-items:center;gap:10px;list-style:revert;}
+.ca-card[data-st="MATCH"]{border-left-color:var(--pass-fg);}
+.ca-card[data-st="DIVERGENCE"]{border-left-color:var(--fail-fg);}
+.ca-card[data-st="UNSUPPORTED-WHEN"]{border-left-color:var(--stub-fg);}
+.ca-card[data-st="ERROR"]{border-left-color:var(--err-fg);}
+.ca-body{padding:0 12px 12px 14px;font:12px/1.6 var(--font-mono);color:var(--text-mut);}
+.ca-kv{margin:5px 0;}
+.ca-kv b{color:var(--text);font-weight:600;min-width:140px;display:inline-block;
+  vertical-align:top;}
+.ca-st{display:inline-block;padding:0 6px;border-radius:3px;background:var(--surface-2);
+  margin:0 3px 3px 0;}
+.ca-bad{background:var(--fail-bg);color:var(--fail-fg);}
+.ca-gold{background:#fff8c5;color:#7a5b00;}
+.ca-sig{color:#5b2a86;}
+.ca-arrow{color:var(--text-mut);}
+"""
+
 
 def topology_tab_html():
     return """
@@ -303,4 +330,111 @@ def audit_tab_html():
       <tbody id="eng-audit-rows"></tbody></table>
   </div>
 </div>
+"""
+
+
+def comb_audit_tab_html():
+    return """
+<div class="main view-hidden" id="view-comb-audit">
+  <div class="panel eng-panel">
+    <div class="eng-tab-title">Library Audit -- the engine derives each combinational
+      arc's sensitizing region from the .subckt topology and checks it against the
+      kit -when (region equivalence). The value is the split: TRUST vs FLAGGED.</div>
+    <div class="eng-controls">
+      <div class="eng-field"><label>Corner</label>
+        <select id="engCAudCorner"></select></div>
+      <button class="btn btn-primary" onclick="engCombAudit()">Run library audit</button>
+    </div>
+    <div id="eng-caud-summary" style="margin-bottom:14px"></div>
+    <div id="eng-caud-flagged"></div>
+    <div id="eng-caud-trust"></div>
+  </div>
+</div>
+"""
+
+
+def comb_audit_js():
+    return r"""
+function engCombAuditInit(){
+  engFillSelect(document.getElementById('engCAudCorner'),engCorners());
+}
+function caChip(st){
+  var m={MATCH:'chip-pass','DIVERGENCE':'chip-fail',
+         'UNSUPPORTED-WHEN':'chip-stub',ERROR:'chip-error'};
+  return '<span class="eng-chip '+(m[st]||'chip-error')+'">'+st+'</span>';
+}
+function caStates(arr,cls){
+  if(!arr||!arr.length) return '<span class="eng-mut">(none)</span>';
+  return arr.map(function(s){
+    return '<span class="ca-st '+(cls||'')+'">'+esc(s)+'</span>';}).join('');
+}
+function caRegion(states){
+  if(!states||!states.length) return '<span class="eng-mut">(none)</span>';
+  return states.map(function(s){
+    var dir=s.out_dir?(' <span class="ca-arrow">'+
+      (s.out_dir==='R'?'&#8593;':'&#8595;')+'</span>'):'';
+    var sig=(s.sig&&s.sig.length)?
+      (' <span class="ca-sig">['+s.sig.map(esc).join(',')+']</span>'):'';
+    return '<span class="ca-st">'+esc(s.label)+dir+sig+'</span>';
+  }).join(' ');
+}
+function caCard(r){
+  var head='<summary><span>'+esc(r.cell)+'</span>'+
+    '<span class="ca-arrow">'+esc(r.rel_pin)+' &#8594; '+esc(r.output||'')+'</span>'+
+    caChip(r.status)+'</summary>';
+  var b='<div class="ca-body">';
+  b+='<div class="ca-kv"><b>kit -when</b>'+caStates(r.kit_whens)+'</div>';
+  if(r.status==='ERROR'){
+    b+='<div class="ca-kv"><b>error</b>'+esc(r.detail||'')+'</div></div>';
+    return '<details class="ca-card" open data-st="'+r.status+'">'+head+b+'</details>';
+  }
+  if(r.missing&&r.missing.length)
+    b+='<div class="ca-kv"><b>missing (kit omits)</b>'+caStates(r.missing,'ca-gold')+'</div>';
+  if(r.extra&&r.extra.length)
+    b+='<div class="ca-kv"><b>extra (kit over-claims)</b>'+caStates(r.extra,'ca-bad')+'</div>';
+  b+='<div class="ca-kv"><b>SENSITIZING</b>'+caRegion(r.sensitizing)+'</div>';
+  if(r.blocked&&r.blocked.length)
+    b+='<div class="ca-kv"><b>BLOCKED</b>'+caRegion(r.blocked)+'</div>';
+  if(r.needs_split)
+    b+='<div class="ca-kv"><b>partition</b>'+
+      '<span class="ca-st ca-gold">region spans &#8805;2 SIG groups</span></div>';
+  b+='<div class="ca-kv"><b>detail</b>'+esc(r.detail||'')+'</div></div>';
+  var open=(r.status!=='MATCH')?' open':'';
+  return '<details class="ca-card"'+open+' data-st="'+r.status+'">'+head+b+'</details>';
+}
+function engCombAudit(){
+  if(!S.node||!S.libtype){
+    document.getElementById('eng-caud-summary').innerHTML=
+      '<div class="eng-detail">Pick a node + lib_type in the Explore tab first.</div>';
+    return;
+  }
+  var corner=(document.getElementById('engCAudCorner')||{}).value||'';
+  var sm=document.getElementById('eng-caud-summary');
+  sm.innerHTML='<div class="eng-detail">Running audit over '+esc(S.libtype)+' ...</div>';
+  document.getElementById('eng-caud-flagged').innerHTML='';
+  document.getElementById('eng-caud-trust').innerHTML='';
+  post('/api/engine/comb_audit',{node:S.node,lib_type:S.libtype,corner:corner})
+    .then(function(d){
+    if(d.error){ sm.innerHTML='<div class="eng-detail">'+esc(d.error)+'</div>'; return; }
+    var s=d.summary||{};
+    function stat(n,l){return '<span class="eng-stat"><span class="n">'+(n||0)+
+      '</span><span class="l">'+l+'</span></span>';}
+    sm.innerHTML=stat(s.cells,'cells')+stat(s.arcs,'arcs')+stat(s.flagged,'flagged')+
+      stat(s.divergence,'divergence')+stat(s.unsupported,'unsupported')+
+      stat(s.error,'error')+stat(s.match,'match');
+    var fl=(d.cohorts&&d.cohorts.flagged)||[];
+    var tr=(d.cohorts&&d.cohorts.trust)||[];
+    var fh='<div class="ca-cohort"><div class="ca-cohort-h ca-flagged-h">'+
+      'FLAGGED -- engine wants a look ('+fl.length+')</div>';
+    fh+= fl.length?fl.map(caCard).join(''):
+      '<div class="eng-mut">none -- engine agrees with the kit on every arc</div>';
+    fh+='</div>';
+    document.getElementById('eng-caud-flagged').innerHTML=fh;
+    var th='<details class="ca-cohort"><summary class="ca-cohort-h">'+
+      'TRUST -- MATCH ('+tr.length+'), collapsed</summary>';
+    th+= tr.map(caCard).join('');
+    th+='</details>';
+    document.getElementById('eng-caud-trust').innerHTML=th;
+  });
+}
 """

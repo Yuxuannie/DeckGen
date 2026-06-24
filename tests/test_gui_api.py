@@ -123,3 +123,32 @@ def test_topology_tab_has_pin_pickers():
                'engAudit', 'engAuditArcs'):
         assert fn in js, fn
     (html + js).encode('ascii')
+
+
+def test_comb_audit_fragments_present():
+    import gui_engine_views as v
+    assert 'view-comb-audit' in v.comb_audit_tab_html()
+    assert 'engCombAudit' in v.comb_audit_js()
+    assert 'ca-cohort' in v.CSS_COMPONENTS
+
+
+def test_comb_audit_in_assembled_page():
+    import gui
+    pg = gui.HTML_PAGE
+    for tok in ('view-comb-audit', 'Library Audit', 'engCombAudit'):
+        assert tok in pg
+
+
+def test_comb_audit_wrapper_runs_over_collateral(tmp_path, monkeypatch):
+    # The CollateralStore-backed airgap entry point must resolve template + netlist
+    # and run without crashing, returning the cohort report shape. The DFFQ1 fixture
+    # has no combinational arcs, so this is a wiring smoke (verdict logic is covered
+    # by tests/test_library_audit.py against audit_from_paths).
+    root = _setup_collateral(tmp_path, monkeypatch)
+    from core.collateral import CollateralStore
+    from core.library_audit import audit_combinational_library
+    corner = CollateralStore(root, 'N2P_v1.0', 'test_lib').list_corners()[0]
+    r = audit_combinational_library(root, 'N2P_v1.0', 'test_lib', corner)
+    assert set(['summary', 'rows', 'cohorts', 'context']).issubset(r.keys())
+    assert set(['flagged', 'trust']).issubset(r['cohorts'].keys())
+    assert 'arcs' in r['summary']

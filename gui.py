@@ -699,6 +699,7 @@ table.vtbl tr:hover td{background:var(--tint);}
     <div class="tab" onclick="showTab('validate')">Validate</div>
     <div class="tab" data-tab="topology" onclick="showTab('topology')">Topology</div>
     <div class="tab" data-tab="audit" onclick="showTab('audit')">Audit</div>
+    <div class="tab" data-tab="comb-audit" onclick="showTab('comb-audit')">Library Audit</div>
   </div>
   <div class="spacer"></div>
   <div class="status-pill" id="statusPill">Loading&#x2026;</div>
@@ -902,7 +903,7 @@ var S={node:'',libtype:'',corners:[],selCorners:new Set(),cells:[],arcCache:{},
   queue:[],arcFilter:'all',cellFilter:'',cellGlob:false,results:[],lastDeckPath:'',
   vResults:[],vFilter:'all',genTaskId:'',genTotal:0,_restore:{}};
 function showTab(name){
-  var tabs=['explore','direct','validate','topology','audit'];
+  var tabs=['explore','direct','validate','topology','audit','comb-audit'];
   tabs.forEach(function(n){
     var el=document.getElementById('view-'+n);
     if(el) el.classList.toggle('view-hidden',n!==name);});
@@ -911,6 +912,7 @@ function showTab(name){
   document.getElementById('dbar').style.display=name==='validate'?'none':'flex';
   if(name==='topology'&&typeof engTopoInit==='function')engTopoInit();
   if(name==='audit'&&typeof engAuditInit==='function')engAuditInit();
+  if(name==='comb-audit'&&typeof engCombAuditInit==='function')engCombAuditInit();
   closeDeck();}
 function post(url,body){return fetch(url,{method:'POST',
   headers:{'Content-Type':'application/json'},body:JSON.stringify(body)
@@ -1591,9 +1593,11 @@ HTML_PAGE = (
     .replace('<!--ENGINE_CSS-->',
              '<style>' + _ev.CSS_TOKENS + _ev.CSS_COMPONENTS + '</style>')
     .replace('<!--ENGINE_TABS-->',
-             _ev.topology_tab_html() + _ev.audit_tab_html())
+             _ev.topology_tab_html() + _ev.audit_tab_html()
+             + _ev.comb_audit_tab_html())
     .replace('<!--ENGINE_JS-->',
-             '<script>' + _ev.engine_js() + _ENGINE_JS_GLUE + '</script>')
+             '<script>' + _ev.engine_js() + _ev.comb_audit_js()
+             + _ENGINE_JS_GLUE + '</script>')
 )
 
 
@@ -1821,6 +1825,8 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
             self._engine_topology(data)
         elif path == '/api/engine/audit':
             self._engine_audit(data)
+        elif path == '/api/engine/comb_audit':
+            self._engine_comb_audit(data)
         else:
             self.send_response(404)
             self.end_headers()
@@ -1866,6 +1872,24 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
                                                      collateral_root))
         except Exception as e:
             r = {'status': 'ERROR', 'error': str(e), 'rows': [], 'summary': {}}
+        self._send_json(r)
+
+    # ------------------------------------------------------------------
+    # /api/engine/comb_audit  (POST) -- library-scale combinational audit
+    # ------------------------------------------------------------------
+
+    def _engine_comb_audit(self, body):
+        from core.library_audit import audit_combinational_library
+        collateral_root = getattr(DeckgenHandler, 'COLLATERAL_ROOT',
+                                  _DEFAULT_COLLATERAL_ROOT)
+        try:
+            r = audit_combinational_library(
+                collateral_root=body.get('collateral_root', collateral_root),
+                node=body['node'], lib_type=body['lib_type'],
+                corner=body['corner'], cells=body.get('cells'))
+        except Exception as e:
+            r = {'error': str(e), 'summary': {}, 'rows': [],
+                 'cohorts': {'flagged': [], 'trust': []}}
         self._send_json(r)
 
     # ------------------------------------------------------------------
