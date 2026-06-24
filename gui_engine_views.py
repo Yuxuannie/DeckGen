@@ -111,6 +111,52 @@ details.ca-cohort>summary.ca-cohort-h{cursor:pointer;list-style:revert;}
 .ca-arrow{color:var(--text-mut);}
 """
 
+# Master-detail triage workspace (audit-first redesign 2026-06-24).
+CSS_COMPONENTS += """
+.ca-ws{display:flex;height:calc(100vh - 240px);min-height:420px;margin-top:12px;}
+.ca-list{width:320px;min-width:200px;overflow:auto;padding-right:6px;}
+.ca-list h5{margin:10px 0 6px;font:700 11px var(--font-ui);letter-spacing:.05em;
+  text-transform:uppercase;color:#5b2a86;}
+.ca-list .trust-h{color:var(--text-mut);}
+.ca-split{width:6px;cursor:col-resize;flex:0 0 auto;
+  background:linear-gradient(var(--border),var(--border)) center/1px 100% no-repeat;}
+.ca-split:hover{background:linear-gradient(#5b2a86,#5b2a86) center/2px 100% no-repeat;}
+.ca-detail{flex:1;overflow:auto;padding-left:16px;min-width:320px;}
+.ca-li{padding:7px 9px;border-radius:5px;cursor:pointer;border-left:3px solid transparent;
+  font:12px var(--font-mono);display:flex;gap:8px;align-items:center;
+  justify-content:space-between;}
+.ca-li:hover{background:var(--surface-2);}
+.ca-li.sel{background:#f3eef8;border-left-color:#5b2a86;}
+.ca-d-head{font:600 15px var(--font-ui);margin:0 0 10px;display:flex;gap:10px;
+  align-items:center;flex-wrap:wrap;}
+.ca-d-bool{font:13px var(--font-mono);color:#5b2a86;}
+.ca-d-grid{display:grid;grid-template-columns:minmax(300px,1fr) minmax(300px,1fr);
+  gap:18px;align-items:start;}
+.ca-card2{border:1px solid var(--border);border-radius:6px;padding:10px 12px;
+  background:var(--surface);}
+.ca-card2 h4{margin:0 0 8px;font:600 12px var(--font-ui);text-transform:uppercase;
+  letter-spacing:.04em;color:var(--text-mut);}
+.ca-stepper{display:flex;align-items:center;gap:10px;margin-bottom:8px;
+  font:12px var(--font-mono);}
+.ca-stepper button{cursor:pointer;border:1px solid var(--border);background:var(--surface);
+  border-radius:4px;padding:2px 9px;font:13px var(--font-mono);}
+.ca-svgwrap{overflow:auto;max-height:520px;border:1px solid var(--border);
+  border-radius:6px;background:#fcfbfe;padding:6px;}
+.ca-rt{width:100%;border-collapse:collapse;font:12px var(--font-mono);}
+.ca-rt th{text-align:left;color:var(--text-mut);font-weight:600;}
+.ca-rt th,.ca-rt td{padding:3px 8px;border-bottom:1px solid var(--border);}
+.ca-rt .sens{color:var(--pass-fg);} .ca-rt .blk{color:var(--text-mut);}
+.ca-miss{background:#fbf1d6;color:#7a5b00;font-weight:700;}
+.ca-extra{background:#ffe6c2;color:#8a4500;font-weight:700;}
+.ca-d-bottom{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:16px;}
+.ca-raw{font:11px var(--font-mono);white-space:pre-wrap;background:var(--surface-2);
+  padding:8px 10px;border-radius:5px;color:var(--text);}
+.ca-empty{color:var(--text-mut);font:13px var(--font-ui);padding:40px 0;text-align:center;}
+.ca-summary{font:13px/1.5 var(--font-ui);color:var(--text);background:#fbf1d6;
+  border-left:4px solid #b8860b;border-radius:4px;padding:9px 12px;margin:0 0 14px;}
+.ca-why{font:12px/1.5 var(--font-mono);color:#5b2a86;margin:0 0 8px;min-height:18px;}
+"""
+
 
 def topology_tab_html():
     return """
@@ -337,17 +383,24 @@ def comb_audit_tab_html():
     return """
 <div class="main view-hidden" id="view-comb-audit">
   <div class="panel eng-panel">
-    <div class="eng-tab-title">Library Audit -- the engine derives each combinational
-      arc's sensitizing region from the .subckt topology and checks it against the
-      kit -when (region equivalence). The value is the split: TRUST vs FLAGGED.</div>
+    <div class="eng-tab-title">Audit -- the engine derives each combinational arc's
+      sensitizing region from the .subckt topology and checks it against the kit
+      -when. Pick a flagged arc to see why it diverges.</div>
     <div class="eng-controls">
       <div class="eng-field"><label>Corner</label>
         <select id="engCAudCorner"></select></div>
-      <button class="btn btn-primary" onclick="engCombAudit()">Run library audit</button>
+      <button class="btn btn-primary" onclick="engCombAudit()">Run audit</button>
     </div>
-    <div id="eng-caud-summary" style="margin-bottom:14px"></div>
-    <div id="eng-caud-flagged"></div>
-    <div id="eng-caud-trust"></div>
+    <div id="eng-caud-summary" style="margin-bottom:6px"></div>
+    <div class="ca-ws">
+      <div class="ca-list" id="ca-list">
+        <div class="ca-empty">Run the audit to list arcs.</div>
+      </div>
+      <div class="ca-split" id="ca-split"></div>
+      <div class="ca-detail" id="ca-detail">
+        <div class="ca-empty">Select a flagged arc on the left to inspect it.</div>
+      </div>
+    </div>
   </div>
 </div>
 """
@@ -355,52 +408,27 @@ def comb_audit_tab_html():
 
 def comb_audit_js():
     return r"""
+var CA={rendered:[],idx:0,corner:''};
 function engCombAuditInit(){
   engFillSelect(document.getElementById('engCAudCorner'),engCorners());
+  engSplitInit();
 }
 function caChip(st){
   var m={MATCH:'chip-pass','DIVERGENCE':'chip-fail',
          'UNSUPPORTED-WHEN':'chip-stub',ERROR:'chip-error'};
-  return '<span class="eng-chip '+(m[st]||'chip-error')+'">'+st+'</span>';
+  return '<span class="eng-chip '+(m[st]||'chip-error')+'">'+esc(st)+'</span>';
 }
-function caStates(arr,cls){
-  if(!arr||!arr.length) return '<span class="eng-mut">(none)</span>';
-  return arr.map(function(s){
-    return '<span class="ca-st '+(cls||'')+'">'+esc(s)+'</span>';}).join('');
-}
-function caRegion(states){
-  if(!states||!states.length) return '<span class="eng-mut">(none)</span>';
-  return states.map(function(s){
-    var dir=s.out_dir?(' <span class="ca-arrow">'+
-      (s.out_dir==='R'?'&#8593;':'&#8595;')+'</span>'):'';
-    var sig=(s.sig&&s.sig.length)?
-      (' <span class="ca-sig">['+s.sig.map(esc).join(',')+']</span>'):'';
-    return '<span class="ca-st">'+esc(s.label)+dir+sig+'</span>';
-  }).join(' ');
-}
-function caCard(r){
-  var head='<summary><span>'+esc(r.cell)+'</span>'+
-    '<span class="ca-arrow">'+esc(r.rel_pin)+' &#8594; '+esc(r.output||'')+'</span>'+
-    caChip(r.status)+'</summary>';
-  var b='<div class="ca-body">';
-  b+='<div class="ca-kv"><b>kit -when</b>'+caStates(r.kit_whens)+'</div>';
-  if(r.status==='ERROR'){
-    b+='<div class="ca-kv"><b>error</b>'+esc(r.detail||'')+'</div></div>';
-    return '<details class="ca-card" open data-st="'+r.status+'">'+head+b+'</details>';
-  }
-  if(r.missing&&r.missing.length)
-    b+='<div class="ca-kv"><b>missing (kit omits)</b>'+caStates(r.missing,'ca-gold')+'</div>';
-  if(r.extra&&r.extra.length)
-    b+='<div class="ca-kv"><b>extra (kit over-claims)</b>'+caStates(r.extra,'ca-bad')+'</div>';
-  b+='<div class="ca-kv"><b>SENSITIZING</b>'+caRegion(r.sensitizing)+'</div>';
-  if(r.blocked&&r.blocked.length)
-    b+='<div class="ca-kv"><b>BLOCKED</b>'+caRegion(r.blocked)+'</div>';
-  if(r.needs_split)
-    b+='<div class="ca-kv"><b>partition</b>'+
-      '<span class="ca-st ca-gold">region spans &#8805;2 SIG groups</span></div>';
-  b+='<div class="ca-kv"><b>detail</b>'+esc(r.detail||'')+'</div></div>';
-  var open=(r.status!=='MATCH')?' open':'';
-  return '<details class="ca-card"'+open+' data-st="'+r.status+'">'+head+b+'</details>';
+function engSplitInit(){
+  var sp=document.getElementById('ca-split'), list=document.getElementById('ca-list');
+  if(!sp||sp._wired) return; sp._wired=true;
+  var drag=false;
+  sp.addEventListener('mousedown',function(e){drag=true;e.preventDefault();});
+  window.addEventListener('mouseup',function(){drag=false;});
+  window.addEventListener('mousemove',function(e){
+    if(!drag) return;
+    var x=e.clientX-list.getBoundingClientRect().left;
+    if(x>160&&x<window.innerWidth-360) list.style.width=x+'px';
+  });
 }
 function engCombAudit(){
   if(!S.node||!S.libtype){
@@ -408,12 +436,11 @@ function engCombAudit(){
       '<div class="eng-detail">Pick a node + lib_type in the Explore tab first.</div>';
     return;
   }
-  var corner=(document.getElementById('engCAudCorner')||{}).value||'';
+  CA.corner=(document.getElementById('engCAudCorner')||{}).value||'';
   var sm=document.getElementById('eng-caud-summary');
   sm.innerHTML='<div class="eng-detail">Running audit over '+esc(S.libtype)+' ...</div>';
-  document.getElementById('eng-caud-flagged').innerHTML='';
-  document.getElementById('eng-caud-trust').innerHTML='';
-  post('/api/engine/comb_audit',{node:S.node,lib_type:S.libtype,corner:corner})
+  document.getElementById('ca-list').innerHTML='<div class="ca-empty">working...</div>';
+  post('/api/engine/comb_audit',{node:S.node,lib_type:S.libtype,corner:CA.corner})
     .then(function(d){
     if(d.error){ sm.innerHTML='<div class="eng-detail">'+esc(d.error)+'</div>'; return; }
     var s=d.summary||{};
@@ -424,17 +451,103 @@ function engCombAudit(){
       stat(s.error,'error')+stat(s.match,'match');
     var fl=(d.cohorts&&d.cohorts.flagged)||[];
     var tr=(d.cohorts&&d.cohorts.trust)||[];
-    var fh='<div class="ca-cohort"><div class="ca-cohort-h ca-flagged-h">'+
-      'FLAGGED -- engine wants a look ('+fl.length+')</div>';
-    fh+= fl.length?fl.map(caCard).join(''):
-      '<div class="eng-mut">none -- engine agrees with the kit on every arc</div>';
-    fh+='</div>';
-    document.getElementById('eng-caud-flagged').innerHTML=fh;
-    var th='<details class="ca-cohort"><summary class="ca-cohort-h">'+
-      'TRUST -- MATCH ('+tr.length+'), collapsed</summary>';
-    th+= tr.map(caCard).join('');
-    th+='</details>';
-    document.getElementById('eng-caud-trust').innerHTML=th;
+    function row(r){
+      return '<div class="ca-li" onclick="engArcPick(this,\''+esc(r.cell)+'\',\''+
+        esc(r.rel_pin)+'\',\''+esc(r.output||'')+'\')">'+
+        '<span>'+esc(r.cell)+' <span class="ca-arrow">'+esc(r.rel_pin)+
+        '&#8594;'+esc(r.output||'')+'</span></span>'+caChip(r.status)+'</div>';
+    }
+    var h='<h5>Flagged ('+fl.length+')</h5>';
+    h+= fl.length?fl.map(row).join(''):'<div class="eng-mut">none</div>';
+    h+='<h5 class="trust-h">Trust / match ('+tr.length+')</h5>';
+    h+= tr.slice(0,400).map(row).join('');
+    if(tr.length>400) h+='<div class="eng-mut">... '+(tr.length-400)+' more</div>';
+    document.getElementById('ca-list').innerHTML=h;
   });
+}
+function engArcPick(el,cell,rel,out){
+  document.querySelectorAll('.ca-li').forEach(function(n){n.classList.remove('sel');});
+  if(el) el.classList.add('sel');
+  var dt=document.getElementById('ca-detail');
+  dt.innerHTML='<div class="ca-empty">deriving '+esc(cell)+' '+esc(rel)+'...</div>';
+  post('/api/engine/arc_detail',{node:S.node,lib_type:S.libtype,corner:CA.corner,
+    cell:cell,rel_pin:rel,output:out}).then(function(d){engRenderDetail(d);});
+}
+function engRegionTable(d){
+  var side=d.side_pins||[];
+  var h='<table class="ca-rt"><thead><tr>';
+  side.forEach(function(p){h+='<th>'+esc(p)+'</th>';});
+  h+='<th>engine</th><th>kit</th><th>diff</th></tr></thead><tbody>';
+  (d.region||[]).forEach(function(r){
+    var dc=r.diff==='MISS'?'ca-miss':(r.diff==='EXTRA'?'ca-extra':'');
+    h+='<tr class="'+dc+'">';
+    side.forEach(function(p){h+='<td>'+r.side[p]+'</td>';});
+    var eng=r.engine==='SENS'?('<span class="sens">SENS'+
+      (r.out_dir?(r.out_dir==='R'?' &#8593;':' &#8595;'):'')+'</span>'):
+      '<span class="blk">BLOCKED</span>';
+    h+='<td>'+eng+'</td><td>'+esc(r.kit)+'</td><td>'+esc(r.diff||'')+'</td></tr>';
+  });
+  return h+'</tbody></table>';
+}
+function engTruthTable(d){
+  var ins=d.inputs||[];
+  var h='<table class="ca-rt"><thead><tr>';
+  ins.forEach(function(p){h+='<th>'+esc(p)+'</th>';});
+  h+='<th>'+esc(d.output)+'</th></tr></thead><tbody>';
+  (d.truth_table||[]).forEach(function(r){
+    h+='<tr>';
+    ins.forEach(function(p){h+='<td>'+r.inputs[p]+'</td>';});
+    h+='<td><b>'+(r.out===null?'x':r.out)+'</b></td></tr>';
+  });
+  return h+'</tbody></table>';
+}
+function engStep(delta){
+  if(!CA.rendered.length) return;
+  CA.idx=(CA.idx+delta+CA.rendered.length)%CA.rendered.length;
+  engShowState();
+}
+function engShowState(){
+  var st=CA.rendered[CA.idx]; if(!st) return;
+  var diff=st.diff?(' <span class="ca-st '+(st.diff==='MISS'?'ca-miss':'ca-extra')+
+    '">'+esc(st.diff)+'</span>'):'';
+  document.getElementById('ca-step-label').innerHTML=
+    (CA.idx+1)+'/'+CA.rendered.length+'  state '+esc(st.label)+
+    ' ['+esc(st.engine)+']'+diff;
+  document.getElementById('ca-d-svg').innerHTML=st.svg;
+  var w=document.getElementById('ca-step-why'); if(w) w.textContent=st.why||'';
+}
+function engRenderDetail(d){
+  var dt=document.getElementById('ca-detail');
+  if(!d||d.status!=='OK'){
+    dt.innerHTML='<div class="ca-empty">'+esc((d&&(d.error||d.status))||'no detail')+
+      '</div>'; return;
+  }
+  CA.rendered=(d.topology&&d.topology.rendered)||[]; CA.idx=0;
+  var v=d.verdict||{};
+  var h='<div class="ca-d-head"><span>'+esc(d.cell)+'</span>'+
+    '<span class="ca-arrow">'+esc(d.rel_pin)+' &#8594; '+esc(d.output)+'</span>'+
+    caChip(v.status)+'<span class="ca-d-bool">'+esc(d.boolean||'')+'</span></div>';
+  h+='<div class="ca-summary">'+esc(d.summary||'')+'</div>';
+  h+='<div class="ca-d-grid">';
+  // topology card (signature)
+  h+='<div class="ca-card2"><h4>Topology -- conduction by state</h4>'+
+     '<div class="ca-stepper"><button onclick="engStep(-1)">&#9664;</button>'+
+     '<span id="ca-step-label"></span>'+
+     '<button onclick="engStep(1)">&#9654;</button></div>'+
+     '<div class="ca-why" id="ca-step-why"></div>'+
+     '<div class="ca-svgwrap" id="ca-d-svg"></div>'+
+     (d.topology&&d.topology.truncated?'<div class="eng-mut">states capped</div>':'')+
+     '</div>';
+  // region card
+  h+='<div class="ca-card2"><h4>Region -- engine vs kit</h4>'+engRegionTable(d)+'</div>';
+  h+='</div>';
+  // bottom: truth table + kit raw
+  h+='<div class="ca-d-bottom"><div class="ca-card2"><h4>Truth table</h4>'+
+     engTruthTable(d)+'</div>'+
+     '<div class="ca-card2"><h4>kit -when / -vector</h4><div class="ca-raw">'+
+     ((d.kit_raw||[]).map(esc).join('\n')||'(none)')+'</div>'+
+     '<div class="eng-mut" style="margin-top:8px">'+esc(v.detail||'')+'</div></div></div>';
+  dt.innerHTML=h;
+  engShowState();
 }
 """

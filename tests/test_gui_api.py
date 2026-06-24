@@ -97,17 +97,20 @@ def test_engine_topology_via_present_layer():
     assert res["status"] == "OK" and "svg" in res and res["p1"]["status"] == "PASS"
 
 
-def test_index_includes_engine_tabs_integrated_as_views():
-    # Engine tabs are real view-* siblings driven by the existing showTab(),
-    # each with its own cell/corner picker. (Phase-1 has no Core/Engine face
-    # toggle yet -- deferred to Phase 2.)
+def test_index_audit_first_nav_after_redesign():
+    # 2026-06-24 redesign: audit-first nav. The Audit (combinational) workspace is
+    # the default view; Explore/Direct are demoted to "Decks"; the Validate and old
+    # sequential-Audit nav tabs are removed (their view divs may remain as hidden,
+    # non-nav siblings). Topology is embedded in the per-arc detail, not a tab.
     import gui
     page = gui.HTML_PAGE if isinstance(getattr(gui, "HTML_PAGE", None), str) \
         else gui.build_page()
-    for marker in ('id="view-topology"', 'id="view-audit"', 'eng-topo-canvas',
-                   'id="engTopoCell"', 'id="engTopoCorner"', 'id="engAuditCorner"',
-                   "showTab('topology')", "showTab('audit')"):
+    for marker in ('id="view-comb-audit"', 'id="engCAudCorner"', 'id="ca-detail"',
+                   'id="ca-d-svg"', "showTab('comb-audit')", "showTab('explore')"):
         assert marker in page, marker
+    # the retired tabs are no longer reachable from the nav bar
+    assert "showTab('validate')" not in page
+    assert "showTab('topology')" not in page
     page.encode('ascii')
 
 
@@ -135,8 +138,9 @@ def test_comb_audit_fragments_present():
 def test_comb_audit_in_assembled_page():
     import gui
     pg = gui.HTML_PAGE
-    for tok in ('view-comb-audit', 'Library Audit', 'engCombAudit'):
+    for tok in ('view-comb-audit', 'engCombAudit', 'engArcPick', 'engRenderDetail'):
         assert tok in pg
+    assert ">Audit<" in pg            # tab relabeled Library Audit -> Audit
 
 
 def test_comb_audit_wrapper_runs_over_collateral(tmp_path, monkeypatch):

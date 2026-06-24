@@ -694,12 +694,9 @@ table.vtbl tr:hover td{background:var(--tint);}
 <div class="topbar">
   <div class="brand">DeckGen</div>
   <div class="tabs">
-    <div class="tab active" onclick="showTab('explore')">Explore</div>
-    <div class="tab" onclick="showTab('direct')">Direct</div>
-    <div class="tab" onclick="showTab('validate')">Validate</div>
-    <div class="tab" data-tab="topology" onclick="showTab('topology')">Topology</div>
-    <div class="tab" data-tab="audit" onclick="showTab('audit')">Audit</div>
-    <div class="tab" data-tab="comb-audit" onclick="showTab('comb-audit')">Library Audit</div>
+    <div class="tab active" data-tab="comb-audit" onclick="showTab('comb-audit')">Audit</div>
+    <div class="tab" onclick="showTab('explore')">Decks &middot; Explore</div>
+    <div class="tab" onclick="showTab('direct')">Decks &middot; Direct</div>
   </div>
   <div class="spacer"></div>
   <div class="status-pill" id="statusPill">Loading&#x2026;</div>
@@ -903,15 +900,15 @@ var S={node:'',libtype:'',corners:[],selCorners:new Set(),cells:[],arcCache:{},
   queue:[],arcFilter:'all',cellFilter:'',cellGlob:false,results:[],lastDeckPath:'',
   vResults:[],vFilter:'all',genTaskId:'',genTotal:0,_restore:{}};
 function showTab(name){
-  var tabs=['explore','direct','validate','topology','audit','comb-audit'];
-  tabs.forEach(function(n){
+  // nav order must match the .tab elements in the header
+  var tabs=['comb-audit','explore','direct'];
+  // every view div (incl. retired validate/topology/audit) hidden unless selected
+  ['comb-audit','explore','direct','validate','topology','audit'].forEach(function(n){
     var el=document.getElementById('view-'+n);
     if(el) el.classList.toggle('view-hidden',n!==name);});
   document.querySelectorAll('.tab').forEach(function(t,i){
     t.classList.toggle('active',tabs[i]===name);});
-  document.getElementById('dbar').style.display=name==='validate'?'none':'flex';
-  if(name==='topology'&&typeof engTopoInit==='function')engTopoInit();
-  if(name==='audit'&&typeof engAuditInit==='function')engAuditInit();
+  document.getElementById('dbar').style.display='flex';
   if(name==='comb-audit'&&typeof engCombAuditInit==='function')engCombAuditInit();
   closeDeck();}
 function post(url,body){return fetch(url,{method:'POST',
@@ -1827,6 +1824,8 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
             self._engine_audit(data)
         elif path == '/api/engine/comb_audit':
             self._engine_comb_audit(data)
+        elif path == '/api/engine/arc_detail':
+            self._engine_arc_detail(data)
         else:
             self.send_response(404)
             self.end_headers()
@@ -1890,6 +1889,23 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
         except Exception as e:
             r = {'error': str(e), 'summary': {}, 'rows': [],
                  'cohorts': {'flagged': [], 'trust': []}}
+        self._send_json(r)
+
+    # ------------------------------------------------------------------
+    # /api/engine/arc_detail  (POST) -- per-arc detail for the triage pane
+    # ------------------------------------------------------------------
+
+    def _engine_arc_detail(self, body):
+        from core.engine_present import arc_detail_view
+        collateral_root = getattr(DeckgenHandler, 'COLLATERAL_ROOT',
+                                  _DEFAULT_COLLATERAL_ROOT)
+        try:
+            r = arc_detail_view(
+                body.get('collateral_root', collateral_root),
+                body['node'], body['lib_type'], body['corner'],
+                body['cell'], body['rel_pin'], body['output'])
+        except Exception as e:
+            r = {'status': 'ERROR', 'error': str(e)}
         self._send_json(r)
 
     # ------------------------------------------------------------------

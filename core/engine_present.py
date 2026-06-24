@@ -160,6 +160,71 @@ def combinational_sensitization_view(netlist_path, cell, rel_pin,
     }
 
 
+def arc_detail_view(collateral_root, node, lib_type, corner, cell, rel_pin,
+                    output, max_states=24):
+    """Full per-arc detail for the audit detail pane: region table, truth table,
+    boolean function, kit raw -when/-vector, and the PUN/PDN topology with a
+    rendered SVG per relevant side-pin state (diff states first). NEVER raises.
+
+    Engine derivation reads the .subckt only (Red Line A); template.tcl is read
+    only for the kit-raw panel and the region cross-check.
+    """
+    from core.collateral import CollateralStore
+    from core.resolver import NetlistResolver
+    from core.parsers.template_tcl import parse_template_tcl_full
+    from core.library_audit import _output_from_vector
+    from core.arc_detail import arc_detail
+    from core import topo_pundn
+
+    try:
+        store = CollateralStore(collateral_root, node, lib_type)
+        template = store.get_template_tcl(corner)
+        netlist_dir = store.get_netlist_dir(corner)
+        npath, _pins = NetlistResolver(netlist_dir).resolve(cell)
+    except Exception as e:
+        return {"status": "ERROR", "error": "resolve: %s" % e}
+
+    # kit raw + when set for this (cell, rel_pin, output)
+    parsed = parse_template_tcl_full(template)
+    cinfo = parsed.get("cells", {}).get(cell, {})
+    pinlist = (cinfo.get("pinlist") or "").split()
+    outs = cinfo.get("output_pins") or []
+    whens, kit_raw = [], []
+    for a in parsed.get("arcs", []):
+        if a.get("cell") != cell or a.get("arc_type") != "combinational":
+            continue
+        if a.get("rel_pin") != rel_pin:
+            continue
+        a_out = _output_from_vector(pinlist, a.get("vector", ""), outs) or (
+            outs[0] if outs else None)
+        if a_out != output:
+            continue
+        whens.append(a.get("when", "NO_CONDITION"))
+        kit_raw.append('define_arc -related_pin %s -when "%s" -vector {%s}'
+                       % (rel_pin, a.get("when", "NO_CONDITION"), a.get("vector", "")))
+
+    detail = arc_detail(npath, cell, rel_pin, output,
+                        when_strings=whens, kit_raw=kit_raw)
+    if detail.get("status") != "OK":
+        return detail
+
+    # render an SVG per state, differing states first, capped
+    states = detail["topology"]["states"]
+    states_sorted = sorted(states, key=lambda s: (s["diff"] == "", s["label"]))
+    blocks = detail["topology"]["blocks"]
+    rendered = []
+    for s in states_sorted[:max_states]:
+        rendered.append({
+            "label": s["label"], "diff": s["diff"], "engine": s["engine"],
+            "on": s["on"],
+            "svg": topo_pundn.render_svg(blocks, on=set(s["on"]),
+                                         rel_pin=rel_pin, output=output),
+        })
+    detail["topology"]["rendered"] = rendered
+    detail["topology"]["truncated"] = len(states) > max_states
+    return detail
+
+
 CSV_COLUMNS = ["cell", "arc", "corner", "P1", "P2", "P3",
                "bias_match", "arc_check", "notes"]
 

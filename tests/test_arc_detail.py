@@ -88,3 +88,18 @@ class TestTruthAndTopology:
         assert "ZN" in nets
         st = next(s for s in d["topology"]["states"] if s["label"] == "!A1&!A2")
         assert "XPA1" in st["on"] and "XPA2" in st["on"]   # parallel PMOS lit
+
+
+class TestPlainLanguage:
+    def test_summary_and_why_on_divergence(self):
+        d = _detail("AIOI21", "B", "ZN", whens=["A1&A2"])
+        assert d["summary"].startswith("DIVERGENCE")
+        assert "over-claim" in d["summary"]
+        miss = next(r for r in d["region"] if r["diff"] == "MISS")
+        assert "kit omits" in miss["why"]
+        extra = next(r for r in d["region"] if r["diff"] == "EXTRA")
+        assert "cannot change" in extra["why"]
+
+    def test_summary_match_is_agreement(self):
+        d = _detail("AIOI21", "B", "ZN", whens=["!A1&!A2", "!A1&A2", "A1&!A2"])
+        assert "agree" in d["summary"].lower()

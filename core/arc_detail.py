@@ -121,6 +121,42 @@ def region_table(res, verdict, rel_pin: str) -> List[dict]:
     return rows
 
 
+def _state_why(rel: str, out: str, engine: str, out_dir: Optional[str],
+               diff: str) -> str:
+    """Plain-language reason for one side-pin state."""
+    arrow = "" if not out_dir else (" (%s rises)" % out if out_dir == "R"
+                                    else " (%s falls)" % out)
+    if engine == "SENS":
+        base = "toggling %s changes %s here%s" % (rel, out, arrow)
+        if diff == "MISS":
+            return base + " -- but the kit has no arc for this state (kit omits)."
+        return base + "."
+    base = "toggling %s cannot change %s here (no conducting path)" % (rel, out)
+    if diff == "EXTRA":
+        return base + " -- yet the kit marks a timing arc here (likely kit over-claim)."
+    return base + "."
+
+
+def _summary(rel: str, out: str, verdict, region: List[dict]) -> str:
+    """One-line plain-language conclusion for the whole arc."""
+    st = verdict.status.value
+    n_sens = sum(1 for r in region if r["engine"] == "SENS")
+    if st == "MATCH":
+        return ("Engine and kit agree: %s sensitizes %s in exactly %d state(s)."
+                % (rel, out, n_sens))
+    if st == "UNSUPPORTED-WHEN":
+        return ("Kit -when is not a pure conjunction (OR); engine cannot map it "
+                "to states -- UNSUPPORTED, not judged.")
+    parts = ["DIVERGENCE."]
+    if verdict.extra:
+        parts.append("Kit marks timing in {%s} where toggling %s cannot change %s "
+                     "(likely kit over-claim)." % (", ".join(verdict.extra), rel, out))
+    if verdict.missing:
+        parts.append("Kit omits {%s} where the engine finds %s does change %s."
+                     % (", ".join(verdict.missing), rel, out))
+    return " ".join(parts)
+
+
 def arc_detail(netlist_path: str, cell: str, rel_pin: str, output: str,
                when_strings: Optional[List[str]] = None,
                kit_raw: Optional[List[str]] = None) -> dict:
@@ -144,6 +180,8 @@ def arc_detail(netlist_path: str, cell: str, rel_pin: str, output: str,
     res, verdict = _comb(graph, arc, ccc)
     rows = truth_table(graph, inputs, out)
     region = region_table(res, verdict, rel_pin)
+    for r in region:                                    # plain-language per state
+        r["why"] = _state_why(rel_pin, out, r["engine"], r["out_dir"], r["diff"])
 
     # topology: SP blocks + per (relevant) side-state conducting sets (rel_pin=1)
     blocks = T.pull_networks(graph)
@@ -154,11 +192,12 @@ def arc_detail(netlist_path: str, cell: str, rel_pin: str, output: str,
         assign[rel_pin] = 1
         states.append({"label": r["label"], "assign": assign,
                        "on": sorted(T.conducting(graph, assign)),
-                       "diff": r["diff"], "engine": r["engine"]})
+                       "diff": r["diff"], "engine": r["engine"], "why": r["why"]})
     return {
         "status": "OK",
         "cell": cell, "rel_pin": rel_pin, "output": out,
         "inputs": inputs, "side_pins": side,
+        "summary": _summary(rel_pin, out, verdict, region),
         "verdict": {"status": verdict.status.value, "missing": verdict.missing,
                     "extra": verdict.extra, "detail": verdict.detail},
         "boolean": boolean_sop(rows, inputs, out),
