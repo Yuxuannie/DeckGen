@@ -124,11 +124,12 @@ def _sort_key(row: dict):
 
 
 def audit_from_paths(template_tcl_path: str, netlist_dir: Optional[str],
-                     cells: Optional[List[str]] = None) -> dict:
+                     cells: Optional[List[str]] = None, progress=None) -> dict:
     """Core audit: parse template.tcl, derive+verdict each combinational arc from
     its netlist, aggregate. `cells` optionally restricts to a subset (e.g. for a
-    fast GUI preview). Discovery-free; see audit_combinational_library for the
-    collateral-backed wrapper."""
+    fast GUI preview). `progress(done, total, cell, status)` is called after each
+    arc (optional) so a GUI can show a bar + log. Discovery-free; see
+    audit_combinational_library for the collateral-backed wrapper."""
     parsed = parse_template_tcl_full(template_tcl_path)
     groups = _combinational_groups(parsed)
     if cells:
@@ -151,13 +152,21 @@ def audit_from_paths(template_tcl_path: str, netlist_dir: Optional[str],
         return path
 
     rows: List[dict] = []
-    for (cell, rel, out), g in sorted(groups.items()):
+    items = sorted(groups.items())
+    total = len(items)
+    for i, ((cell, rel, out), g) in enumerate(items):
         try:
-            rows.append(_audit_one(resolve(cell), cell, rel, out, g["whens"]))
+            row = _audit_one(resolve(cell), cell, rel, out, g["whens"])
         except Exception as e:                      # isolation: one cell never aborts
-            rows.append({"cell": cell, "rel_pin": rel, "output": out,
-                         "status": "ERROR", "detail": "audit exception: %s" % e,
-                         "kit_whens": g.get("whens", [])})
+            row = {"cell": cell, "rel_pin": rel, "output": out,
+                   "status": "ERROR", "detail": "audit exception: %s" % e,
+                   "kit_whens": g.get("whens", [])}
+        rows.append(row)
+        if progress is not None:
+            try:
+                progress(i + 1, total, cell, row["status"])
+            except Exception:
+                pass                                # progress must never break the run
 
     rows.sort(key=_sort_key)
     flagged = [r for r in rows if r["status"] in _FLAGGED]
@@ -183,7 +192,7 @@ def audit_from_paths(template_tcl_path: str, netlist_dir: Optional[str],
 
 def audit_combinational_library(collateral_root: str, node: str, lib_type: str,
                                 corner: str, cells: Optional[List[str]] = None,
-                                skip_autoscan: bool = False) -> dict:
+                                skip_autoscan: bool = False, progress=None) -> dict:
     """Collateral-backed wrapper: resolve template.tcl + netlist dir for (node,
     lib_type, corner) via CollateralStore, then run audit_from_paths. This is the
     airgap entry point -- the only thing that changes for real data is the
@@ -193,7 +202,7 @@ def audit_combinational_library(collateral_root: str, node: str, lib_type: str,
                             skip_autoscan=skip_autoscan)
     template = store.get_template_tcl(corner)
     netlist_dir = store.get_netlist_dir(corner)
-    result = audit_from_paths(template, netlist_dir, cells=cells)
+    result = audit_from_paths(template, netlist_dir, cells=cells, progress=progress)
     result["context"] = {"node": node, "lib_type": lib_type, "corner": corner,
                          "template_tcl": template, "netlist_dir": netlist_dir}
     return result

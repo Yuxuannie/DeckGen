@@ -206,6 +206,13 @@ CSS_COMPONENTS += """
   text-transform:uppercase;color:var(--text-mut);}
 .ca-confirm{font:12px/1.5 var(--font-ui);color:#1a5e4a;background:#e8f6f1;
   border-left:4px solid #0a9a9a;border-radius:4px;padding:8px 11px;margin:0 0 12px;}
+.ca-prog{display:flex;align-items:center;gap:12px;margin:4px 0 6px;}
+.ca-prog-bar{flex:1;height:10px;background:var(--surface-2);border-radius:6px;
+  overflow:hidden;}
+.ca-prog-fill{height:100%;width:0;background:#5b2a86;transition:width .3s;}
+.ca-prog-txt{font:12px var(--font-mono);color:var(--text-mut);min-width:280px;}
+.ca-log{margin:0 0 10px;max-height:120px;overflow:auto;background:#1c2128;color:#d6dae0;
+  font:11px/1.5 var(--font-mono);padding:8px 10px;border-radius:6px;white-space:pre-wrap;}
 """
 
 
@@ -491,24 +498,53 @@ function engCombAudit(){
   }
   CA.corner=(document.getElementById('engCAudCorner')||{}).value||'';
   var sm=document.getElementById('eng-caud-summary');
-  sm.innerHTML='<div class="eng-detail">Running audit over '+esc(S.libtype)+' ...</div>';
-  document.getElementById('ca-list').innerHTML='<div class="ca-empty">working...</div>';
+  sm.innerHTML='<div class="ca-prog"><div class="ca-prog-bar">'+
+    '<div class="ca-prog-fill" id="ca-prog-fill"></div></div>'+
+    '<div class="ca-prog-txt" id="ca-prog-txt">starting...</div></div>'+
+    '<pre class="ca-log" id="ca-log"></pre>';
+  document.getElementById('ca-rows').innerHTML='<div class="ca-empty">running...</div>';
+  if(CA.poll){clearInterval(CA.poll);CA.poll=null;}
   post('/api/engine/comb_audit',{node:S.node,lib_type:S.libtype,corner:CA.corner})
     .then(function(d){
-    if(d.error){ sm.innerHTML='<div class="eng-detail">'+esc(d.error)+'</div>'; return; }
-    var s=d.summary||{};
-    function stat(n,l){return '<span class="eng-stat"><span class="n">'+(n||0)+
-      '</span><span class="l">'+l+'</span></span>';}
-    sm.innerHTML=stat(s.cells,'cells')+stat(s.arcs,'arcs')+stat(s.flagged,'flagged')+
-      stat(s.divergence,'divergence')+stat(s.unsupported,'unsupported')+
-      stat(s.error,'error')+stat(s.match,'match');
-    CA.flagged=(d.cohorts&&d.cohorts.flagged)||[];
-    CA.trust=(d.cohorts&&d.cohorts.trust)||[];
-    CA.oos=(d.cohorts&&d.cohorts.out_of_scope)||[];
-    CA.showAllTrust=false; CA.showAllOos=false;
-    sm.innerHTML+=stat(s.out_of_scope,'out-of-scope');
-    engRenderList();
+    if(!d||!d.task_id){ sm.innerHTML='<div class="eng-detail">'+
+      esc((d&&d.error)||'failed to start audit')+'</div>'; return; }
+    CA.task=d.task_id;
+    CA.poll=setInterval(engAuditPoll,500);
+    engAuditPoll();
   });
+}
+function engAuditPoll(){
+  if(!CA.task) return;
+  post('/api/engine/audit_status',{task_id:CA.task}).then(function(t){
+    if(!t||t.error){ if(CA.poll){clearInterval(CA.poll);CA.poll=null;} return; }
+    var pct=t.total?Math.round(100*t.progress/t.total):0;
+    var fill=document.getElementById('ca-prog-fill'); if(fill) fill.style.width=pct+'%';
+    var txt=document.getElementById('ca-prog-txt');
+    if(txt) txt.textContent=(t.status==='running'?
+      ('Auditing '+t.progress+'/'+(t.total||'?')+'  ('+pct+'%)   '+esc(t.current||'')):
+      esc(t.status));
+    var log=document.getElementById('ca-log');
+    if(log){ log.textContent=(t.log||[]).join('\n'); log.scrollTop=log.scrollHeight; }
+    if(t.status==='done'){ if(CA.poll){clearInterval(CA.poll);CA.poll=null;}
+      engAuditRender(t.result); }
+    else if(t.status==='error'){ if(CA.poll){clearInterval(CA.poll);CA.poll=null;}
+      document.getElementById('eng-caud-summary').innerHTML=
+        '<div class="eng-detail">audit error: '+esc(t.error||'')+'</div>'; }
+  });
+}
+function engAuditRender(d){
+  var s=(d&&d.summary)||{};
+  function stat(n,l){return '<span class="eng-stat"><span class="n">'+(n||0)+
+    '</span><span class="l">'+l+'</span></span>';}
+  document.getElementById('eng-caud-summary').innerHTML=
+    stat(s.cells,'cells')+stat(s.arcs,'arcs')+stat(s.flagged,'flagged')+
+    stat(s.divergence,'divergence')+stat(s.unsupported,'unsupported')+
+    stat(s.error,'error')+stat(s.out_of_scope,'out-of-scope')+stat(s.match,'match');
+  CA.flagged=(d&&d.cohorts&&d.cohorts.flagged)||[];
+  CA.trust=(d&&d.cohorts&&d.cohorts.trust)||[];
+  CA.oos=(d&&d.cohorts&&d.cohorts.out_of_scope)||[];
+  CA.showAllTrust=false; CA.showAllOos=false;
+  engRenderList();
 }
 function caRow(r){
   return '<div class="ca-li" onclick="engArcPick(this,\''+esc(r.cell)+'\',\''+

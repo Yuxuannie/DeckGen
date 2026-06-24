@@ -40,6 +40,8 @@ _STORE_LOCK = threading.Lock()
 # Async generate task store: task_id -> {status, progress, total, current, results, errors}
 _GENERATE_TASKS = {}
 _GENERATE_LOCK = threading.Lock()
+_AUDIT_TASKS = {}
+_AUDIT_LOCK = threading.Lock()
 
 
 def _get_store(node, lib_type):
@@ -1825,6 +1827,8 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
             self._engine_audit(data)
         elif path == '/api/engine/comb_audit':
             self._engine_comb_audit(data)
+        elif path == '/api/engine/audit_status':
+            self._handle_audit_status(data)
         elif path == '/api/engine/arc_detail':
             self._engine_arc_detail(data)
         else:
@@ -1879,18 +1883,87 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
     # ------------------------------------------------------------------
 
     def _engine_comb_audit(self, body):
+        """Start the library audit in a background thread; return a task_id. The
+        front-end polls /api/engine/audit_status for a progress bar + log, then
+        gets the full result when status == done. (5000+ arcs is too long to block
+        a single request.)"""
+        import uuid
         from core.library_audit import audit_combinational_library
-        collateral_root = getattr(DeckgenHandler, 'COLLATERAL_ROOT',
-                                  _DEFAULT_COLLATERAL_ROOT)
-        try:
-            r = audit_combinational_library(
-                collateral_root=body.get('collateral_root', collateral_root),
-                node=body['node'], lib_type=body['lib_type'],
-                corner=body['corner'], cells=body.get('cells'))
-        except Exception as e:
-            r = {'error': str(e), 'summary': {}, 'rows': [],
-                 'cohorts': {'flagged': [], 'trust': []}}
-        self._send_json(r)
+        cr = body.get('collateral_root',
+                      getattr(DeckgenHandler, 'COLLATERAL_ROOT',
+                              _DEFAULT_COLLATERAL_ROOT))
+        node, lib = body['node'], body['lib_type']
+        corner, cells = body['corner'], body.get('cells')
+        task_id = uuid.uuid4().hex[:12]
+        with _AUDIT_LOCK:
+            _AUDIT_TASKS[task_id] = {
+                'status': 'running', 'progress': 0, 'total': 0, 'current': '',
+                'counts': {'match': 0, 'divergence': 0, 'unsupported': 0,
+                           'error': 0, 'out_of_scope': 0},
+                'log': ['discovering combinational arcs in %s ...' % lib],
+                'result': None, 'error': None}
+        _key = {'MATCH': 'match', 'DIVERGENCE': 'divergence',
+                'UNSUPPORTED-WHEN': 'unsupported', 'ERROR': 'error',
+                'OUT-OF-SCOPE': 'out_of_scope'}
+
+        def cb(done, total, cell, status):
+            with _AUDIT_LOCK:
+                t = _AUDIT_TASKS.get(task_id)
+                if t is None:
+                    return
+                t['progress'], t['total'], t['current'] = done, total, cell
+                k = _key.get(status)
+                if k:
+                    t['counts'][k] += 1
+                if done == 1 or done % 50 == 0 or done == total:
+                    c = t['counts']
+                    t['log'].append(
+                        '%d/%d  flagged=%d  out-of-scope=%d  match=%d  (last: %s)'
+                        % (done, total,
+                           c['divergence'] + c['unsupported'] + c['error'],
+                           c['out_of_scope'], c['match'], cell))
+                    t['log'] = t['log'][-120:]
+
+        def run():
+            try:
+                r = audit_combinational_library(
+                    collateral_root=cr, node=node, lib_type=lib, corner=corner,
+                    cells=cells, progress=cb)
+                with _AUDIT_LOCK:
+                    t = _AUDIT_TASKS[task_id]
+                    t['result'] = r
+                    t['status'] = 'done'
+                    t['current'] = ''
+                    s = r.get('summary', {})
+                    t['log'].append(
+                        'done: %d arcs, %d flagged, %d out-of-scope, %d match'
+                        % (s.get('arcs', 0), s.get('flagged', 0),
+                           s.get('out_of_scope', 0), s.get('match', 0)))
+            except Exception as e:
+                with _AUDIT_LOCK:
+                    t = _AUDIT_TASKS[task_id]
+                    t['status'] = 'error'
+                    t['error'] = str(e)
+                    t['log'].append('error: %s' % e)
+
+        threading.Thread(target=run, daemon=True).start()
+        self._send_json({'task_id': task_id})
+
+    def _handle_audit_status(self, body):
+        """Poll an async library-audit task: progress + log; full result on done."""
+        tid = body.get('task_id', '')
+        with _AUDIT_LOCK:
+            t = _AUDIT_TASKS.get(tid)
+            if t is None:
+                self._send_json({'error': 'unknown task_id'})
+                return
+            snap = {'status': t['status'], 'progress': t['progress'],
+                    'total': t['total'], 'current': t['current'],
+                    'counts': dict(t['counts']), 'log': list(t['log']),
+                    'error': t['error']}
+            if t['status'] == 'done':
+                snap['result'] = t['result']
+        self._send_json(snap)
 
     # ------------------------------------------------------------------
     # /api/engine/arc_detail  (POST) -- per-arc detail for the triage pane

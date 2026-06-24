@@ -89,3 +89,14 @@ class TestImportanceSort:
 
     def test_divergence_is_first(self, report):
         assert report["rows"][0]["status"] == "DIVERGENCE"
+
+
+def test_progress_callback_fires_per_arc():
+    calls = []
+    audit_from_paths(TEMPLATE, NETDIR,
+                     progress=lambda done, total, cell, status: calls.append((done, total, status)))
+    assert calls, "progress callback never fired"
+    dones = [c[0] for c in calls]
+    assert dones == sorted(dones)          # monotonic increasing
+    assert calls[-1][0] == calls[-1][1]    # last call: done == total
+    assert calls[-1][1] == 6               # 6 arcs in the fixture
