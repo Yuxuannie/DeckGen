@@ -187,6 +187,25 @@ CSS_COMPONENTS += """
 .ca-empty{display:flex;align-items:center;justify-content:center;height:100%;
   min-height:160px;color:var(--text-mut);font:13px var(--font-ui);text-align:center;}
 .eng-stat{border-radius:8px;}
+/* detail layout: compact info sidebar (region+truth+kit) | dominant topology */
+.ca-detail2{display:grid;grid-template-columns:minmax(300px,380px) 1fr;gap:16px;
+  align-items:start;margin-top:6px;}
+.ca-side{display:flex;flex-direction:column;gap:12px;min-width:0;}
+.ca-side .ca-rt{font-size:11px;}
+.ca-topo-main{min-width:0;}
+.ca-topo-main .ca-svgwrap{max-height:calc(100vh - 300px);height:calc(100vh - 300px);}
+.ca-guide{font:12px/1.5 var(--font-ui);color:var(--text-mut);margin:0 0 8px;
+  padding:7px 10px;background:var(--surface-2);border-radius:5px;}
+.ca-filter{width:100%;box-sizing:border-box;padding:6px 9px;margin:0 0 8px;
+  border:1px solid var(--border);border-radius:5px;font:12px var(--font-mono);
+  position:sticky;top:0;background:var(--surface);z-index:1;}
+.ca-more{cursor:pointer;color:#5b2a86;font:600 12px var(--font-ui);padding:7px 9px;
+  border-radius:5px;}
+.ca-more:hover{background:#f3eef8;}
+.oos-h{margin:12px 0 6px;font:700 11px var(--font-ui);letter-spacing:.05em;
+  text-transform:uppercase;color:var(--text-mut);}
+.ca-confirm{font:12px/1.5 var(--font-ui);color:#1a5e4a;background:#e8f6f1;
+  border-left:4px solid #0a9a9a;border-radius:4px;padding:8px 11px;margin:0 0 12px;}
 """
 
 
@@ -426,7 +445,9 @@ def comb_audit_tab_html():
     <div id="eng-caud-summary"></div>
     <div class="ca-ws">
       <div class="ca-list" id="ca-list">
-        <div class="ca-empty">Run the audit to list arcs.</div>
+        <input id="ca-filter" class="ca-filter" placeholder="filter by cell / pin..."
+               oninput="engRenderList()">
+        <div id="ca-rows"><div class="ca-empty">Run the audit to list arcs.</div></div>
       </div>
       <div class="ca-split" id="ca-split"></div>
       <div class="ca-detail" id="ca-detail">
@@ -447,7 +468,7 @@ function engCombAuditInit(){
 }
 function caChip(st){
   var m={MATCH:'chip-pass','DIVERGENCE':'chip-fail',
-         'UNSUPPORTED-WHEN':'chip-stub',ERROR:'chip-error'};
+         'UNSUPPORTED-WHEN':'chip-stub',ERROR:'chip-error','OUT-OF-SCOPE':'chip-na'};
   return '<span class="eng-chip '+(m[st]||'chip-error')+'">'+esc(st)+'</span>';
 }
 function engSplitInit(){
@@ -481,21 +502,39 @@ function engCombAudit(){
     sm.innerHTML=stat(s.cells,'cells')+stat(s.arcs,'arcs')+stat(s.flagged,'flagged')+
       stat(s.divergence,'divergence')+stat(s.unsupported,'unsupported')+
       stat(s.error,'error')+stat(s.match,'match');
-    var fl=(d.cohorts&&d.cohorts.flagged)||[];
-    var tr=(d.cohorts&&d.cohorts.trust)||[];
-    function row(r){
-      return '<div class="ca-li" onclick="engArcPick(this,\''+esc(r.cell)+'\',\''+
-        esc(r.rel_pin)+'\',\''+esc(r.output||'')+'\')">'+
-        '<span>'+esc(r.cell)+' <span class="ca-arrow">'+esc(r.rel_pin)+
-        '&#8594;'+esc(r.output||'')+'</span></span>'+caChip(r.status)+'</div>';
-    }
-    var h='<h5>Flagged ('+fl.length+')</h5>';
-    h+= fl.length?fl.map(row).join(''):'<div class="eng-mut">none</div>';
-    h+='<h5 class="trust-h">Trust / match ('+tr.length+')</h5>';
-    h+= tr.slice(0,400).map(row).join('');
-    if(tr.length>400) h+='<div class="eng-mut">... '+(tr.length-400)+' more</div>';
-    document.getElementById('ca-list').innerHTML=h;
+    CA.flagged=(d.cohorts&&d.cohorts.flagged)||[];
+    CA.trust=(d.cohorts&&d.cohorts.trust)||[];
+    CA.oos=(d.cohorts&&d.cohorts.out_of_scope)||[];
+    CA.showAllTrust=false; CA.showAllOos=false;
+    sm.innerHTML+=stat(s.out_of_scope,'out-of-scope');
+    engRenderList();
   });
+}
+function caRow(r){
+  return '<div class="ca-li" onclick="engArcPick(this,\''+esc(r.cell)+'\',\''+
+    esc(r.rel_pin)+'\',\''+esc(r.output||'')+'\')">'+
+    '<span>'+esc(r.cell)+' <span class="ca-arrow">'+esc(r.rel_pin)+
+    '&#8594;'+esc(r.output||'')+'</span></span>'+caChip(r.status)+'</div>';
+}
+function engRenderList(){
+  var box=document.getElementById('ca-rows'); if(!box) return;
+  var q=((document.getElementById('ca-filter')||{}).value||'').toLowerCase();
+  function m(r){return !q||((r.cell+' '+r.rel_pin+' '+(r.output||'')).toLowerCase().indexOf(q)>=0);}
+  var fl=(CA.flagged||[]).filter(m), tr=(CA.trust||[]).filter(m), oo=(CA.oos||[]).filter(m);
+  var CAP=300;
+  var h='<h5>Flagged -- engine disagrees ('+fl.length+')</h5>';
+  h+= fl.length?fl.map(caRow).join(''):'<div class="eng-mut">none</div>';
+  var trCap=(q||CA.showAllTrust)?tr.length:Math.min(tr.length,CAP);
+  h+='<h5 class="trust-h">Trust / match ('+tr.length+')</h5>';
+  h+= tr.slice(0,trCap).map(caRow).join('');
+  if(trCap<tr.length) h+='<div class="ca-more" onclick="CA.showAllTrust=true;engRenderList()">Show all '+tr.length+' matched &#8595;</div>';
+  if(oo.length){
+    var ooCap=(q||CA.showAllOos)?oo.length:Math.min(oo.length,CAP);
+    h+='<h5 class="oos-h">Out of scope -- sequential / clock ('+oo.length+')</h5>';
+    h+= oo.slice(0,ooCap).map(caRow).join('');
+    if(ooCap<oo.length) h+='<div class="ca-more" onclick="CA.showAllOos=true;engRenderList()">Show all '+oo.length+' &#8595;</div>';
+  }
+  box.innerHTML=h;
 }
 function engArcPick(el,cell,rel,out){
   document.querySelectorAll('.ca-li').forEach(function(n){n.classList.remove('sel');});
@@ -560,9 +599,27 @@ function engRenderDetail(d){
     '<span class="ca-arrow">'+esc(d.rel_pin)+' &#8594; '+esc(d.output)+'</span>'+
     caChip(v.status)+'<span class="ca-d-bool">'+esc(d.boolean||'')+'</span></div>';
   h+='<div class="ca-summary">'+esc(d.summary||'')+'</div>';
-  h+='<div class="ca-d-grid">';
-  // topology card (signature)
-  h+='<div class="ca-card2"><h4>Topology -- conduction by state</h4>'+
+  if(v.status==='MATCH')
+    h+='<div class="ca-confirm">How to confirm this match: in the Region table every '+
+       '<b>SENS</b> row shows kit=<b>covered</b> with no MISS/EXTRA, and stepping the '+
+       'topology shows the pin drives the output in exactly those states (and only those).</div>';
+  else if(v.status==='OUT-OF-SCOPE')
+    h+='<div class="ca-confirm">Sequential cell (clock/latch): toggling the pin changes '+
+       'the output only through stored state, which the combinational engine cannot '+
+       'evaluate -- so this is NOT a divergence, just out of combinational scope.</div>';
+  // layout: compact info sidebar on the LEFT, dominant topology on the RIGHT
+  h+='<div class="ca-detail2">';
+  h+='<div class="ca-side">';
+  h+='<div class="ca-card2"><h4>Region -- engine vs kit</h4>'+engRegionTable(d)+'</div>';
+  h+='<div class="ca-card2"><h4>Truth table</h4>'+engTruthTable(d)+'</div>';
+  h+='<div class="ca-card2"><h4>kit -when / -vector</h4><div class="ca-raw">'+
+     ((d.kit_raw||[]).map(esc).join('\n')||'(none)')+'</div></div>';
+  h+='</div>';
+  h+='<div class="ca-card2 ca-topo-main"><h4>Topology -- conduction by state</h4>'+
+     '<div class="ca-guide">Read: <b>VDD</b> rail on top, <b>VSS</b> on the bottom, '+
+     'the output net in the middle. <b style="color:#0a9a9a">Teal</b> = transistors '+
+     'conducting in THIS state. A teal path from a rail down to the output means '+
+     'the toggling pin (<b>*</b>) can drive the output here; no teal path = blocked.</div>'+
      '<div class="ca-stepper"><button onclick="engStep(-1)">&#9664;</button>'+
      '<span id="ca-step-label"></span>'+
      '<button onclick="engStep(1)">&#9654;</button></div>'+
@@ -570,15 +627,7 @@ function engRenderDetail(d){
      '<div class="ca-svgwrap" id="ca-d-svg"></div>'+
      (d.topology&&d.topology.truncated?'<div class="eng-mut">states capped</div>':'')+
      '</div>';
-  // region card
-  h+='<div class="ca-card2"><h4>Region -- engine vs kit</h4>'+engRegionTable(d)+'</div>';
   h+='</div>';
-  // bottom: truth table + kit raw
-  h+='<div class="ca-d-bottom"><div class="ca-card2"><h4>Truth table</h4>'+
-     engTruthTable(d)+'</div>'+
-     '<div class="ca-card2"><h4>kit -when / -vector</h4><div class="ca-raw">'+
-     ((d.kit_raw||[]).map(esc).join('\n')||'(none)')+'</div>'+
-     '<div class="eng-mut" style="margin-top:8px">'+esc(v.detail||'')+'</div></div></div>';
   dt.innerHTML=h;
   engShowState();
 }
