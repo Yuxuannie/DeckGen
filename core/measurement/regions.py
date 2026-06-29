@@ -33,3 +33,14 @@ def classify_line(line: str) -> str:
     if low.startswith(_COLLATERAL_PREFIXES):
         return "collateral"
     return "recipe"
+
+
+def extract_recipe(text: str) -> list[str]:
+    """Ordered recipe lines (the methodology body the grammar owns). Drops
+    collateral, bias-section, and blank lines so two templates that differ only
+    in collateral compare equal."""
+    out = []
+    for raw in text.splitlines():
+        if classify_line(raw) == "recipe":
+            out.append(raw.rstrip())
+    return out

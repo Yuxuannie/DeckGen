@@ -1,4 +1,30 @@
-from core.measurement.regions import classify_line
+import os
+from core.measurement.regions import classify_line, extract_recipe
+
+_REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_DELAY = os.path.join(_REPO, "templates/N2P_v1.0/delay/template_common_inpin_rise_delay_fall.sp")
+_MPW = os.path.join(_REPO, "templates/N2P_v1.0/mpw/template__CP__syncx__D__fall__rise__1.sp")
+
+
+def test_extract_recipe_delay():
+    recipe = extract_recipe(open(_DELAY).read())
+    assert any(".meas tran meas_delay" in l for l in recipe)
+    assert any(".tran 1p 5000n" in l for l in recipe)
+    assert any("stdvs_rise" in l for l in recipe)
+    # collateral excluded
+    assert not any(l.strip().startswith(".inc") for l in recipe)
+    assert not any(l.strip().startswith("X1 ") for l in recipe)
+    assert not any("vdd_value = " in l for l in recipe)
+
+
+def test_extract_recipe_mpw_has_init_block():
+    recipe = extract_recipe(open(_MPW).read())
+    assert any(".option ptran_nodeset" in l for l in recipe)
+    assert any(".nodeset v(X1.ml*_a)" in l for l in recipe)
+    assert any("cp2q_del1" in l for l in recipe)
+    assert any("constr_pin_offset" in l for l in recipe)
+    # collateral still excluded
+    assert not any(l.strip().startswith(".inc") for l in recipe)
 
 
 def test_classify_collateral_lines():
