@@ -1,5 +1,5 @@
 import os
-from core.measurement.regions import classify_line, extract_recipe
+from core.measurement.regions import classify_line, extract_recipe, parse_template_key
 
 _REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _DELAY = os.path.join(_REPO, "templates/N2P_v1.0/delay/template_common_inpin_rise_delay_fall.sp")
@@ -52,3 +52,27 @@ def test_classify_bias_and_blank():
     assert classify_line("* Pin definitions") == "bias"
     assert classify_line("") == "blank"
     assert classify_line("   ") == "blank"
+
+
+def test_parse_key_delay():
+    k = parse_template_key("templates/N2P_v1.0/delay/template_common_inpin_rise_delay_fall.sp")
+    assert k["arc_type"] == "delay"
+    assert k["rel_dir"] == "rise"
+    assert k["other_dir"] == "fall"
+    assert k["cluster_tag"] == "common_inpin"
+
+
+def test_parse_key_mpw_simple():
+    k = parse_template_key("templates/N2P_v1.0/mpw/template__AO2__fall__rise__1.sp")
+    assert k["arc_type"] == "mpw"
+    assert k["rel_dir"] == "fall"
+    assert k["other_dir"] == "rise"
+    assert k["cluster_tag"] == "AO2"
+
+
+def test_parse_key_mpw_multitoken_tag():
+    k = parse_template_key("templates/N2P_v1.0/mpw/template__DET__LP__D__CP__fall__rise__1.sp")
+    assert k["arc_type"] == "mpw"
+    assert k["rel_dir"] == "fall"
+    assert k["other_dir"] == "rise"
+    assert k["cluster_tag"] == "DET.LP.D.CP"

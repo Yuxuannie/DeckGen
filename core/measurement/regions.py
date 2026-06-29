@@ -4,6 +4,8 @@ position-based, so interleaved sections (recipe options at top, collateral in th
 middle, recipe nodeset/meas at the bottom) classify correctly. stdlib, ASCII."""
 from __future__ import annotations
 
+import os as _os
+
 # Collateral: supplied by the flow / corner; filled per (cell, corner).
 _COLLATERAL_PREFIXES = (
     ".inc", ".temp",
@@ -44,3 +46,39 @@ def extract_recipe(text: str) -> list[str]:
         if classify_line(raw) == "recipe":
             out.append(raw.rstrip())
     return out
+
+
+_DIRS = ("rise", "fall")
+
+
+def parse_template_key(path: str) -> dict:
+    """Derive (arc_type, rel_dir, other_dir, cluster_tag) from a template path.
+    Two filename schemes: delay = template_common_inpin_<rel>_delay_<probe>.sp;
+    mpw = template__<tag tokens>__<d1>__<d2>__<N>.sp (tag may be multi-token).
+    Unknown/odd names degrade to cluster_tag=<stem>, dirs='' (round-trip still
+    keys them uniquely by provenance)."""
+    arc_type = _os.path.basename(_os.path.dirname(path))
+    stem = _os.path.basename(path)[:-3] if path.endswith(".sp") else _os.path.basename(path)
+
+    if arc_type == "delay" and stem.startswith("template_common_inpin_") and "_delay_" in stem:
+        body = stem[len("template_"):]                 # common_inpin_rise_delay_fall
+        head, probe = body.rsplit("_", 1)              # common_inpin_rise_delay | fall
+        head2, _delay = head.rsplit("_delay", 1) if "_delay" in head else (head, "")
+        tag, rel = head2.rsplit("_", 1)                # common_inpin | rise
+        return {"arc_type": arc_type, "rel_dir": rel, "other_dir": probe,
+                "cluster_tag": tag}
+
+    if stem.startswith("template__"):
+        toks = [t for t in stem[len("template__"):].split("__") if t != ""]
+        # drop a trailing numeric index token if present
+        if toks and toks[-1].isdigit():
+            toks = toks[:-1]
+        rel = other = ""
+        if len(toks) >= 2 and toks[-1] in _DIRS and toks[-2] in _DIRS:
+            rel, other = toks[-2], toks[-1]
+            toks = toks[:-2]
+        tag = ".".join(toks) if toks else stem
+        return {"arc_type": arc_type, "rel_dir": rel, "other_dir": other,
+                "cluster_tag": tag}
+
+    return {"arc_type": arc_type, "rel_dir": "", "other_dir": "", "cluster_tag": stem}
