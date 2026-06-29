@@ -43,3 +43,4 @@ def test_emit_fill_values_resolves_corner():
                 "MAX_SLEW": "0.1u", "OUTPUT_LOAD": "0.5f", "TEMPERATURE": "-40"}
     text = "\n".join(emit(e, arc_info, fill_values=True))
     assert "$INDEX_1_VALUE" not in text and "$PUSHOUT_PER" not in text
+    assert "$MAX_SLEW" not in text   # fill_values resolved the recipe-region value placeholder
