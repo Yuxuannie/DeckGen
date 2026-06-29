@@ -1,8 +1,11 @@
-"""Mine a template directory into a measurement-grammar dict, and validate it by
-byte-exact round-trip. CLI: `python -m core.measurement.mine mine|validate <dir>`.
-Comprehensive-by-construction: the grammar is exactly the set of distinct recipe
-regions in the corpus it is pointed at (run on the airgap corpus for full hold+
-delay coverage). stdlib, ASCII."""
+"""Mine a template directory into a measurement-grammar dict, and validate the
+captured recipe regions by round-trip. CLI: `python -m core.measurement.mine mine|validate <dir>`.
+The grammar captures the set of distinct recipe regions in the pointed-at corpus.
+Round-trip validates that those captured regions are reproduced exactly; it does NOT
+verify that the captured region is the semantically correct one. Comprehensiveness
+on the airgap corpus rests on (i) the classifier's safe default (unknown line ->
+recipe, so novel hold lines are kept) and (ii) human inspection of the per-arc-type
+entry diff -- not on the 100% round-trip number alone. stdlib, ASCII."""
 from __future__ import annotations
 
 import argparse
@@ -12,7 +15,8 @@ import json
 import os
 import sys
 
-from core.measurement.regions import extract_recipe, parse_template_key
+from core.measurement.emit import emit
+from core.measurement.regions import extract_recipe, parse_template_key, partition
 
 
 def mine(template_dir: str) -> dict:
@@ -45,15 +49,32 @@ def validate(template_dir: str, grammar: dict) -> dict:
     mismatches = []
     for path in sorted(glob.glob(os.path.join(template_dir, "*.sp"))):
         total += 1
-        original = extract_recipe(open(path, encoding="ascii", errors="replace").read())
+        text = open(path, encoding="ascii", errors="replace").read()
+        original = extract_recipe(text)
         entry = _select_for_template(grammar, path)
-        emitted = entry["recipe_lines"] if entry else []
+        # Route through emit() so the emitter is on the validated path.
+        # emit(entry, {}) with empty arc_info and fill_values=False returns
+        # recipe_lines verbatim (no placeholder substitution), which is the
+        # correct comparison target for the local corpus (already templatized).
+        emitted = emit(entry, {}) if entry else []
         if emitted == original:
             reproduced += 1
         else:
             diff = "\n".join(difflib.unified_diff(
                 original, emitted, "original", "emitted", lineterm=""))
             mismatches.append({"file": os.path.basename(path), "diff": diff})
+        # Conservation check: every source line must land in exactly one bucket.
+        # This is a regression guard -- if classify_line ever diverges from
+        # extract_recipe or gains an unhandled case, the counts disagree.
+        p = partition(text)
+        classified_total = sum(len(v) for v in p.values())
+        source_total = len(text.splitlines())
+        if classified_total != source_total:
+            mismatches.append({
+                "file": os.path.basename(path),
+                "diff": "CONSERVATION FAILURE: %d classified != %d source lines" % (
+                    classified_total, source_total)
+            })
     cov = round(100.0 * reproduced / total, 1) if total else 0.0
     return {"total": total, "reproduced": reproduced,
             "mismatches": mismatches, "coverage": cov}

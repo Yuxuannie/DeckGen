@@ -76,3 +76,10 @@ def test_parse_key_mpw_multitoken_tag():
     assert k["rel_dir"] == "fall"
     assert k["other_dir"] == "rise"
     assert k["cluster_tag"] == "DET.LP.D.CP"
+
+
+def test_cl_boundary_fix():
+    # .param cl must match at a word boundary (trailing space) so that
+    # recipe params like .param clk_period are NOT swallowed as collateral.
+    assert classify_line(".param clk_period = '5n'") == "recipe"
+    assert classify_line(".param cl = '0.5f'") == "collateral"

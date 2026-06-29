@@ -7,10 +7,12 @@ from __future__ import annotations
 import os as _os
 
 # Collateral: supplied by the flow / corner; filled per (cell, corner).
+# .param entries carry a trailing space so they match only at a word boundary
+# (e.g. ".param cl " matches ".param cl = '...'" but NOT ".param clk_period").
 _COLLATERAL_PREFIXES = (
     ".inc", ".temp",
-    ".param vdd_value", ".param vss_value", ".param cl",
-    ".param rel_pin_slew", ".param constr_pin_slew",
+    ".param vdd_value ", ".param vss_value ", ".param cl ",
+    ".param rel_pin_slew ", ".param constr_pin_slew ",
     "vvdd", "vvss", "vvpp", "vvbb",
     "x1 ",
 )
@@ -46,6 +48,18 @@ def extract_recipe(text: str) -> list[str]:
         if classify_line(raw) == "recipe":
             out.append(raw.rstrip())
     return out
+
+
+def partition(text: str) -> dict:
+    """Partition all lines of *text* into classification buckets.
+    Returns {"recipe": [...], "collateral": [...], "bias": [...], "blank": [...]}.
+    Every source line appears in exactly one bucket (raw, not rstripped).
+    Used as a regression guard: sum(len(v) for v in result.values()) must equal
+    len(text.splitlines()), catching any future classify_line divergence."""
+    buckets: dict = {"recipe": [], "collateral": [], "bias": [], "blank": []}
+    for raw in text.splitlines():
+        buckets[classify_line(raw)].append(raw)
+    return buckets
 
 
 _DIRS = ("rise", "fall")

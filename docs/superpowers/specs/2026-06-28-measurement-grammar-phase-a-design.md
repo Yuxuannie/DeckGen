@@ -52,9 +52,12 @@ The local dev environment can only reach **delay + mpw** templates (67 files).
 The real **airgapped Linux** environment holds the full corpus including all
 **hold + delay** variants. The grammar must be **comprehensive there**, not just
 for what is visible locally. Therefore the grammar is **not hand-authored**; it
-is **mined** from whatever corpus it is pointed at, and proven complete by a
-**round-trip** check. Built/tested locally on delay+mpw; run for real on the full
-hold+delay corpus in airgap, where any uncovered variant is reported by diff.
+is **mined** from whatever corpus it is pointed at, and **validated locally** by a
+round-trip check. Comprehensiveness on the airgap corpus rests on (i) the
+classifier's safe default (unknown line -> recipe, so novel hold lines are kept)
+and (ii) human inspection of the per-arc-type entry diff and one emitted hold recipe
+against a known template -- **not** on the 100% round-trip number alone. Built/tested
+locally on delay+mpw; run for real on the full hold+delay corpus in airgap.
 
 Runtime invariants (inherited from the repo): **Python stdlib only, ASCII-only**
 for all `.py`/`.json`/`.sp` artifacts, no network.
@@ -71,8 +74,10 @@ for all `.py`/`.json`/`.sp` artifacts, no network.
      `$MAX_SLEW`, `$PUSHOUT_PER`, ...).
    - **Clusters** templatized recipes by a key (arc_type family, directions,
      structural features) and emits `config/measurement_grammar.json`.
-   - Comprehensive-by-construction: the grammar is the set of distinct patterns
-     present in the pointed-at corpus.
+   - The grammar captures the set of distinct recipe regions present in the
+     pointed-at corpus. Airgap comprehensiveness rests on the classifier's
+     safe default (unknown -> recipe) and human inspection, not on the
+     round-trip number alone.
 
 2. **Emitter** — `core/measurement/emit.py`
    - `emit(arc_type, rel_pin, rel_dir, constr_pin, constr_dir, probe_pin,
@@ -82,11 +87,16 @@ for all `.py`/`.json`/`.sp` artifacts, no network.
    - This is the seam Phase B's `stage4` calls instead of pass-through.
 
 3. **Round-trip validation** — CLI `mine.py validate` + `tests/measurement/`
-   - For every template in the corpus: re-emit its measurement recipe from the
-     grammar and **diff byte-for-byte** against the original region.
-   - Reports: coverage % , per-arc-type counts, and an explicit list of any
-     templates whose recipe is **not** reproduced (the airgap probe for missing
-     hold/slew variants). Exit non-zero if any mismatch, so it gates CI/airgap runs.
+   - For every template in the corpus: re-emit its captured recipe region from the
+     grammar (routed through `emit()`) and **diff byte-for-byte** against the
+     original extracted region. Also verifies line conservation: every source line
+     lands in exactly one classification bucket.
+   - Reports: coverage % and an explicit list of any templates whose captured
+     region is not reproduced. Exit non-zero if any mismatch.
+   - **Scope of the 100% number:** this reproduces the *captured* recipe region;
+     it does NOT verify the region is semantically complete. A recipe line wrongly
+     classified as collateral would be missed identically by mine and validate.
+     Trust the safe default + human inspection for airgap comprehensiveness.
 
 Families/arc_types to cover: **delay, slew, hold, mpw** (slew and the other
 constraint arcs — setup/removal/recovery — fall into the two families above and
@@ -254,7 +264,11 @@ original byte-for-byte, that template is reported, not silently approximated.
 3. `emit(...)` returns the correct recipe for a delay arc and an mpw/hold arc
    given pins/dirs/params, with a typed error on no-match.
 4. The whole thing is stdlib-only, ASCII-only, and runs unchanged when pointed at
-   the airgap full corpus (the validate report is the comprehensiveness proof).
+   the airgap full corpus. The validate report reproduces the *captured* recipe
+   region and guards line conservation; it does NOT verify the captured region is
+   the semantically correct one. Airgap comprehensiveness rests on the classifier's
+   safe default (unknown -> recipe) and human inspection of the per-arc-type entry
+   diff -- not on the 100% number alone.
 5. Clean seam (`emit`) ready for Phase B `stage4` to call.
 
 ## Resolved during review (2026-06-28)
