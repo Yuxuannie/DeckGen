@@ -32,3 +32,23 @@ def select_entry(grammar, *, arc_type, rel_dir, other_dir, cluster_tag=None):
     raise SelectionError(
         "no grammar entry for tried=%r; closest %d entr(ies): %r"
         % (want, len(closest), closest))
+
+
+_IDENTITY = ("REL_PIN", "CONSTR_PIN", "PROBE_PIN_1")
+_VALUE = ("VDD_VALUE", "INDEX_1_VALUE", "INDEX_2_VALUE", "MAX_SLEW",
+          "OUTPUT_LOAD", "TEMPERATURE")
+
+
+def emit(entry, arc_info, *, fill_values=False):
+    keys = list(_IDENTITY)
+    if fill_values:
+        keys += list(_VALUE)
+    out = []
+    for line in entry["recipe_lines"]:
+        for k in keys:
+            if k in arc_info:
+                line = line.replace("$" + k, str(arc_info[k]))
+        if fill_values:
+            line = line.replace("$PUSHOUT_PER", str(arc_info.get("PUSHOUT_PER", "0.4")))
+        out.append(line)
+    return out
