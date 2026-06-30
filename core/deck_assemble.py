@@ -6,6 +6,8 @@ Sequential arcs are out of scope here (B2/B3): they are detected and returned as
 named ERROR, never assembled."""
 from __future__ import annotations
 
+from engine.whencond import parse_when_conjunction
+
 
 def engine_bias_section(side_bias: dict) -> list:
     """Voltage sources tying each non-toggling input to a rail at its derived value.
@@ -42,3 +44,22 @@ def collateral_section(arc_info: dict) -> list:
         "VVPP VPP 0 'vdd_value'",
         "VVBB VBB 0 'vss_value'",
     ]
+
+
+def choose_bias(sensitizing: list, kit_when):
+    """Pick one sensitizing state's side-pin assignment. Prefer the state matching
+    the kit -when conjunction; else the first by sorted label. Engine is source of
+    truth -- a non-matching kit yields kit_match=False, not an override."""
+    states = sorted(sensitizing, key=lambda s: s.label)
+    want = None
+    if kit_when and kit_when not in ("NO_CONDITION", "", "NONE"):
+        want = parse_when_conjunction(kit_when)        # None if OR/contradiction
+    if want is not None:
+        for s in states:
+            if all(s.assign.get(p) == v for p, v in want.items()) and \
+                    len(s.assign) == len(want):
+                return {"bias": dict(s.assign), "chosen_label": s.label,
+                        "kit_match": True}
+    first = states[0]
+    return {"bias": dict(first.assign), "chosen_label": first.label,
+            "kit_match": False}

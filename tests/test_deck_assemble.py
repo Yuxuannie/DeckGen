@@ -1,4 +1,5 @@
-from core.deck_assemble import engine_bias_section, collateral_section
+from core.deck_assemble import engine_bias_section, collateral_section, choose_bias
+from engine.types import CombState
 
 
 _ARC_INFO = {
@@ -37,3 +38,31 @@ def test_engine_bias_section_sorted_and_railed():
 
 def test_engine_bias_section_empty():
     assert engine_bias_section({}) == ["* ===== ENGINE-DERIVED side-pin bias ====="]
+
+
+def _states():
+    # AOI-like: sensitizing when the other input is non-controlling
+    return [
+        CombState("!A2", {"A2": 0}, "F", frozenset()),
+        CombState("A2", {"A2": 1}, "R", frozenset()),
+    ]
+
+
+def test_choose_bias_matches_kit_when():
+    r = choose_bias(_states(), "A2")              # kit says A2=1
+    assert r["bias"] == {"A2": 1}
+    assert r["kit_match"] is True
+    assert r["chosen_label"] == "A2"
+
+
+def test_choose_bias_no_kit_picks_first_sorted():
+    r = choose_bias(_states(), None)
+    assert r["bias"] == {"A2": 0}                 # "!A2" sorts before "A2"
+    assert r["kit_match"] is False
+
+
+def test_choose_bias_kit_diverges_engine_wins():
+    # kit claims A2=0&extra that no sensitizing state has -> engine still picks one
+    r = choose_bias(_states(), "A2&A3")
+    assert r["kit_match"] is False
+    assert r["bias"] in ({"A2": 0}, {"A2": 1})
