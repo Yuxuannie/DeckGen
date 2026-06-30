@@ -114,6 +114,40 @@ def test_choose_bias_kit_diverges_engine_wins():
     assert r["bias"] in ({"A2": 0}, {"A2": 1})
 
 
+def test_assemble_fall_arc_flips_output_edge():
+    # AOI22 A1: chosen sensitizing state makes ZN = !A1, so A1 RISING drives ZN FALL.
+    # When the arc's rel pin FALLS, the real output edge is the opposite (rise), and
+    # the grammar 'other_dir' must flip with it -- otherwise the deck measures the
+    # wrong output transition (final-review C1).
+    src = open(_AOI22).read()
+    rise = assemble_combinational(_arc_info("A1", "ZN"), src, _grammar())
+    ai_fall = _arc_info("A1", "ZN"); ai_fall["REL_PIN_DIR"] = "fall"
+    fall = assemble_combinational(ai_fall, src, _grammar())
+    assert rise["status"] == "OK" and fall["status"] == "OK"
+    assert rise["out_dir"] == "fall"          # A1 rises -> ZN falls
+    assert fall["out_dir"] == "rise"          # A1 falls -> ZN rises (flipped)
+    assert "stdvs_rise" in rise["deck_text"]  # input edge tracks rel_dir
+    assert "stdvs_fall" in fall["deck_text"]
+
+
+def _states_multi():
+    # AOI22 A1 toggling: every sensitizing state pins ALL side inputs {A2,B1,B2}.
+    return [
+        CombState("!A2&!B1&!B2", {"A2": 0, "B1": 0, "B2": 0}, "F", frozenset()),
+        CombState("A2&!B1&!B2", {"A2": 1, "B1": 0, "B2": 0}, "F", frozenset()),
+    ]
+
+
+def test_choose_bias_subset_kit_matches_multi_input():
+    # A realistic kit -when names only the partner (A2), not every side pin. Subset
+    # match must still report kit_match and pick the A2=1 state -- not first-sorted
+    # (final-review I1).
+    r = choose_bias(_states_multi(), "A2")
+    assert r["kit_match"] is True
+    assert r["bias"] == {"A2": 1, "B1": 0, "B2": 0}
+    assert r["chosen_label"] == "A2&!B1&!B2"
+
+
 def test_assemble_combinational_internal_error_is_named_not_raised():
     # An unexpected failure after parse must become a named ERROR, never propagate.
     src = open(_AOI22).read()

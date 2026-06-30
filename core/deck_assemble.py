@@ -55,9 +55,12 @@ def choose_bias(sensitizing: list, kit_when):
     if kit_when and kit_when not in ("NO_CONDITION", "", "NONE"):
         want = parse_when_conjunction(kit_when)        # None if OR/contradiction
     if want is not None:
+        # Subset match: a kit -when names only the gate-local partner(s), while an
+        # engine sensitizing state pins EVERY side input. Require the kit-named pins
+        # to agree; do not demand the kit enumerate all of them (that exactness made
+        # kit_match always False for multi-input gates).
         for s in states:
-            if all(s.assign.get(p) == v for p, v in want.items()) and \
-                    len(s.assign) == len(want):
+            if all(s.assign.get(p) == v for p, v in want.items()):
                 return {"bias": dict(s.assign), "chosen_label": s.label,
                         "kit_match": True}
     first = states[0]
@@ -108,9 +111,14 @@ def assemble_combinational(arc_info: dict, netlist_src: str, grammar: dict) -> d
         cb = choose_bias(res.sensitizing, arc_info.get("WHEN"))
 
         rel_dir = _DIR.get(arc_info.get("REL_PIN_DIR", "rise"), "rise")
-        # output edge for the chosen state -> grammar 'other_dir'
+        # chosen.out_dir is the output edge WHEN THE REL PIN RISES. When the arc's rel
+        # pin actually falls, the real output edge is the opposite, so flip it before
+        # picking the grammar 'other_dir' variant -- otherwise fall-input arcs measure
+        # the wrong output transition.
         chosen = next(s for s in res.sensitizing if s.label == cb["chosen_label"])
-        out_dir = _DIR.get(chosen.out_dir or "rise", "rise")
+        out_dir_rise = _DIR.get(chosen.out_dir or "rise", "rise")
+        out_dir = out_dir_rise if rel_dir == "rise" else \
+            {"rise": "fall", "fall": "rise"}[out_dir_rise]
         try:
             entry = select_entry(grammar, arc_type="delay", rel_dir=rel_dir,
                                  other_dir=out_dir)

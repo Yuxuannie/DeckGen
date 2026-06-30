@@ -38,3 +38,9 @@ def test_check_flags_toggling_pin_in_bias():
     bad = "VA1 A1 0 'vdd_value'\n"      # toggling pin must NOT be biased
     chk = check_against_template(bad, _TMPL, {}, "A1")
     assert chk["bias_structural_ok"] is False
+
+
+def test_check_flags_missing_bias_source():
+    # side pin A2 is expected biased exactly once but is absent from the deck
+    chk = check_against_template("X1 a b\n", _TMPL, {"A2": 1}, "A1")
+    assert chk["bias_structural_ok"] is False
