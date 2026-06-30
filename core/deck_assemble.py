@@ -78,7 +78,6 @@ def _err(msg, **extra):
 def assemble_combinational(arc_info: dict, netlist_src: str, grammar: dict) -> dict:
     """Assemble a combinational delay/slew deck. Never raises: a bad arc is a named
     ERROR row (feeds B4's coverage report)."""
-    import re
     from engine.stages import stage0_parse, stage1_ccc, stage2_sensitize
     from engine.types import Arc
     from core.measurement.emit import select_entry, emit
@@ -117,8 +116,13 @@ def assemble_combinational(arc_info: dict, netlist_src: str, grammar: dict) -> d
     except SelectionError as e:
         return _err("no grammar entry: %s" % e)
 
-    # Strip any $PLACEHOLDER tokens that emit has no key for (e.g. $HEADER_INFO).
-    recipe = [re.sub(r'\$[A-Z_]+', '', l) for l in emit(entry, arc_info, fill_values=True)]
+    # $HEADER_INFO is a provenance comment placeholder emit has no value key for.
+    # Resolve ONLY it (targeted, never a blanket strip) so any other unresolved
+    # placeholder still survives and trips the no-unresolved-$ check.
+    header = arc_info.get("HEADER_INFO") or "%s %s %s->%s" % (
+        cell, arc_info.get("ARC_TYPE", "delay"), rel, probe)
+    recipe = [l.replace("$HEADER_INFO", header)
+              for l in emit(entry, arc_info, fill_values=True)]
 
     pins = arc_info.get("NETLIST_PINS", "")
     deck_lines = (
