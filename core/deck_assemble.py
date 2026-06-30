@@ -63,3 +63,72 @@ def choose_bias(sensitizing: list, kit_when):
     first = states[0]
     return {"bias": dict(first.assign), "chosen_label": first.label,
             "kit_match": False}
+
+
+_DIR = {"R": "rise", "F": "fall", "rise": "rise", "fall": "fall"}
+
+
+def _err(msg, **extra):
+    r = {"status": "ERROR", "deck_text": None, "bias": {}, "chosen_when": "",
+         "output": "", "out_dir": "", "kit_match": False, "error": msg}
+    r.update(extra)
+    return r
+
+
+def assemble_combinational(arc_info: dict, netlist_src: str, grammar: dict) -> dict:
+    """Assemble a combinational delay/slew deck. Never raises: a bad arc is a named
+    ERROR row (feeds B4's coverage report)."""
+    import re
+    from engine.stages import stage0_parse, stage1_ccc, stage2_sensitize
+    from engine.types import Arc
+    from core.measurement.emit import select_entry, emit
+    from core.measurement.emit import SelectionError
+
+    cell = arc_info.get("CELL_NAME", "")
+    rel = arc_info.get("REL_PIN", "")
+    probe = arc_info.get("PROBE_PIN_1", "")
+    try:
+        graph = stage0_parse.parse(netlist_src, cell)
+        ccc = stage1_ccc.decompose(graph)
+    except Exception as e:
+        return _err("netlist parse failed: %s" % e)
+
+    arc = Arc(cell=cell, arc_type="combinational", rel_pin=rel, rel_dir="rise",
+              constr_pin=probe, constr_dir="rise", when="NO_CONDITION",
+              measurement="", raw={"probe_pin": probe})
+
+    if not stage2_sensitize.is_combinational_arc(graph, arc, ccc):
+        return _err("arc CCC has a state node -- sequential, handled by B2/B3")
+
+    res = stage2_sensitize.derive_combinational(graph, arc, ccc)
+    if not res.sensitizing:
+        return _err("empty SENSITIZING: %s does not combinationally drive %s "
+                    "(sequential/clock or wrong probe)" % (rel, res.output))
+
+    cb = choose_bias(res.sensitizing, arc_info.get("WHEN"))
+
+    rel_dir = _DIR.get(arc_info.get("REL_PIN_DIR", "rise"), "rise")
+    # output edge for the chosen state -> grammar 'other_dir'
+    chosen = next(s for s in res.sensitizing if s.label == cb["chosen_label"])
+    out_dir = _DIR.get(chosen.out_dir or "rise", "rise")
+    try:
+        entry = select_entry(grammar, arc_type="delay", rel_dir=rel_dir,
+                             other_dir=out_dir)
+    except SelectionError as e:
+        return _err("no grammar entry: %s" % e)
+
+    # Strip any $PLACEHOLDER tokens that emit has no key for (e.g. $HEADER_INFO).
+    recipe = [re.sub(r'\$[A-Z_]+', '', l) for l in emit(entry, arc_info, fill_values=True)]
+
+    pins = arc_info.get("NETLIST_PINS", "")
+    deck_lines = (
+        collateral_section(arc_info)
+        + ["* ===== INSTANCE =====", "X1 %s %s" % (pins, cell)]
+        + engine_bias_section(cb["bias"])
+        + recipe
+        + [".end"]
+    )
+    return {"status": "OK", "deck_text": "\n".join(deck_lines) + "\n",
+            "bias": cb["bias"], "chosen_when": cb["chosen_label"],
+            "output": res.output, "out_dir": out_dir,
+            "kit_match": cb["kit_match"], "error": None}
