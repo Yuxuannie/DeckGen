@@ -112,3 +112,11 @@ def test_choose_bias_kit_diverges_engine_wins():
     r = choose_bias(_states(), "A2&A3")
     assert r["kit_match"] is False
     assert r["bias"] in ({"A2": 0}, {"A2": 1})
+
+
+def test_assemble_combinational_internal_error_is_named_not_raised():
+    # An unexpected failure after parse must become a named ERROR, never propagate.
+    src = open(_AOI22).read()
+    r = assemble_combinational(_arc_info("A1", "ZN"), src, None)  # grammar=None -> downstream blows up
+    assert r["status"] == "ERROR"
+    assert r["error"]  # non-empty, names the failure
