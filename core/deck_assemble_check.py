@@ -32,9 +32,13 @@ def check_against_template(deck_text: str, template_path: str,
     if not no_ph:
         detail.append("unresolved $ placeholder(s) remain in the deck")
     bias_ok = _bias_ok(deck_text, side_bias, toggling_pin, detail)
-    # recipe fidelity: assembled recipe region == template recipe region (structure).
-    # Compare the set of recipe LINE SHAPES with values stripped so corner-specific
-    # numbers don't cause false mismatch; this proves the same methodology lines.
+    # recipe_matches is a DIAGNOSTIC ONLY (never asserted). It compares recipe
+    # line-shapes (quoted values stripped) of the deck vs the template. NOTE: for an
+    # assembled deck this key is structurally ALWAYS False -- classify_line() does not
+    # recognize the assembler's "* ===== ... =====" section headers or its bias
+    # V<pin> lines as collateral/bias, so they leak into the deck's recipe extract and
+    # never match the template. recipe_matches is meaningful only for template-vs-
+    # template comparisons. Real recipe fidelity is guaranteed by Phase A's round-trip.
     tmpl_recipe = extract_recipe(open(template_path, encoding="ascii",
                                       errors="replace").read())
     deck_recipe = extract_recipe(deck_text)

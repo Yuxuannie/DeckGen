@@ -130,8 +130,7 @@ def assemble_combinational(arc_info: dict, netlist_src: str, grammar: dict) -> d
             collateral_section(arc_info)
             + ["* ===== INSTANCE =====", "X1 %s %s" % (pins, cell)]
             + engine_bias_section(cb["bias"])
-            + recipe
-            + [".end"]
+            + recipe   # emit()'s recipe already ends with .end -- do not re-append
         )
         return {"status": "OK", "deck_text": "\n".join(deck_lines) + "\n",
                 "bias": cb["bias"], "chosen_when": cb["chosen_label"],
