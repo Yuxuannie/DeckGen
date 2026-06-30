@@ -24,3 +24,4 @@ graphify-out/
 .agents/
 .omc/
 skills-lock.json
+.gstack/

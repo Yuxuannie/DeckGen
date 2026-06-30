@@ -1,0 +1,39 @@
+{
+  "cells": {
+    "DFFQ1": [
+      "LPE_cworst_CCworst_T_m40c"
+    ]
+  },
+  "collateral_root": "tests/fixtures/collateral/N2P_v1.0/test_lib",
+  "corners": {
+    "ssgnp_0p450v_m40c_cworst_CCworst_T": {
+      "char": {
+        "combined": null,
+        "cons": "Char/char_test_lib_ssgnp_0p450v_m40c_cworst_CCworst_T.cons.tcl",
+        "group_combined": null,
+        "group_cons": null,
+        "group_non_cons": null,
+        "non_cons": "Char/char_test_lib_ssgnp_0p450v_m40c_cworst_CCworst_T.non_cons.tcl"
+      },
+      "model": {
+        "base": "Char/test_lib_ssgnp_0p450v_m40c_cworst_CCworst_T.inc",
+        "delay": "Char/test_lib_ssgnp_0p450v_m40c_cworst_CCworst_T.delay.inc",
+        "hold": "Char/test_lib_ssgnp_0p450v_m40c_cworst_CCworst_T.hold.inc",
+        "mpw": null,
+        "setup": null
+      },
+      "netlist_dir": "Netlist/LPE_cworst_CCworst_T_m40c",
+      "process": "ssgnp",
+      "rc_type": "cworst_CCworst_T",
+      "temperature": "-40",
+      "template_tcl": "Template/test_lib_ssgnp_0p450v_m40c_cworst_CCworst_T.template.tcl",
+      "usage_l": "Char/test_lib_ssgnp_0p450v_m40c_cworst_CCworst_T.usage.l",
+      "vdd": "0.450"
+    }
+  },
+  "generated_at": "2026-06-24T06:05:22.878199Z",
+  "lib_type": "test_lib",
+  "node": "N2P_v1.0",
+  "schema_version": 1,
+  "warnings": []
+}
