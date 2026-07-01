@@ -45,6 +45,29 @@ def _transparent_phase(sens: SensitizationResult) -> int:
         return 0
 
 
+def _precycle_from_seq(seq) -> Derivation:
+    """Pre-cycle count = how many full clock cycles must precede the capturing
+    edge to load the storage pipeline. Derived from the B2 structural class
+    (duck-typed: .verdict, .bits[i].ff_depth, .reason). latch=0 (transparent),
+    ff_chain=depth, multibit=deepest bit. seq is None (unclassified direct call)
+    or an unsupported/combinational structure -> legacy 1, flagged in the reason
+    (never silently assumed)."""
+    if seq is None:
+        return Derivation(1, "no structural class supplied; legacy 1 pre-cycle "
+                             "loads the prior known value before capture", STAGE)
+    v = seq.verdict
+    if v == "latch":
+        return Derivation(0, "latch is transparent -- no clocked pre-cycle", STAGE)
+    if v in ("ff_chain", "multibit"):
+        from engine.stages.stage1b_classify import depth_of
+        n = depth_of(seq)
+        return Derivation(n, "%s: %d pre-cycle(s) push the datum through %d "
+                             "master/slave stage(s) before capture" % (v, n, n),
+                          STAGE)
+    return Derivation(1, "structure %s (%s); pre-cycle defaulted to 1 -- review"
+                         % (v, seq.reason or "no reason"), STAGE)
+
+
 def _probe_node(graph: DeviceGraph, net: str) -> str:
     """A real extracted node for a logical net, hierarchical. Prefer a net-anchor
     sub-node (`net#k`) over a device-pin node (`Xdev#g`) for readability."""
@@ -56,7 +79,7 @@ def _probe_node(graph: DeviceGraph, net: str) -> str:
 
 
 def derive(graph: DeviceGraph, ccc: CCCResult, arc: Arc,
-           sens: SensitizationResult) -> InitializationResult:
+           sens: SensitizationResult, seq=None) -> InitializationResult:
     rel, constr = arc.rel_pin, arc.constr_pin
     cap = 1 if arc.constr_dir == "fall" else 0       # HOLD CONVENTION (stated)
     conv = (f"hold convention: {constr} holds {cap} into the capturing edge "
@@ -107,14 +130,19 @@ def derive(graph: DeviceGraph, ccc: CCCResult, arc: Arc,
                f"TENTATIVE -- confirmed at P2 sim", STAGE)
 
     prev = 1 - cap
+    precycle_count = _precycle_from_seq(seq)
+    n = precycle_count.value
+    if n == 0:
+        precycle_line = "* pre-cycle: none (transparent latch)"
+    else:
+        precycle_line = (f"* pre-cycle x{n}: {constr}={prev}, clock {rel} {n} full "
+                         f"cycle(s) -> pipeline holds prior={prev}")
     stimulus = [
         f"* drive-and-settle (derived; {conv})",
-        f"* pre-cycle: {constr}={prev}, clock {rel} a full cycle -> slave holds prior={prev}",
+        precycle_line,
         f"* capture : {constr}={cap}, {rel} {arc.rel_dir} edge captures the value",
         f"* hold    : {constr} {arc.constr_dir} after the edge; bisected by the measurement",
     ]
-    precycle_count = Derivation(
-        1, "1 pre-cycle loads the prior known value before the capturing cycle", STAGE)
     probes = [_probe_node(graph, sn.net) for sn in ccc.state_nodes]
 
     return InitializationResult(

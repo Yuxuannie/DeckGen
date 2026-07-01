@@ -173,3 +173,21 @@ def test_classify_graph_sdfx_is_ff_chain_depth_one():
     assert len(r.bits) == 1
     assert r.bits[0].ff_depth == 1
     assert [s.role for s in r.bits[0].stages] == ["master", "slave"]
+
+
+def test_depth_of_covers_every_verdict():
+    from engine.stages.stage1b_classify import depth_of, SequentialClass, BitClass
+
+    def bit(depth):
+        return BitClass(outputs=("Q",), stages=(), latch_stages=2 * depth,
+                        ff_depth=depth, paired_cleanly=True)
+
+    ff = SequentialClass("ff_chain", (bit(3),), "", "", "")
+    mb = SequentialClass("multibit", (bit(1), bit(4), bit(2)), "", "", "")
+    latch = SequentialClass("latch", (bit(0),), "", "", "")
+    comb = SequentialClass("combinational", (), "", "", "")
+    assert depth_of(ff) == 3
+    assert depth_of(mb) == 4
+    assert depth_of(latch) == 0
+    assert depth_of(comb) == 0
+    assert depth_of(None) == 0

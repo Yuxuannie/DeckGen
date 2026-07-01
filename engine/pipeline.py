@@ -14,6 +14,7 @@ from engine.dataaccess import DataAccess
 from engine.stages import (
     stage0_parse,
     stage1_ccc,
+    stage1b_classify,
     stage2_sensitize,
     stage3_initialize,
     stage4_deckgen,
@@ -37,14 +38,26 @@ def _run(record, src, meas, model, backend_name) -> PipelineResult:
     log.append(f"S1 ccc      : {len(ccc.components)} CCC(s); storage "
                f"{ {r: v for r, v in sorted(roles.items())} } [Bryant, structural]")
 
+    # B2 structural class -> B3 recipe shape (drives precycle_count). Never raises.
+    seq = stage1b_classify.classify(graph, arc.cell)
+    if seq.verdict == "ff_chain":
+        dtxt = f" depth={seq.bits[0].ff_depth}"
+    elif seq.verdict == "multibit":
+        dtxt = f" bits={len(seq.bits)} maxdepth={max(b.ff_depth for b in seq.bits)}"
+    else:
+        dtxt = ""
+    extra = (f" [{seq.divergence}]" if seq.divergence else "") + \
+            (f" -- {seq.reason}" if seq.reason else "")
+
     sens = stage2_sensitize.derive(graph, arc, ccc)
     log.append(f"S2 sensitize: biases {{{', '.join(f'{k}={v.value}' for k, v in sens.side_biases.items())}}} "
                f"P1={'PASS' if sens.proven else 'FAIL'} [switch-level Boolean-diff]")
 
-    init = stage3_initialize.derive(graph, ccc, arc, sens)
+    init = stage3_initialize.derive(graph, ccc, arc, sens, seq)
     req = {n: d.value for n, d in init.required_state.items()}
     log.append(f"S3 init     : required {req}, precycle={init.precycle_count.value} "
-               f"[derived; P2 measured PENDING SIM]")
+               f"(class {seq.verdict}{dtxt}{extra}) [structural class -> B3 recipe; "
+               f"P2 measured PENDING SIM]")
 
     deck = stage4_deckgen.assemble(graph, arc, sens, init, meas, model)
     log.append(f"S4 deckgen  : {deck.line_count()} lines, measurement passed-through [WIRED]")

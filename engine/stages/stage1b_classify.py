@@ -42,6 +42,21 @@ class SequentialClass:
     reason: str
 
 
+def depth_of(seq) -> int:
+    """Structural pipeline depth -- single source of truth for the P3 precycle
+    oracle and the B3 deck emitter. ff_chain -> the bit's master/slave pair
+    count; multibit -> the deepest bit; latch / combinational /
+    recognized_unsupported / None -> 0. Duck-typed on .verdict and
+    .bits[i].ff_depth so callers need no new import."""
+    if seq is None:
+        return 0
+    if seq.verdict == "ff_chain":
+        return seq.bits[0].ff_depth
+    if seq.verdict == "multibit":
+        return max(b.ff_depth for b in seq.bits)
+    return 0
+
+
 def peel_bits(cores):
     """Partition cores into output bits via nested-cone peeling.
 
