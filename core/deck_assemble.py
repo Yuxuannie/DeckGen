@@ -71,6 +71,41 @@ def choose_bias(sensitizing: list, kit_when):
 _DIR = {"R": "rise", "F": "fall", "rise": "rise", "fall": "fall"}
 
 
+class SeqScope(Exception):
+    """Raised when a sequential arc falls outside the mined recipe corpus
+    (depth range or family). Caught by assemble_sequential -> named ERROR."""
+
+
+def _seq_cluster_tag(family, depth, rel_dir):
+    """Map a structural (family, depth) to the grammar cluster-tag and the
+    rise/fall variant to select. hold -> CP.sync{N}.D (depth-1 = CP.syncx.D,
+    fall->rise only); mpw -> CPN (depth 1) / sync{N}.CP (2..6), variant follows
+    the arc's rel_dir. Corpus depth ceiling is 6. Never returns silently on a
+    miss -- raises SeqScope with a reason."""
+    if family == "hold":
+        if depth == 1:
+            tag = "CP.syncx.D"
+        elif 2 <= depth <= 6:
+            tag = "CP.sync%d.D" % depth
+        else:
+            raise SeqScope("depth %d beyond mined hold corpus (syncx=1..sync6=6)"
+                           % depth)
+        return tag, "fall", "rise"
+    if family == "mpw":
+        other = {"rise": "fall", "fall": "rise"}.get(rel_dir)
+        if other is None:
+            raise SeqScope("mpw needs rel_dir rise|fall, got %r" % rel_dir)
+        if depth == 1:
+            tag = "CPN"
+        elif 2 <= depth <= 6:
+            tag = "sync%d.CP" % depth
+        else:
+            raise SeqScope("depth %d beyond mined mpw corpus (CPN=1, sync2..6)"
+                           % depth)
+        return tag, rel_dir, other
+    raise SeqScope("unknown deck family %r (want hold|mpw)" % family)
+
+
 def _err(msg, **extra):
     r = {"status": "ERROR", "deck_text": None, "bias": {}, "chosen_when": "",
          "output": "", "out_dir": "", "kit_match": False, "error": msg}
