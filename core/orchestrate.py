@@ -141,3 +141,179 @@ def discover(manifest, template_tcl_by_corner, scope=None):
             'selection matched 0 items; check '
             '--cells/--arcs-per-cell/--table-points/--corners')
     return items
+
+
+import json
+
+from core.coverage import build_coverage, coverage_ndjson, coverage_html
+
+_CATEGORY_RULES = [
+    ('combinational', 'combinational_cell'),
+    ('latch', 'latch_unsupported'),
+    ('p1 not proven', 'p1_unproven'),
+    ('p1 could not be proven', 'p1_unproven'),
+    ('seqscope', 'out_of_corpus'),
+    ('beyond depth', 'out_of_corpus'),
+    ('beyond corpus', 'out_of_corpus'),
+    ('parse', 'parse_fail'),
+    ('no .subckt', 'parse_fail'),
+    ('port order', 'parse_fail'),
+    ('grammar', 'no_grammar'),
+]
+
+
+def categorize(error_msg):
+    low = (error_msg or '').lower()
+    for needle, cat in _CATEGORY_RULES:
+        if needle in low:
+            return cat
+    return 'unsupported_arc'
+
+
+def _row(wi, state, category='', reason='', netlist_path='', deck_path=''):
+    return {
+        'arc_id': wi.get('arc_id', ''),
+        'cell': wi['cell'], 'arc_type': wi['arc_type'],
+        'i1': wi['i1'], 'i2': wi['i2'], 'corner': wi['corner'],
+        'state': state, 'category': category, 'reason': reason,
+        'netlist_path': netlist_path, 'deck_path': deck_path,
+    }
+
+
+def _deck_path(out_dir, lib_type, wi):
+    return os.path.join(out_dir, 'decks', lib_type, wi['corner'],
+                        wi['arc_type'], wi['arc_id'], 'nominal_sim.sp')
+
+
+def generate_one(work_item, node, lib_type, collateral_root, grammar, out_dir):
+    """Resolve + route + assemble one work item; write its deck if OK.
+    Returns an OutcomeRow. Never raises for data/generation problems."""
+    from core.deck_assemble import assemble_combinational, assemble_sequential
+    from core.resolver import resolve_all_from_collateral
+
+    if work_item.get('skip'):
+        return _row(work_item, 'skipped', reason=work_item['skip'])
+
+    arc = work_item['arc']
+    probe = arc['probe_list'][0] if arc.get('probe_list') else arc['pin']
+    try:
+        result = resolve_all_from_collateral(
+            cell_name=arc['cell'], arc_type=arc['arc_type'],
+            rel_pin=arc['rel_pin'], rel_dir=arc['rel_pin_dir'],
+            constr_pin=arc['pin'],
+            constr_dir=_OPP.get(arc['rel_pin_dir'], 'fall'),
+            probe_pin=probe, node=node, lib_type=lib_type,
+            corner_name=work_item['corner'], collateral_root=collateral_root,
+            overrides={'index_1_index': work_item['i1'],
+                       'index_2_index': work_item['i2']})
+    except Exception as e:                                    # resolution failure
+        return _row(work_item, 'generation_error',
+                    category=categorize(str(e)), reason=str(e))
+
+    arc_info = result[0] if isinstance(result, list) else result
+
+    # Overlay the routing/identity keys the engine emitters need, from the
+    # authoritative template.tcl arc. resolve provides the resolved numeric /
+    # file keys (VDD, TEMP, INDEX_*, MAX_SLEW, OUTPUT_LOAD, NETLIST_PATH, ...).
+    arc_info.setdefault('WAVEFORM_FILE', 'std_wv.spi')
+    arc_info.setdefault('INCLUDE_FILE', 'MODEL.inc')
+    arc_info.update({
+        'CELL_NAME': arc['cell'], 'ARC_TYPE': arc['arc_type'],
+        'REL_PIN': arc['rel_pin'], 'REL_PIN_DIR': arc['rel_pin_dir'],
+        'CONSTR_PIN': arc['pin'],
+        'CONSTR_PIN_DIR': _OPP.get(arc['rel_pin_dir'], 'fall'),
+        'PROBE_PIN_1': probe,
+        'WHEN': arc.get('when') or 'NO_CONDITION',
+    })
+
+    netlist_path = arc_info.get('NETLIST_PATH', '')
+    if not netlist_path or not os.path.isfile(netlist_path):
+        return _row(work_item, 'generation_error', category='parse_fail',
+                    reason='netlist not found: %r' % netlist_path,
+                    netlist_path=netlist_path)
+    netlist_src = open(netlist_path, encoding='latin-1').read()
+
+    if arc['arc_type'].startswith('combinational'):
+        asm = assemble_combinational(arc_info, netlist_src, grammar)
+    else:
+        asm = assemble_sequential(arc_info, netlist_src, grammar)
+
+    if asm.get('status') != 'OK':
+        return _row(work_item, 'generation_error',
+                    category=categorize(asm.get('error', '')),
+                    reason=asm.get('error', 'unknown'),
+                    netlist_path=netlist_path)
+
+    dpath = _deck_path(out_dir, lib_type, work_item)
+    os.makedirs(os.path.dirname(dpath), exist_ok=True)
+    with open(dpath, 'w', encoding='ascii') as fh:
+        fh.write(asm['deck_text'])
+    return _row(work_item, 'generated', netlist_path=netlist_path,
+                deck_path=dpath)
+
+
+def write_ledger(rows, path):
+    """Atomic full-file NDJSON rewrite (temp + rename)."""
+    tmp = path + '.tmp'
+    with open(tmp, 'w', encoding='ascii') as fh:
+        for r in rows:
+            fh.write(json.dumps(r) + '\n')
+    os.replace(tmp, path)
+
+
+def read_ledger(path):
+    rows = []
+    with open(path, encoding='ascii') as fh:
+        for line in fh:
+            line = line.strip()
+            if line:
+                rows.append(json.loads(line))
+    return rows
+
+
+def _load_manifest_and_tcl(collateral_dir, node, lib_type):
+    from core.collateral import CollateralStore
+    from tools.scan_collateral import build_manifest
+    mpath = build_manifest(collateral_dir, node, lib_type)
+    manifest = json.load(open(mpath, encoding='ascii'))
+    store = CollateralStore(collateral_dir, node, lib_type, skip_autoscan=True)
+    tcl = {c: store.get_corner(c)['template_tcl'] for c in manifest['corners']}
+    return manifest, tcl
+
+
+def _write_reports(rows, universe, out_dir):
+    report = build_coverage(rows, universe)
+    coverage_ndjson(report, os.path.join(out_dir, 'coverage.ndjson'))
+    coverage_html(report, os.path.join(out_dir, 'coverage.html'))
+    return report
+
+
+def generate(collateral_dir, node, lib_type, out_dir, scope=None,
+             progress=None):
+    """Phase 1: discover -> generate_one each -> ledger + coverage. Writes NO
+    bsub. Returns RunResult. Stops at the resting state."""
+    from core.measurement.emit import load_grammar
+
+    os.makedirs(out_dir, exist_ok=True)
+    manifest, tcl = _load_manifest_and_tcl(collateral_dir, node, lib_type)
+    work_items = discover(manifest, tcl, scope)     # may raise SelectionEmpty
+    grammar = load_grammar()
+
+    rows = []
+    total = len(work_items)
+    for idx, wi in enumerate(work_items):
+        rows.append(generate_one(wi, node, lib_type, collateral_dir, grammar,
+                                 out_dir))
+        if progress:
+            progress(idx + 1, total, rows[-1])
+
+    write_ledger(rows, os.path.join(out_dir, 'ledger.ndjson'))
+    with open(os.path.join(out_dir, 'run_config.json'), 'w',
+              encoding='ascii') as fh:
+        json.dump({'collateral': collateral_dir, 'node': node,
+                   'lib_type': lib_type, 'scope': scope or {},
+                   'out_dir': out_dir}, fh, indent=2)
+    universe = [wi_universe_tuple(wi) for wi in work_items]
+    report = _write_reports(rows, universe, out_dir)
+    return {'run_dir': out_dir, 'universe': universe, 'rows': rows,
+            'coverage': report}
