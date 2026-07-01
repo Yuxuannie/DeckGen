@@ -246,6 +246,15 @@ def assemble_sequential(arc_info: dict, netlist_src: str, grammar: dict) -> dict
                   when=arc_info.get("WHEN", "NO_CONDITION"),
                   measurement="", raw={"probe_pin": probe})
         sens = stage2_sensitize.derive(graph, arc, ccc)
+        # P1 not proven -> side biases are None placeholders. Emitting anyway would
+        # silently hard-tie every undetermined side pin to 0 (engine_bias_section
+        # maps None -> vss_value). The combinational sibling gates on
+        # res.sensitizing and stage3 filters None; do the same here rather than
+        # ship a deck with unproven biases masquerading as logic 0.
+        if not sens.proven:
+            return _err("P1 not proven for %s: side-pin biases undetermined "
+                        "(%s) -- refusing to emit a deck that would silently tie "
+                        "them to 0" % (cell, sens.p1_obligation or "no obligation"))
         bias = {p: d.value for p, d in sens.side_biases.items()}
 
         try:

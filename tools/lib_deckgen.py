@@ -42,20 +42,12 @@ if _REPO not in sys.path:
     sys.path.insert(0, _REPO)
 
 from engine.run import _direct                                # noqa: E402
-from engine.stages.stage1b_classify import classify           # noqa: E402
+from engine.stages.stage1b_classify import classify, depth_of  # noqa: E402
 from engine.types import PStatus                              # noqa: E402
 from core.deck_assemble import assemble_sequential            # noqa: E402
 from core.measurement.emit import load_grammar                # noqa: E402
 
 _SEQUENTIAL = {"latch", "ff_chain", "multibit"}
-
-
-def _depth(seq):
-    if seq.verdict == "ff_chain":
-        return seq.bits[0].ff_depth
-    if seq.verdict == "multibit":
-        return max(b.ff_depth for b in seq.bits)
-    return 0
 
 
 def _cell_from_file(path, strip_suffix="_c"):
@@ -71,7 +63,7 @@ def process(path, cell, out_dir, constr, rel, when, dry_run, arc_type, grammar):
     try:
         res = _direct(path, cell, constr=constr, rel=rel, when=when)
         seq = classify(res.graph, cell)
-        depth = _depth(seq)
+        depth = depth_of(seq)
         precycle = res.init.precycle_count.value
         p1 = res.verdict.p1.status.value
         base = ("%-28s class=%-22s depth=%d precycle=%d P1=%-4s"

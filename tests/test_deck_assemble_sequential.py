@@ -61,6 +61,7 @@ def test_assemble_sequential_hold_sdfx_ok():
     assert r["family"] == "hold" and r["cluster_tag"] == "CP.syncx.D"
     assert "$" not in r["deck_text"]
     assert "cp2q_del1" in r["deck_text"]
+    assert "cp2q_del2" in r["deck_text"]        # hold discriminator (mpw lacks it)
     assert "X1 " in r["deck_text"] and "SDFX_LPE_PLACEHOLDER" in r["deck_text"]
     assert any(l.startswith("VSE ") or l.startswith("VSI ")
                for l in r["deck_text"].splitlines())
