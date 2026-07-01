@@ -1,5 +1,5 @@
 from engine.stages.storage_view import StorageCore
-from engine.stages.stage1b_classify import peel_bits
+from engine.stages.stage1b_classify import peel_bits, _pair
 
 
 def _core(dist, cone):
@@ -58,3 +58,46 @@ def test_peel_complementary_output_joins_same_bit():
     assert len(bits) == 1
     assert sorted(bits[0]["outputs"]) == ["Q", "QN"]
     assert bits[0]["cores"] == {0, 1}
+
+
+def test_pair_single_core_is_latch():
+    cores = [_core(1, {"Q"})]
+    bit = {"cores": {0}, "outputs": ["Q"]}
+    bc = _pair(cores, bit)
+    assert bc.latch_stages == 1
+    assert bc.ff_depth == 0
+    assert bc.paired_cleanly is True
+    assert bc.stages[0].role == "latch"
+    assert bc.outputs == ("Q",)
+
+
+def test_pair_dff_two_cores_depth_one():
+    cores = [_core(1, {"Q"}), _core(2, {"Q"})]      # slave dist1, master dist2
+    bit = {"cores": {0, 1}, "outputs": ["Q"]}
+    bc = _pair(cores, bit)
+    assert bc.latch_stages == 2
+    assert bc.ff_depth == 1
+    assert bc.paired_cleanly is True
+    # stages emitted master-first
+    assert [s.role for s in bc.stages] == ["master", "slave"]
+    assert bc.stages[0].dist_to_out == 2 and bc.stages[1].dist_to_out == 1
+
+
+def test_pair_sync_depth_two():
+    cores = [_core(1, {"Q"}), _core(2, {"Q"}), _core(3, {"Q"}), _core(4, {"Q"})]
+    bit = {"cores": {0, 1, 2, 3}, "outputs": ["Q"]}
+    bc = _pair(cores, bit)
+    assert bc.latch_stages == 4
+    assert bc.ff_depth == 2
+    assert bc.paired_cleanly is True
+    assert [s.role for s in bc.stages] == ["master", "slave", "master", "slave"]
+
+
+def test_pair_odd_core_count_unpaired():
+    cores = [_core(1, {"Q"}), _core(2, {"Q"}), _core(3, {"Q"})]
+    bit = {"cores": {0, 1, 2}, "outputs": ["Q"]}
+    bc = _pair(cores, bit)
+    assert bc.latch_stages == 3
+    assert bc.ff_depth == 1
+    assert bc.paired_cleanly is False
+    assert "unpaired" in [s.role for s in bc.stages]

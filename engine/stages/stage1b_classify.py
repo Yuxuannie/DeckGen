@@ -69,3 +69,32 @@ def peel_bits(cores):
         assigned |= new
     dangling = set(range(len(cores))) - assigned
     return bits, dangling
+
+
+def _pair(cores, bit):
+    """Order a bit's cores by distance-to-output and pair master/slave.
+
+    Nearer-to-output is slave, farther is master. Odd leftover -> 'unpaired'
+    and paired_cleanly=False. Stages are emitted master-first (farthest first).
+    """
+    members = sorted(bit["cores"],
+                     key=lambda i: (cores[i].dist_to_out, sorted(cores[i].nets)))
+    outputs = tuple(sorted(bit["outputs"]))
+    k = len(members)
+    if k == 1:
+        c = cores[members[0]]
+        return BitClass(outputs, (Stage(c.nets, "latch", c.dist_to_out),),
+                        1, 0, True)
+    paired_cleanly = (k % 2 == 0)
+    ff_depth = k // 2
+    role = {}
+    for p in range(0, k - 1, 2):
+        role[members[p]] = "slave"          # nearer to output
+        role[members[p + 1]] = "master"     # one stage farther back
+    if not paired_cleanly:
+        role[members[k - 1]] = "unpaired"
+    ordered = sorted(members,
+                     key=lambda i: (-cores[i].dist_to_out, sorted(cores[i].nets)))
+    stages = tuple(Stage(cores[i].nets, role[i], cores[i].dist_to_out)
+                   for i in ordered)
+    return BitClass(outputs, stages, k, ff_depth, paired_cleanly)
