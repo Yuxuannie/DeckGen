@@ -2,20 +2,16 @@
 """seq_probe.py -- air-gapped structural probe for sequential cells (B2 de-risk).
 
 WHY THIS EXISTS
-  B2 will classify a sequential cell's CCC as latch / FF-chain / multibit /
-  recognized-unsupported and derive depth. Before writing B2, we want to know how
-  the ALREADY-BUILT engine (stage0 parse + stage1 CCC/storage detection) actually
-  behaves on the REAL production library -- not on hand-guessed fixtures.
-
-  This script runs entirely inside your air-gapped environment on the real LPE
-  netlists and prints ONLY an abstract structural signature per cell:
+  B2 classifies a sequential cell's CCC as latch / ff_chain / multibit /
+  recognized_unsupported and derives depth. This script exercises the SHARED
+  engine functions (build_storage_view + classify) on real LPE netlists and
+  prints an abstract structural signature per cell:
     - device / net / port counts and port roles (in / out / rail)
     - storage cores the engine finds (cross-coupled SCCs), their size, their
       influence-distance to the output, and the master/slave label stage1 assigns
     - which OUTPUT CONE each storage core feeds, and the output-cone PARTITION
       (this is the multibit discriminator: N independent bits => N groups)
-    - a clearly-labeled HEURISTIC verdict guess (this is the probe's guess, NOT
-      B2 -- B2 does not exist yet)
+    - the B2 verdict from classify() -- probe and engine cannot diverge
 
   Internal net names are ANONYMIZED by default (n0, n1, ...), so nothing
   proprietary leaves your environment -- only counts, roles, and graph shape.
@@ -50,86 +46,15 @@ import argparse
 import glob
 import os
 import sys
-from collections import deque
 
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO not in sys.path:
     sys.path.insert(0, _REPO)
 
 from engine.stages import stage0_parse, stage1_ccc          # noqa: E402
-from engine.stages.stage1_ccc import _sccs, _min_dist, RAILS  # noqa: E402
-
-
-def _reachable_outputs(influence, core, outputs):
-    """Output ports forward-reachable from a storage core in the influence graph."""
-    seen = set(core)
-    q = deque(core)
-    hit = set()
-    while q:
-        n = q.popleft()
-        if n in outputs:
-            hit.add(n)
-        for w in influence.get(n, ()):
-            if w not in seen:
-                seen.add(w)
-                q.append(w)
-    return hit
-
-
-def _partition_by_cone(cores_meta):
-    """Union cores that share any reachable output -> one group per independent bit.
-    cores_meta: list of dicts with 'outs' (frozenset). Returns list of index lists."""
-    parent = list(range(len(cores_meta)))
-
-    def find(x):
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
-
-    for i in range(len(cores_meta)):
-        for j in range(i + 1, len(cores_meta)):
-            if cores_meta[i]["outs"] & cores_meta[j]["outs"]:
-                ri, rj = find(i), find(j)
-                if ri != rj:
-                    parent[max(ri, rj)] = min(ri, rj)
-    groups = {}
-    for i in range(len(cores_meta)):
-        groups.setdefault(find(i), []).append(i)
-    return [sorted(v) for v in groups.values()]
-
-
-def _heuristic(n_cores, groups, cores_meta):
-    """PROBE guess (NOT B2). Returns a one-line string."""
-    if n_cores == 0:
-        return "combinational (no storage core found)"
-    if len(groups) == 1:
-        if n_cores == 1:
-            return "LATCH (1 storage core; latch_stages=1)"
-        if n_cores % 2 == 0:
-            return "FF-chain (latch_stages=%d, ff_depth=%d)" % (n_cores, n_cores // 2)
-        return ("FF-chain? ODD core count=%d (sync1p5-like / review -- "
-                "cannot pair cleanly)" % n_cores)
-    sizes = sorted(len(g) for g in groups)
-    per_bit = "; ".join(
-        "bit%d=%d core(s)" % (i, len(g)) for i, g in enumerate(groups))
-    tag = "MULTIBIT" if all(s == sizes[0] for s in sizes) else "MULTIBIT? (uneven bits)"
-    return "%s: %d bits (%s)" % (tag, len(groups), per_bit)
-
-
-def _bucket(n_cores, groups):
-    """Short canonical bucket key for aggregation (one per distinct structure)."""
-    if n_cores == 0:
-        return "combinational"
-    if len(groups) == 1:
-        if n_cores == 1:
-            return "latch"
-        if n_cores % 2 == 0:
-            return "FF-chain depth=%d" % (n_cores // 2)
-        return "FF-chain ODD cores=%d (review)" % n_cores
-    sizes = sorted(len(g) for g in groups)
-    even = "MULTIBIT" if all(s == sizes[0] for s in sizes) else "MULTIBIT-uneven"
-    return "%s %dbit (cores/bit=%s)" % (even, len(groups), ",".join(map(str, sizes)))
+from engine.stages.stage1_ccc import RAILS                  # noqa: E402
+from engine.stages.storage_view import build_storage_view   # noqa: E402
+from engine.stages.stage1b_classify import classify         # noqa: E402
 
 
 def analyze(netlist_path, cell, anon=True, show_devices=False):
@@ -138,42 +63,18 @@ def analyze(netlist_path, cell, anon=True, show_devices=False):
     graph = stage0_parse.parse(src, cell)
     devs = graph.devices
 
-    driven = {d.terminals["d"] for d in devs}
-    input_ports = {p for p in graph.ports if p not in RAILS and p not in driven}
-    output_ports = {p for p in graph.ports if p in driven and p not in RAILS}
-    boundaries = RAILS | input_ports
+    # Shared B2 engine: extract storage structure and classify.
+    view = build_storage_view(graph)
+    result = classify(graph, cell)
 
-    # influence graph exactly as stage1_ccc.decompose builds it
-    influence = {}
-    for d in devs:
-        dd, g, s = d.terminals["d"], d.terminals["g"], d.terminals["s"]
-        for src_net in (g, s):
-            if src_net not in RAILS and dd not in RAILS:
-                influence.setdefault(src_net, set()).add(dd)
-
-    internal_adj = {u: {w for w in vs if w not in boundaries}
-                    for u, vs in influence.items() if u not in boundaries}
-    gate_nets = {d.terminals["g"] for d in devs if d.terminals["g"] not in RAILS}
-    cores = []
-    for scc in _sccs(internal_adj):
-        if len(scc) < 2:
-            continue
-        core = sorted(n for n in scc if n in gate_nets)
-        if len(core) >= 2:
-            cores.append(core)
-
-    # official stage1 labels, for cross-check
+    # Official stage1 labels for the per-core role column (cross-check only).
     ccc = stage1_ccc.decompose(graph)
     net_role = {sn.net: sn.role for sn in ccc.state_nodes}
 
-    cores_meta = []
-    for core in cores:
-        outs = frozenset(_reachable_outputs(influence, core, output_ports))
-        dist = _min_dist(influence, set(core), output_ports)
-        roles = sorted({net_role.get(n, "?") for n in core})
-        cores_meta.append({"core": core, "outs": outs, "dist": dist, "roles": roles})
-    cores_meta.sort(key=lambda m: (m["dist"], m["core"]))
-    groups = _partition_by_cone(cores_meta)
+    # Port roles (needed for the ports: display line).
+    driven = {d.terminals["d"] for d in devs}
+    input_ports = {p for p in graph.ports if p not in RAILS and p not in driven}
+    output_ports = {p for p in graph.ports if p in driven and p not in RAILS}
 
     # anonymize internal net names for display
     if anon:
@@ -198,18 +99,40 @@ def analyze(netlist_path, cell, anon=True, show_devices=False):
                   "{%s}" % ",".join(sorted(p for p in graph.ports if p in RAILS))))
     out.append("CCC channel-components: %d" % len(ccc.components))
     out.append("storage cores (cross-coupled SCC>=2, gate-controlling): %d"
-               % len(cores_meta))
-    for i, m in enumerate(cores_meta):
+               % len(view.cores))
+    for i, c in enumerate(view.cores):
+        roles = sorted({net_role.get(n, "?") for n in c.nets})
         out.append("  core#%d %-18s dist->out %-3s influences %-14s stage1-role=%s"
-                   % (i, showset(m["core"]),
-                      ("inf" if m["dist"] >= 10 ** 9 else str(m["dist"])),
-                      showset(m["outs"]), ",".join(m["roles"])))
-    part = "  ".join("bit%d->%s:core%s"
-                     % (i, showset(cores_meta[g[0]]["outs"]), g)
-                     for i, g in enumerate(groups)) if cores_meta else "(none)"
-    out.append("output-cone partition: %d group(s)   %s" % (len(groups), part))
-    out.append("HEURISTIC (probe guess, NOT B2): %s"
-               % _heuristic(len(cores_meta), groups, cores_meta))
+                   % (i, showset(c.nets),
+                      ("inf" if c.dist_to_out >= 10 ** 9 else str(c.dist_to_out)),
+                      showset(c.cone), ",".join(roles)))
+
+    # output-cone partition from classify() bits
+    nets_to_idx = {c.nets: i for i, c in enumerate(view.cores)}
+    if view.cores and result.bits:
+        parts = []
+        for b_idx, b in enumerate(result.bits):
+            cidxs = sorted(nets_to_idx.get(s.nets, -1) for s in b.stages)
+            outs_str = "{%s}" % ",".join(sorted(b.outputs))
+            parts.append("bit%d->%s:core%s" % (b_idx, outs_str, cidxs))
+        part = "  ".join(parts)
+        n_groups = len(result.bits)
+    elif view.cores:
+        part = "(all cores drive no output)"
+        n_groups = 0
+    else:
+        part = "(none)"
+        n_groups = 0
+    out.append("output-cone partition: %d group(s)   %s" % (n_groups, part))
+
+    # verdict from B2 classify() -- probe now delegates to shared engine
+    verdict_str = "B2 verdict: %s" % result.verdict
+    if result.reason:
+        verdict_str += "  reason: %s" % result.reason
+    if result.divergence:
+        verdict_str += "  [name-divergence: %s]" % result.divergence
+    out.append(verdict_str)
+
     if show_devices:
         out.append("-- transistors (%sanonymized) --" % ("" if anon else "NOT "))
         for d in devs:
@@ -217,8 +140,7 @@ def analyze(netlist_path, cell, anon=True, show_devices=False):
             out.append("  %-6s %-4s d=%s g=%s s=%s b=%s"
                        % (d.name, d.kind, show(t["d"]), show(t["g"]),
                           show(t["s"]), show(t.get("b", "?"))))
-    return ("\n".join(out), _heuristic(len(cores_meta), groups, cores_meta),
-            _bucket(len(cores_meta), groups))
+    return ("\n".join(out), result.verdict, result.verdict)
 
 
 def _cell_from_file(path, strip_suffix="_c"):
