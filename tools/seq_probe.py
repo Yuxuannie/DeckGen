@@ -117,6 +117,21 @@ def _heuristic(n_cores, groups, cores_meta):
     return "%s: %d bits (%s)" % (tag, len(groups), per_bit)
 
 
+def _bucket(n_cores, groups):
+    """Short canonical bucket key for aggregation (one per distinct structure)."""
+    if n_cores == 0:
+        return "combinational"
+    if len(groups) == 1:
+        if n_cores == 1:
+            return "latch"
+        if n_cores % 2 == 0:
+            return "FF-chain depth=%d" % (n_cores // 2)
+        return "FF-chain ODD cores=%d (review)" % n_cores
+    sizes = sorted(len(g) for g in groups)
+    even = "MULTIBIT" if all(s == sizes[0] for s in sizes) else "MULTIBIT-uneven"
+    return "%s %dbit (cores/bit=%s)" % (even, len(groups), ",".join(map(str, sizes)))
+
+
 def analyze(netlist_path, cell, anon=True, show_devices=False):
     with open(netlist_path, encoding="ascii", errors="replace") as fh:
         src = fh.read()
@@ -202,7 +217,8 @@ def analyze(netlist_path, cell, anon=True, show_devices=False):
             out.append("  %-6s %-4s d=%s g=%s s=%s b=%s"
                        % (d.name, d.kind, show(t["d"]), show(t["g"]),
                           show(t["s"]), show(t.get("b", "?"))))
-    return "\n".join(out), _heuristic(len(cores_meta), groups, cores_meta)
+    return ("\n".join(out), _heuristic(len(cores_meta), groups, cores_meta),
+            _bucket(len(cores_meta), groups))
 
 
 def _cell_from_file(path, strip_suffix="_c"):
@@ -221,6 +237,9 @@ def main(argv=None):
                     help="show REAL net names (default: anonymized n0,n1,...)")
     ap.add_argument("--devices", action="store_true",
                     help="also print the (anonymized) transistor list")
+    ap.add_argument("--aggregate", action="store_true",
+                    help="with --dir: print only a verdict histogram + one "
+                         "representative full report per bucket (best for big libs)")
     ap.add_argument("--strip-suffix", default="_c",
                     help="filename suffix to strip for cell name (default: _c)")
     args = ap.parse_args(argv)
@@ -232,27 +251,48 @@ def main(argv=None):
         if not paths:
             print("no .spi/.subckt netlists in %s" % args.dir)
             return 1
-        summary = []
+        summary = []          # (cell, guess, bucket, report)
         for p in paths:
             cell = _cell_from_file(p, args.strip_suffix)
             try:
-                report, guess = analyze(p, cell, anon=anon, show_devices=args.devices)
-                print(report)
-                print("")
-                summary.append((cell, guess))
+                report, guess, bucket = analyze(p, cell, anon=anon,
+                                                show_devices=args.devices)
+                summary.append((cell, guess, bucket, report))
             except Exception as e:            # a bad cell must be named, never crash the sweep
-                print("=== %s [%s] ===\n  PROBE ERROR: %s\n"
-                      % (cell, os.path.basename(p), e))
-                summary.append((cell, "PROBE ERROR: %s" % e))
+                summary.append((cell, "PROBE ERROR: %s" % e, "PROBE ERROR",
+                                "=== %s [%s] ===\n  PROBE ERROR: %s"
+                                % (cell, os.path.basename(p), e)))
+
+        if args.aggregate:
+            hist = {}
+            first = {}
+            for cell, guess, bucket, report in summary:
+                hist[bucket] = hist.get(bucket, 0) + 1
+                first.setdefault(bucket, (cell, report))
+            print("===== VERDICT HISTOGRAM (%d cells) =====" % len(summary))
+            for bucket in sorted(hist, key=lambda b: (-hist[b], b)):
+                print("  %5d  %-28s e.g. %s" % (hist[bucket], bucket,
+                                                first[bucket][0]))
+            print("\n===== ONE REPRESENTATIVE REPORT PER BUCKET =====")
+            for bucket in sorted(hist, key=lambda b: (-hist[b], b)):
+                if bucket == "combinational":
+                    continue          # skip the (usually huge) combinational bucket's report
+                print("\n# bucket: %s  (%d cells)" % (bucket, hist[bucket]))
+                print(first[bucket][1])
+            return 0
+
+        for cell, guess, bucket, report in summary:
+            print(report)
+            print("")
         print("===== SUMMARY (%d cells) =====" % len(summary))
-        for cell, guess in summary:
+        for cell, guess, bucket, report in summary:
             print("  %-32s %s" % (cell, guess))
         return 0
 
     if not args.netlist:
         ap.error("give a NETLIST path or --dir")
     cell = args.cell or _cell_from_file(args.netlist, args.strip_suffix)
-    report, _ = analyze(args.netlist, cell, anon=anon, show_devices=args.devices)
+    report, _, _ = analyze(args.netlist, cell, anon=anon, show_devices=args.devices)
     print(report)
     return 0
 
