@@ -87,10 +87,16 @@ def test_ndjson_one_line_per_matrix_cell(tmp_path):
 
 
 def test_html_has_qa_block_and_triage(tmp_path):
-    uni = _universe(('C', 'hold', 1, 1, 'c1'))
+    # One arc errored (produces a triage card) AND one universe item has no
+    # row at all -> unaccounted -> unbalanced -> the INCOMPLETE QA headline.
+    # (An errored arc alone is still *accounted for*, i.e. balanced=True; the
+    # INCOMPLETE headline only appears when the universe is not fully covered.)
+    uni = _universe(('C', 'hold', 1, 1, 'c1'),
+                    ('C', 'hold', 2, 2, 'c1'))
     rows = [_row('C', 'hold', 1, 1, 'c1', 'generation_error',
                  category='latch_unsupported', reason='latch not supported')]
     rep = build_coverage(rows, uni)
+    assert rep['summary']['balanced'] is False   # ('C','hold',2,2,'c1') unaccounted
     p = os.path.join(str(tmp_path), 'coverage.html')
     coverage_html(rep, p)
     html = open(p, encoding='ascii').read()
