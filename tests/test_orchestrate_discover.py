@@ -41,6 +41,8 @@ def test_format_arc_id_roundtrips_combinational():
     assert (p['arc_type'], p['cell_name'], p['probe_pin'], p['rel_pin'],
             p['i1'], p['i2']) == ('combinational', 'DFFQ1', 'Q', 'CP', 3, 2)
     assert p['when'] == '!SE&SI'
+    assert p['probe_dir'] == 'rise'
+    assert p['rel_dir'] == 'rise'
 
 
 def test_format_arc_id_no_condition():

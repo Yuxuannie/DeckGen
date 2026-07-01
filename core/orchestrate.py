@@ -98,7 +98,14 @@ def discover(manifest, template_tcl_by_corner, scope=None):
                 'corner': corner, 'arc': {}, 'arc_id': '',
                 'skip': 'template_tcl_unreadable'})
             continue
-        info = parse_template_tcl_full(tcl_path)
+        try:
+            info = parse_template_tcl_full(tcl_path)
+        except Exception:
+            items.append({
+                'cell': '*', 'arc_type': '*', 'i1': 0, 'i2': 0,
+                'corner': corner, 'arc': {}, 'arc_id': '',
+                'skip': 'template_tcl_unreadable'})
+            continue
         arcs = info.get('arcs', [])
         cells_in_order = []
         for a in arcs:
