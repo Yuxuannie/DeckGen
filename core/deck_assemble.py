@@ -181,3 +181,93 @@ def assemble_combinational(arc_info: dict, netlist_src: str, grammar: dict) -> d
                 "kit_match": cb["kit_match"], "error": None}
     except Exception as e:
         return _err("internal error during assembly: %s" % e)
+
+
+def _subckt_ports(netlist_src, cell):
+    """Port order from the `.subckt <cell> <p1> <p2> ...` header, for the X1
+    instance line. Empty string if not found (assembly then reports it)."""
+    for line in netlist_src.splitlines():
+        toks = line.split()
+        if len(toks) >= 2 and toks[0].lower() in (".subckt", ".subckt:") \
+                and toks[1] == cell:
+            return " ".join(toks[2:])
+    return ""
+
+
+def assemble_sequential(arc_info: dict, netlist_src: str, grammar: dict) -> dict:
+    """Assemble a runnable sequential deck (hold or mpw family). Never raises: a
+    bad/unsupported arc is a named ERROR row. Family from ARC_TYPE
+    (hold -> CP.sync{N}.D; mpw|min_pulse_width -> sync{N}.CP/CPN); depth from the
+    B2 structural class."""
+    from engine.stages import stage0_parse, stage1_ccc, stage2_sensitize
+    from engine.stages.stage1b_classify import classify, depth_of
+    from engine.types import Arc
+    from core.measurement.emit import select_entry, emit, SelectionError
+
+    cell = arc_info.get("CELL_NAME", "")
+    rel = arc_info.get("REL_PIN", "CP")
+    constr = arc_info.get("CONSTR_PIN", "D")
+    probe = arc_info.get("PROBE_PIN_1", "Q")
+    rel_dir = _DIR.get(arc_info.get("REL_PIN_DIR", "fall"), "fall")
+    constr_dir = _DIR.get(arc_info.get("CONSTR_PIN_DIR", "fall"), "fall")
+
+    at = (arc_info.get("ARC_TYPE") or "").lower()
+    if at in ("hold", "setup"):
+        family = "hold"
+    elif at in ("mpw", "min_pulse_width"):
+        family = "mpw"
+    else:
+        return _err("unsupported ARC_TYPE %r for sequential emitter "
+                    "(want hold|mpw)" % at)
+
+    try:
+        graph = stage0_parse.parse(netlist_src, cell)
+        ccc = stage1_ccc.decompose(graph)
+    except Exception as e:
+        return _err("netlist parse failed: %s" % e)
+
+    try:
+        seq = classify(graph, cell)
+        if seq.verdict in ("combinational", "recognized_unsupported"):
+            return _err("not an assemblable sequential arc: verdict=%s (%s)"
+                        % (seq.verdict, seq.reason or "no storage core"))
+        if seq.verdict == "latch":
+            return _err("latch not yet supported by the sequential emitter "
+                        "(transparent; distinct methodology) -- %s"
+                        % (seq.reason or "verdict=latch"))
+        depth = depth_of(seq)
+        try:
+            tag, sel_rel, sel_other = _seq_cluster_tag(family, depth, rel_dir)
+        except SeqScope as e:
+            return _err("out of recipe corpus: %s" % e)
+
+        arc = Arc(cell=cell, arc_type=at, rel_pin=rel, rel_dir=rel_dir,
+                  constr_pin=constr, constr_dir=constr_dir,
+                  when=arc_info.get("WHEN", "NO_CONDITION"),
+                  measurement="", raw={"probe_pin": probe})
+        sens = stage2_sensitize.derive(graph, arc, ccc)
+        bias = {p: d.value for p, d in sens.side_biases.items()}
+
+        try:
+            entry = select_entry(grammar, arc_type="mpw", rel_dir=sel_rel,
+                                 other_dir=sel_other, cluster_tag=tag)
+        except SelectionError as e:
+            return _err("no grammar entry for %s: %s" % (tag, e))
+
+        header = arc_info.get("HEADER_INFO") or "%s %s %s->%s depth=%d" % (
+            cell, at, rel, probe, depth)
+        recipe = [l.replace("$HEADER_INFO", header)
+                  for l in emit(entry, arc_info, fill_values=True)]
+
+        pins = arc_info.get("NETLIST_PINS") or _subckt_ports(netlist_src, cell)
+        deck_lines = (
+            collateral_section(arc_info)
+            + ["* ===== INSTANCE =====", "X1 %s %s" % (pins, cell)]
+            + engine_bias_section(bias)
+            + recipe
+        )
+        return {"status": "OK", "deck_text": "\n".join(deck_lines) + "\n",
+                "bias": bias, "verdict": seq.verdict, "depth": depth,
+                "cluster_tag": tag, "family": family, "error": None}
+    except Exception as e:
+        return _err("internal error during assembly: %s" % e)

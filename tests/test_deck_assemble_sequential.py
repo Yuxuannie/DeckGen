@@ -28,3 +28,65 @@ def test_depth_beyond_corpus_raises_named_scope():
 def test_unknown_family_raises():
     with pytest.raises(SeqScope):
         _seq_cluster_tag("removal", 2, "rise")
+
+
+from core.deck_assemble import assemble_sequential
+from core.measurement.emit import load_grammar
+
+_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_SDFX = os.path.join(_REPO, "engine", "fixtures", "SDFX_LPE_PLACEHOLDER.subckt")
+_XOR2 = os.path.join(_REPO, "engine", "fixtures", "XOR2_RECON.subckt")
+_LATCH = os.path.join(_REPO, "tests", "fixtures", "audit_lib", "netlist",
+                      "SYNTH_LATCH.spi")
+
+
+def _arc_info(cell, arc_type, rel_dir="fall"):
+    return {
+        "CELL_NAME": cell, "ARC_TYPE": arc_type,
+        "REL_PIN": "CP", "REL_PIN_DIR": rel_dir,
+        "CONSTR_PIN": "D", "CONSTR_PIN_DIR": "fall", "PROBE_PIN_1": "Q",
+        "WHEN": "NO_CONDITION",
+        "WAVEFORM_FILE": "std_wv.spi", "INCLUDE_FILE": "MODEL.inc",
+        "NETLIST_PATH": cell + ".spi", "VDD_VALUE": "0.450",
+        "TEMPERATURE": "-40", "INDEX_1_VALUE": "1.2e-10",
+        "INDEX_2_VALUE": "5e-16", "MAX_SLEW": "1e-9", "OUTPUT_LOAD": "5e-16",
+    }
+
+
+def test_assemble_sequential_hold_sdfx_ok():
+    grammar = load_grammar()
+    src = open(_SDFX, encoding="ascii").read()
+    r = assemble_sequential(_arc_info("SDFX_LPE_PLACEHOLDER", "hold"), src, grammar)
+    assert r["status"] == "OK", r["error"]
+    assert r["family"] == "hold" and r["cluster_tag"] == "CP.syncx.D"
+    assert "$" not in r["deck_text"]
+    assert "cp2q_del1" in r["deck_text"]
+    assert "X1 " in r["deck_text"] and "SDFX_LPE_PLACEHOLDER" in r["deck_text"]
+    assert any(l.startswith("VSE ") or l.startswith("VSI ")
+               for l in r["deck_text"].splitlines())
+
+
+def test_assemble_sequential_mpw_sdfx_ok():
+    grammar = load_grammar()
+    src = open(_SDFX, encoding="ascii").read()
+    r = assemble_sequential(_arc_info("SDFX_LPE_PLACEHOLDER", "mpw", rel_dir="rise"),
+                            src, grammar)
+    assert r["status"] == "OK", r["error"]
+    assert r["family"] == "mpw" and r["cluster_tag"] == "CPN"
+    assert "cp2cp" in r["deck_text"]
+    assert "cp2q_del2" not in r["deck_text"]
+
+
+def test_assemble_sequential_combinational_is_named_error():
+    grammar = load_grammar()
+    src = open(_XOR2, encoding="ascii").read()
+    r = assemble_sequential(_arc_info("XOR2", "hold"), src, grammar)
+    assert r["status"] == "ERROR" and r["deck_text"] is None
+    assert "combinational" in r["error"].lower()
+
+
+def test_assemble_sequential_latch_is_named_error():
+    grammar = load_grammar()
+    src = open(_LATCH, encoding="ascii").read()
+    r = assemble_sequential(_arc_info("SYNTH_LATCH", "hold"), src, grammar)
+    assert r["status"] == "ERROR" and "latch" in r["error"].lower()
