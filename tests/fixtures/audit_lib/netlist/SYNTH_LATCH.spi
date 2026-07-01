@@ -1,0 +1,13 @@
+* SYNTH_LATCH.spi -- minimal cross-coupled bistable + output buffer.
+* Structural fixture for build_storage_view: 1 storage core {a,b}, cone {Q}.
+* D and CP are declared inputs; the loop is self-holding (no clock modeled).
+.subckt SYNTH_LATCH D CP Q VDD VSS
+* cross-coupled inverter pair -> storage core over nets a, b
+XP1 b a VDD VDD pch_svt_mac
+XN1 b a VSS VSS nch_svt_mac
+XP2 a b VDD VDD pch_svt_mac
+XN2 a b VSS VSS nch_svt_mac
+* output buffer a -> Q (gives the core a distance-1 cone to Q)
+XPO Q a VDD VDD pch_svt_mac
+XNO Q a VSS VSS nch_svt_mac
+.ends
