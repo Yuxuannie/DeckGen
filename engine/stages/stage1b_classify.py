@@ -98,3 +98,75 @@ def _pair(cores, bit):
     stages = tuple(Stage(cores[i].nets, role[i], cores[i].dist_to_out)
                    for i in ordered)
     return BitClass(outputs, stages, k, ff_depth, paired_cleanly)
+
+
+from engine.types import DeviceGraph
+from engine.stages.storage_view import build_storage_view
+
+
+_NAME_TO_VERDICT = {
+    "latch": "latch",
+    "flop": "ff_chain",
+    "sync": "ff_chain",
+    "mb": "multibit",
+    "retn": "recognized_unsupported",
+    "det": "recognized_unsupported",
+    "drdf": "recognized_unsupported",
+    "div4": "recognized_unsupported",
+    "edf": "recognized_unsupported",
+}
+
+
+def _name_crosscheck(cell_name, verdict):
+    """Advisory only: compare structural verdict to the cell-name family.
+    Returns (name_hint, divergence). Never raises, never overrides."""
+    if not cell_name:
+        return ("", "")
+    try:
+        from core.principle_engine.classifier import classify_cell
+        fam = classify_cell(cell_name).cell_class.value
+    except Exception:
+        return ("", "")
+    expected = _NAME_TO_VERDICT.get(fam, "")
+    if not expected or expected == verdict:
+        return (fam, "")
+    return (fam, "name=%s implies %s but structure=%s" % (fam, expected, verdict))
+
+
+def classify_cores(cores, cell_name=""):
+    """Classify a StorageCore list into one SequentialClass. Never raises."""
+    try:
+        if not cores:
+            nh, _ = _name_crosscheck(cell_name, "combinational")
+            return SequentialClass("combinational", (), nh, "",
+                                   "no storage core -- combinational (not B2's job)")
+        raw_bits, dangling = peel_bits(cores)
+        bits = tuple(_pair(cores, b) for b in raw_bits)
+        if dangling:
+            names = sorted(sorted(cores[i].nets)[0] for i in dangling)
+            nh, _ = _name_crosscheck(cell_name, "recognized_unsupported")
+            return SequentialClass("recognized_unsupported", bits, nh, "",
+                                   "storage core(s) drive no output: %s" % names)
+        if len(bits) == 1:
+            verdict = "latch" if bits[0].latch_stages == 1 else "ff_chain"
+        else:
+            verdict = "multibit"
+        nh, div = _name_crosscheck(cell_name, verdict)
+        reason = ""
+        if any(not b.paired_cleanly for b in bits):
+            odd = [b.latch_stages for b in bits if not b.paired_cleanly]
+            reason = "odd core count in bit(s): %s (review, could not pair)" % odd
+        return SequentialClass(verdict, bits, nh, div, reason)
+    except Exception as e:
+        return SequentialClass("recognized_unsupported", (), "", "",
+                               "internal: %s" % e)
+
+
+def classify(graph: DeviceGraph, cell_name="") -> SequentialClass:
+    """Graph entry point: extract the storage view, then classify. Never raises."""
+    try:
+        view = build_storage_view(graph)
+    except Exception as e:
+        return SequentialClass("recognized_unsupported", (), "", "",
+                               "internal: %s" % e)
+    return classify_cores(view.cores, cell_name)

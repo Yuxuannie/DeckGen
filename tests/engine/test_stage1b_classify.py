@@ -101,3 +101,75 @@ def test_pair_odd_core_count_unpaired():
     assert bc.ff_depth == 1
     assert bc.paired_cleanly is False
     assert "unpaired" in [s.role for s in bc.stages]
+
+
+import os
+from engine.stages import stage0_parse
+from engine.stages.stage1b_classify import classify_cores, classify
+
+_REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_SDFX = os.path.join(_REPO, "engine/fixtures/SDFX_LPE_PLACEHOLDER.subckt")
+
+
+def test_classify_cores_latch():
+    r = classify_cores([_core(1, {"Q"})])
+    assert r.verdict == "latch"
+    assert len(r.bits) == 1 and r.bits[0].ff_depth == 0
+
+
+def test_classify_cores_ff_chain():
+    r = classify_cores([_core(1, {"Q"}), _core(2, {"Q"})])
+    assert r.verdict == "ff_chain"
+    assert r.bits[0].ff_depth == 1
+
+
+def test_classify_cores_multibit_mb8():
+    r = classify_cores(_mb8_cores(), "MB8SRLSDFQSXGZ2422MZD1BWP130HPNPN3P48CPD")
+    assert r.verdict == "multibit"
+    assert len(r.bits) == 8
+    assert all(b.ff_depth == 1 for b in r.bits)
+    assert r.divergence == ""                    # name family 'mb' agrees
+
+
+def test_classify_cores_odd_is_reviewed_ff_chain():
+    r = classify_cores([_core(1, {"Q"}), _core(2, {"Q"}), _core(3, {"Q"})])
+    assert r.verdict == "ff_chain"
+    assert r.bits[0].paired_cleanly is False
+    assert "odd" in r.reason.lower()
+
+
+def test_classify_cores_dangling_unsupported():
+    r = classify_cores([_core(1, {"Q"}), _core(2, set())])
+    assert r.verdict == "recognized_unsupported"
+    assert "drive no output" in r.reason
+
+
+def test_classify_cores_no_cores_is_combinational():
+    r = classify_cores([])
+    assert r.verdict == "combinational"
+
+
+def test_classify_cores_name_divergence():
+    # name 'DFFX1' -> family flop -> implies ff_chain, but structure is a latch.
+    r = classify_cores([_core(1, {"Q"})], "DFFX1")
+    assert r.verdict == "latch"                  # structure wins
+    assert r.divergence != ""
+    assert "flop" in r.divergence
+
+
+def test_classify_never_raises_on_bad_cores():
+    class Bad:
+        cone = frozenset({"Q"})
+        # missing dist_to_out / nets -> _pair blows up
+    r = classify_cores([Bad()])
+    assert r.verdict == "recognized_unsupported"
+    assert r.reason.startswith("internal:")
+
+
+def test_classify_graph_sdfx_is_ff_chain_depth_one():
+    g = stage0_parse.parse(open(_SDFX).read(), "SDFX_LPE_PLACEHOLDER")
+    r = classify(g)
+    assert r.verdict == "ff_chain"
+    assert len(r.bits) == 1
+    assert r.bits[0].ff_depth == 1
+    assert [s.role for s in r.bits[0].stages] == ["master", "slave"]
