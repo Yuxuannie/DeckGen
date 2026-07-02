@@ -748,7 +748,8 @@ def run_tab_html():
 
 def run_js():
     return r"""
-var RUN={taskId:'',polling:false,outDir:'',planArcs:[],planTruncated:false};
+var RUN={taskId:'',polling:false,outDir:'',planArcs:[],planTruncated:false,
+  planTypes:[]};
 function runInit(){
   if(typeof engCorners==='function'&&typeof engFillSelect==='function')
     engFillSelect(document.getElementById('runCorner'),
@@ -777,7 +778,25 @@ function runPayload(withSel){
     var checked=runCheckedArcs();
     if(checked.length<RUN.planArcs.length)p.arc_ids=checked;
   }
+  // Truncated previews have no per-arc checkboxes, so the type row is the
+  // filter there: send the kept arc_types only if some were unchecked. In the
+  // non-truncated case the type row just bulk-toggles the arc rows and the
+  // arc_ids whitelist above already carries the selection.
+  if(withSel&&RUN.planTruncated&&RUN.planTypes.length){
+    var kt=runCheckedTypes();
+    if(kt.length<RUN.planTypes.length)p.arc_types=kt;
+  }
   return p;
+}
+function runCheckedTypes(){
+  var out=[],cbs=document.querySelectorAll('.run-type-cb');
+  for(var i=0;i<cbs.length;i++)if(cbs[i].checked)out.push(cbs[i].value);
+  return out;
+}
+function runTypeToggle(cb){
+  var cbs=document.querySelectorAll('.run-arc-cb');
+  for(var i=0;i<cbs.length;i++)
+    if(cbs[i].getAttribute('data-type')===cb.value)cbs[i].checked=cb.checked;
 }
 function runCheckedArcs(){
   var out=[],cbs=document.querySelectorAll('.run-arc-cb');
@@ -787,6 +806,8 @@ function runCheckedArcs(){
 function runArcToggleAll(cb){
   var cbs=document.querySelectorAll('.run-arc-cb');
   for(var i=0;i<cbs.length;i++)cbs[i].checked=cb.checked;
+  var tcbs=document.querySelectorAll('.run-type-cb');
+  for(var j=0;j<tcbs.length;j++)tcbs[j].checked=cb.checked;
 }
 function runErr(id,msg){document.getElementById(id).innerHTML=
   '<div class="ca-empty">'+esc(msg)+'</div>';}
@@ -814,14 +835,28 @@ function runPlan(){
     var trunc=d.arcs_truncated;
     var arcRows=uniq.map(function(a){
       var cb=trunc?'<td></td>':'<td><input type="checkbox" class="run-arc-cb"'+
-        ' checked value="'+esc(a.arc_id)+'"></td>';
+        ' checked value="'+esc(a.arc_id)+'" data-type="'+
+        esc(a.arc_type||'')+'"></td>';
       return '<tr>'+cb+'<td>'+esc(a.arc_id)+'</td><td>'+esc(a.cell)+
         '</td></tr>';}).join('');
+    // Arc-type filter row: counts cover the FULL selection even when the arc
+    // list below is truncated. Non-truncated: bulk-toggles the arc rows (the
+    // arc_ids whitelist carries the selection). Truncated: the kept types are
+    // sent as scope.arc_types, so type filtering still works at library scale.
+    var types=Object.keys(d.arc_types||{}).sort();
+    RUN.planTypes=types;
+    var typeRow=types.length?'<div style="margin:6px 0 2px">'+
+      types.map(function(t){
+        return '<label style="margin-right:14px;cursor:pointer">'+
+          '<input type="checkbox" class="run-type-cb" checked value="'+esc(t)+
+          '" onchange="runTypeToggle(this)"> '+esc(t)+
+          ' ('+d.arc_types[t]+')</label>';}).join('')+'</div>':'';
     var arcNote=trunc?
       ' (showing first '+uniq.length+' arcs of '+d.expected+' items -- too '+
-      'many to select individually; narrow by cell to enable selection)':
-      ' ('+uniq.length+' distinct arcs -- uncheck any to exclude before '+
-      'generating)';
+      'many to select individually; use the type checkboxes or narrow by '+
+      'cell)':
+      ' ('+uniq.length+' distinct arcs -- uncheck a type or any single arc '+
+      'to exclude before generating)';
     var hdr=trunc?'<th></th>':
       '<th><input type="checkbox" checked onclick="runArcToggleAll(this)"></th>';
     document.getElementById('run-summary').innerHTML=
@@ -832,6 +867,7 @@ function runPlan(){
       '<table class="run-tbl"><tr><th>cell</th><th>items</th></tr>'+
       rows+'</table></div>'+
       '<div style="margin-top:8px"><b>Available arcs'+arcNote+':</b>'+
+      typeRow+
       '<div style="max-height:260px;overflow:auto;margin-top:6px">'+
       '<table class="run-tbl"><tr>'+hdr+'<th>arc_id</th><th>cell</th></tr>'+
       arcRows+'</table></div></div></div>';
@@ -841,6 +877,9 @@ function runGenerate(){
   if(RUN.planArcs.length&&!RUN.planTruncated&&runCheckedArcs().length===0){
     alert('All arcs are unchecked -- nothing to generate. '+
       'Check at least one arc, or leave them all checked.');return;}
+  if(RUN.planTruncated&&RUN.planTypes.length&&runCheckedTypes().length===0){
+    alert('All arc types are unchecked -- nothing to generate. '+
+      'Check at least one type, or leave them all checked.');return;}
   document.getElementById('runSubmitBtn').disabled=true;
   document.getElementById('runGenerateBtn').disabled=true;
   var stop=document.getElementById('runStopBtn');

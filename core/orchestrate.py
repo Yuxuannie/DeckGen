@@ -21,6 +21,15 @@ SEQUENTIAL_ARCS = frozenset({
 
 _OPP = {'rise': 'fall', 'fall': 'rise'}
 
+# template.tcl spells minimum-pulse-width arcs either way; normalize both the
+# scope filter tokens and the arc's own type so 'mpw' selects 'min_pulse_width'
+# arcs and vice versa.
+_ARC_TYPE_ALIAS = {'min_pulse_width': 'mpw'}
+
+
+def _norm_arc_type(t):
+    return _ARC_TYPE_ALIAS.get(t, t)
+
 
 class SelectionEmpty(Exception):
     """A non-empty scope matched zero work items (surfaced at the scope gate)."""
@@ -81,6 +90,9 @@ def discover(manifest, template_tcl_by_corner, scope=None):
     Raises SelectionEmpty only when the produced set is empty."""
     scope = scope or {}
     cell_globs = scope.get('cells')
+    arc_types = scope.get('arc_types')
+    if arc_types is not None:
+        arc_types = {_norm_arc_type(t) for t in arc_types}
     arcs_per_cell = scope.get('arcs_per_cell')
     table_points = scope.get('table_points')
     corner_filter = scope.get('corners')
@@ -120,6 +132,9 @@ def discover(manifest, template_tcl_by_corner, scope=None):
                 continue
             cell_info = info.get('cells', {}).get(cell, {})
             cell_arcs = [a for a in arcs if a['cell'] == cell]
+            if arc_types is not None:
+                cell_arcs = [a for a in cell_arcs
+                             if _norm_arc_type(a['arc_type']) in arc_types]
             if arcs_per_cell is not None:
                 cell_arcs = cell_arcs[:arcs_per_cell]
             for arc in cell_arcs:
@@ -145,7 +160,7 @@ def discover(manifest, template_tcl_by_corner, scope=None):
     if not items:
         raise SelectionEmpty(
             'selection matched 0 items; check '
-            '--cells/--arcs-per-cell/--table-points/--corners')
+            '--cells/--arc-types/--arcs-per-cell/--table-points/--corners')
     return items
 
 

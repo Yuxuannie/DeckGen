@@ -464,6 +464,8 @@ def _run_scope(payload):
         scope['table_points'] = [tuple(p) for p in tp]
     if payload.get('corners'):
         scope['corners'] = list(payload['corners'])
+    if payload.get('arc_types'):
+        scope['arc_types'] = list(payload['arc_types'])
     if payload.get('arc_ids'):
         scope['arc_ids'] = list(payload['arc_ids'])
     return scope or None
@@ -505,9 +507,15 @@ def _api_run_plan(payload):
     wis = pl['work_items']
     _CAP = 2000
     arcs = [{'arc_id': wi.get('arc_id', ''), 'cell': wi['cell'],
-             'corner': wi['corner']} for wi in wis[:_CAP]]
+             'corner': wi['corner'], 'arc_type': wi['arc_type']}
+            for wi in wis[:_CAP]]
+    # Per-type counts over the FULL selection (not the capped list) so the type
+    # filter row stays usable even when the arc list is truncated.
+    by_type = {}
+    for wi in wis:
+        by_type[wi['arc_type']] = by_type.get(wi['arc_type'], 0) + 1
     return {'expected': pl['expected'], 'walltime_est': pl['walltime_est'],
-            'matrix': matrix, 'arcs': arcs,
+            'matrix': matrix, 'arcs': arcs, 'arc_types': by_type,
             'arcs_truncated': len(wis) > _CAP}
 
 

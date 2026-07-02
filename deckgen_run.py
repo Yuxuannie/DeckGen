@@ -27,6 +27,8 @@ def parse_scope(args):
     scope = {}
     scope['cells'] = ([c.strip() for c in args.cells.split(',') if c.strip()]
                       if args.cells else None)
+    scope['arc_types'] = ([t.strip() for t in args.arc_types.split(',')
+                           if t.strip()] if args.arc_types else None)
     scope['arcs_per_cell'] = args.arcs_per_cell
     scope['corners'] = ([c.strip() for c in args.corners.split(',')
                          if c.strip()] if args.corners else None)
@@ -57,6 +59,9 @@ def main(argv=None):
     ap.add_argument('--node', required=True)
     ap.add_argument('--lib_type', required=True)
     ap.add_argument('--cells', help='comma-separated fnmatch globs')
+    ap.add_argument('--arc-types', dest='arc_types',
+                    help='comma-separated arc types e.g. "hold,mpw" '
+                         '(mpw and min_pulse_width are equivalent)')
     ap.add_argument('--arcs-per-cell', type=int, dest='arcs_per_cell')
     ap.add_argument('--table-points', dest='table_points',
                     help='"N" (first N points) or ";"-separated i1,i2 e.g. "1,1;2,3"')

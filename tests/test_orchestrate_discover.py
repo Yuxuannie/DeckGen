@@ -104,6 +104,44 @@ def test_discover_arc_ids_empty_whitelist_raises(tmp_path):
         discover(manifest, tcl, scope={'arc_ids': ['no_such_arc_id']})
 
 
+def test_discover_arc_types_filter(tmp_path):
+    root = _setup(os.path.join(str(tmp_path), 'col'))
+    manifest, tcl = _manifest_and_tcl(root)
+    items = discover(manifest, tcl,
+                     scope={'arc_types': ['hold'], 'table_points': [(1, 1)]})
+    assert len(items) == 1
+    assert items[0]['arc_type'] == 'hold'
+
+
+def test_discover_arc_types_filter_before_arcs_per_cell(tmp_path):
+    # The fixture cell's first arc is combinational, second is hold. The type
+    # filter must apply BEFORE arcs_per_cell truncation, so asking for 1 hold
+    # arc per cell yields the hold arc -- not an empty selection because the
+    # (combinational) first arc was kept and then filtered away.
+    root = _setup(os.path.join(str(tmp_path), 'col'))
+    manifest, tcl = _manifest_and_tcl(root)
+    items = discover(manifest, tcl,
+                     scope={'arc_types': ['hold'], 'arcs_per_cell': 1,
+                            'table_points': [(1, 1)]})
+    assert [wi['arc_type'] for wi in items] == ['hold']
+
+
+def test_discover_arc_types_nonmatch_raises_empty(tmp_path):
+    root = _setup(os.path.join(str(tmp_path), 'col'))
+    manifest, tcl = _manifest_and_tcl(root)
+    with pytest.raises(SelectionEmpty):
+        discover(manifest, tcl, scope={'arc_types': ['recovery']})
+
+
+def test_discover_arc_types_mpw_alias():
+    # 'mpw' and 'min_pulse_width' are the same family; either spelling in the
+    # filter must select an arc typed with the other spelling.
+    from core.orchestrate import _norm_arc_type
+    assert _norm_arc_type('min_pulse_width') == 'mpw'
+    assert _norm_arc_type('mpw') == 'mpw'
+    assert _norm_arc_type('hold') == 'hold'
+
+
 def test_discover_table_points_int_first_n(tmp_path):
     root = _setup(os.path.join(str(tmp_path), 'col'))
     manifest, tcl = _manifest_and_tcl(root)
