@@ -731,7 +731,7 @@ def run_tab_html():
 
 def run_js():
     return r"""
-var RUN={taskId:'',polling:false};
+var RUN={taskId:'',polling:false,outDir:''};
 function runInit(){
   if(typeof engCorners==='function'&&typeof engFillSelect==='function')
     engFillSelect(document.getElementById('runCorner'),
@@ -758,13 +758,25 @@ function runErr(id,msg){document.getElementById(id).innerHTML=
 function runPlan(){
   post('/api/run/plan',runPayload()).then(function(d){
     if(d.error){runErr('run-summary',d.error);return;}
-    var rows=(d.matrix||[]).map(function(m){return '<tr><td>'+esc(m.cell)+
-      '</td><td>'+esc(m.corner)+'</td><td>'+m.count+'</td></tr>';}).join('');
+    // roll up the per-(cell,corner) matrix to per-cell totals so the preview
+    // stays compact even at thousands of work items.
+    var byCell={},corners={};
+    (d.matrix||[]).forEach(function(m){
+      byCell[m.cell]=(byCell[m.cell]||0)+m.count;corners[m.corner]=1;});
+    var cells=Object.keys(byCell).sort();
+    var ncorn=Object.keys(corners).length;
+    var rows=cells.map(function(c){return '<tr><td>'+esc(c)+
+      '</td><td>'+byCell[c]+'</td></tr>';}).join('');
+    var est=Math.round(d.walltime_est/60);
     document.getElementById('run-summary').innerHTML=
       '<div class="run-card"><b>Scope preview:</b> '+d.expected+
-      ' work items, est ~'+Math.round(d.walltime_est/60)+' min'+
-      '<table class="run-tbl"><tr><th>cell</th><th>corner</th>'+
-      '<th>items</th></tr>'+rows+'</table></div>';
+      ' work items across '+cells.length+' cell'+(cells.length===1?'':'s')+
+      ' &times; '+ncorn+' corner'+(ncorn===1?'':'s')+
+      '<div class="eng-mut" style="margin:4px 0">rough upper bound ~'+est+
+      ' min (crude 90s/arc, sequential -- real LSF fan-out is far less)</div>'+
+      '<div style="max-height:240px;overflow:auto">'+
+      '<table class="run-tbl"><tr><th>cell</th><th>items</th></tr>'+
+      rows+'</table></div></div>';
   });
 }
 function runGenerate(){
@@ -788,6 +800,7 @@ function runPoll(){
       (d.current?'  ('+d.current+')':'');
     if(d.status==='running'){setTimeout(runPoll,400);return;}
     RUN.polling=false;
+    RUN.outDir=d.out_dir||'';
     if(d.status==='error'){runErr('run-summary',d.error||'error');return;}
     runLoadCoverage();
     document.getElementById('runSubmitBtn').disabled=false;
@@ -801,10 +814,15 @@ function runRenderCoverage(d){
   var su=d.summary||{};
   var badge=su.balanced?'<span class="eng-chip chip-pass">BALANCED</span>':
     '<span class="eng-chip chip-fail">UNBALANCED</span>';
+  var gen=su.generated||0;
+  var loc=RUN.outDir?'<div class="eng-mut" style="margin-top:6px">wrote '+gen+
+    ' deck'+(gen===1?'':'s')+' to <code>'+esc(RUN.outDir)+'</code>'+
+    (gen===0?' &mdash; no decks generated; see triage below and '+
+      'ledger.ndjson in that folder for every arc and why':'')+'</div>':'';
   document.getElementById('run-summary').innerHTML=
     '<div class="run-card">'+badge+' &nbsp;expected '+su.expected+
     ' = generated '+su.generated+' + submitted '+(su.submitted||0)+
-    ' + error '+su.generation_error+' + skipped '+su.skipped+'</div>';
+    ' + error '+su.generation_error+' + skipped '+su.skipped+loc+'</div>';
   var tri=d.triage||[];
   var th=document.getElementById('run-triage');
   if(!tri.length){th.innerHTML=

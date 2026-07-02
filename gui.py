@@ -508,7 +508,8 @@ def _api_run_generate(payload):
     from core import orchestrate
     root, node, lib_type = _run_config(payload)
     scope = _run_scope(payload)
-    out_dir = payload.get('out') or payload.get('output_dir') or './run_output'
+    out_dir = os.path.abspath(
+        payload.get('out') or payload.get('output_dir') or './run_output')
     task_id = uuid.uuid4().hex[:12]
     with _RUN_LOCK:
         _RUN_TASKS[task_id] = {
