@@ -84,6 +84,9 @@ def discover(manifest, template_tcl_by_corner, scope=None):
     arcs_per_cell = scope.get('arcs_per_cell')
     table_points = scope.get('table_points')
     corner_filter = scope.get('corners')
+    arc_id_filter = scope.get('arc_ids')      # explicit whitelist from preview
+    if arc_id_filter is not None:
+        arc_id_filter = set(arc_id_filter)
 
     corners = list(manifest.get('corners', {}).keys())
     if corner_filter is not None:
@@ -124,15 +127,18 @@ def discover(manifest, template_tcl_by_corner, scope=None):
                 probe = (arc['probe_list'][0] if arc.get('probe_list')
                          else arc['pin'])
                 for (i1, i2, skip) in _points_for(n1, n2, table_points):
+                    aid = format_arc_id(
+                        arc['arc_type'], cell, probe, arc['pin_dir'],
+                        arc['rel_pin'], arc['rel_pin_dir'],
+                        arc.get('when', ''), i1, i2)
+                    if arc_id_filter is not None and aid not in arc_id_filter:
+                        continue
                     items.append({
                         'cell': cell,
                         'arc_type': arc['arc_type'],
                         'i1': i1, 'i2': i2, 'corner': corner,
                         'arc': arc,
-                        'arc_id': format_arc_id(
-                            arc['arc_type'], cell, probe, arc['pin_dir'],
-                            arc['rel_pin'], arc['rel_pin_dir'],
-                            arc.get('when', ''), i1, i2),
+                        'arc_id': aid,
                         'skip': skip,
                     })
 

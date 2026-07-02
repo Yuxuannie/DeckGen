@@ -464,6 +464,8 @@ def _run_scope(payload):
         scope['table_points'] = [tuple(p) for p in tp]
     if payload.get('corners'):
         scope['corners'] = list(payload['corners'])
+    if payload.get('arc_ids'):
+        scope['arc_ids'] = list(payload['arc_ids'])
     return scope or None
 
 

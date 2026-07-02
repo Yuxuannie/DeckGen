@@ -748,7 +748,7 @@ def run_tab_html():
 
 def run_js():
     return r"""
-var RUN={taskId:'',polling:false,outDir:''};
+var RUN={taskId:'',polling:false,outDir:'',planArcs:[],planTruncated:false};
 function runInit(){
   if(typeof engCorners==='function'&&typeof engFillSelect==='function')
     engFillSelect(document.getElementById('runCorner'),
@@ -757,7 +757,7 @@ function runInit(){
 function runParseTP(s){var r=[],m,re=/\(\s*(\d+)\s*,\s*(\d+)\s*\)/g;
   while((m=re.exec(s||''))!==null)
     r.push([parseInt(m[1],10),parseInt(m[2],10)]);return r;}
-function runPayload(){
+function runPayload(withSel){
   var corner=document.getElementById('runCorner').value;
   var cells=document.getElementById('runCells').value.trim();
   var arcsN=document.getElementById('runArcsN').value.trim();
@@ -770,7 +770,23 @@ function runPayload(){
   if(arcsN)p.arcs_per_cell=parseInt(arcsN,10);
   if(tp.length)p.table_points=tp;
   if(wk)p.workers=parseInt(wk,10);
+  // Only when generating (withSel), the arcs were fully previewed (not
+  // truncated), and the user actually unchecked some: send the kept arc_ids
+  // as an explicit whitelist. Touching nothing = keep all = scope-edit safe.
+  if(withSel&&RUN.planArcs.length&&!RUN.planTruncated){
+    var checked=runCheckedArcs();
+    if(checked.length<RUN.planArcs.length)p.arc_ids=checked;
+  }
   return p;
+}
+function runCheckedArcs(){
+  var out=[],cbs=document.querySelectorAll('.run-arc-cb');
+  for(var i=0;i<cbs.length;i++)if(cbs[i].checked)out.push(cbs[i].value);
+  return out;
+}
+function runArcToggleAll(cb){
+  var cbs=document.querySelectorAll('.run-arc-cb');
+  for(var i=0;i<cbs.length;i++)cbs[i].checked=cb.checked;
 }
 function runErr(id,msg){document.getElementById(id).innerHTML=
   '<div class="ca-empty">'+esc(msg)+'</div>';}
@@ -787,12 +803,27 @@ function runPlan(){
     var rows=cells.map(function(c){return '<tr><td>'+esc(c)+
       '</td><td>'+byCell[c]+'</td></tr>';}).join('');
     // The exact arc identifiers the scope selected -- so it is visible which
-    // arc is which, not just how many per cell.
+    // arc is which, not just how many per cell. Arcs come from template.tcl;
+    // dedup by arc_id (the same arc repeats once per corner) so each logical
+    // arc gets one checkbox the user can keep or drop before generating.
     var arcs=d.arcs||[];
-    var arcRows=arcs.map(function(a){return '<tr><td>'+esc(a.arc_id)+
-      '</td><td>'+esc(a.corner)+'</td></tr>';}).join('');
-    var arcNote=d.arcs_truncated?
-      ' (showing first '+arcs.length+' of '+d.expected+')':'';
+    var seen={},uniq=[];
+    arcs.forEach(function(a){if(!seen[a.arc_id]){seen[a.arc_id]=1;
+      uniq.push(a);}});
+    RUN.planArcs=uniq;RUN.planTruncated=!!d.arcs_truncated;
+    var trunc=d.arcs_truncated;
+    var arcRows=uniq.map(function(a){
+      var cb=trunc?'<td></td>':'<td><input type="checkbox" class="run-arc-cb"'+
+        ' checked value="'+esc(a.arc_id)+'"></td>';
+      return '<tr>'+cb+'<td>'+esc(a.arc_id)+'</td><td>'+esc(a.cell)+
+        '</td></tr>';}).join('');
+    var arcNote=trunc?
+      ' (showing first '+uniq.length+' arcs of '+d.expected+' items -- too '+
+      'many to select individually; narrow by cell to enable selection)':
+      ' ('+uniq.length+' distinct arcs -- uncheck any to exclude before '+
+      'generating)';
+    var hdr=trunc?'<th></th>':
+      '<th><input type="checkbox" checked onclick="runArcToggleAll(this)"></th>';
     document.getElementById('run-summary').innerHTML=
       '<div class="run-card"><b>Scope preview:</b> '+d.expected+
       ' work items across '+cells.length+' cell'+(cells.length===1?'':'s')+
@@ -800,20 +831,23 @@ function runPlan(){
       '<div style="max-height:200px;overflow:auto;margin-top:6px">'+
       '<table class="run-tbl"><tr><th>cell</th><th>items</th></tr>'+
       rows+'</table></div>'+
-      '<div style="margin-top:8px"><b>Selected arcs'+arcNote+':</b>'+
-      '<div style="max-height:220px;overflow:auto;margin-top:6px">'+
-      '<table class="run-tbl"><tr><th>arc_id</th><th>corner</th></tr>'+
+      '<div style="margin-top:8px"><b>Available arcs'+arcNote+':</b>'+
+      '<div style="max-height:260px;overflow:auto;margin-top:6px">'+
+      '<table class="run-tbl"><tr>'+hdr+'<th>arc_id</th><th>cell</th></tr>'+
       arcRows+'</table></div></div></div>';
   });
 }
 function runGenerate(){
+  if(RUN.planArcs.length&&!RUN.planTruncated&&runCheckedArcs().length===0){
+    alert('All arcs are unchecked -- nothing to generate. '+
+      'Check at least one arc, or leave them all checked.');return;}
   document.getElementById('runSubmitBtn').disabled=true;
   document.getElementById('runGenerateBtn').disabled=true;
   var stop=document.getElementById('runStopBtn');
   stop.style.display='';stop.disabled=false;stop.textContent='Stop';
   document.getElementById('run-triage').innerHTML='';
   document.getElementById('run-lsf').innerHTML='';
-  post('/api/run/generate',runPayload()).then(function(d){
+  post('/api/run/generate',runPayload(true)).then(function(d){
     if(d.error){runErr('run-summary',d.error);runResetBtns();return;}
     RUN.taskId=d.task_id;
     document.getElementById('run-progress').style.display='block';

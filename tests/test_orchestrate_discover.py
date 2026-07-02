@@ -81,6 +81,29 @@ def test_discover_arcs_per_cell_one(tmp_path):
     assert len(items) == 1  # first arc of DFFQ1 only
 
 
+def test_discover_arc_ids_whitelist_keeps_only_selected(tmp_path):
+    # The preview lists every available arc (from template.tcl); the user
+    # unchecks some and generate() passes the kept arc_ids as a whitelist.
+    # discover must keep exactly those and drop the rest.
+    root = _setup(os.path.join(str(tmp_path), 'col'))
+    manifest, tcl = _manifest_and_tcl(root)
+    full = discover(manifest, tcl, scope={'table_points': [(1, 1)]})
+    assert len(full) == 2
+    keep = full[0]['arc_id']
+    sel = discover(manifest, tcl,
+                   scope={'table_points': [(1, 1)], 'arc_ids': [keep]})
+    assert [wi['arc_id'] for wi in sel] == [keep]
+
+
+def test_discover_arc_ids_empty_whitelist_raises(tmp_path):
+    # An arc_ids whitelist matching nothing must raise SelectionEmpty, never
+    # silently produce a zero-item run.
+    root = _setup(os.path.join(str(tmp_path), 'col'))
+    manifest, tcl = _manifest_and_tcl(root)
+    with pytest.raises(SelectionEmpty):
+        discover(manifest, tcl, scope={'arc_ids': ['no_such_arc_id']})
+
+
 def test_discover_table_points_int_first_n(tmp_path):
     root = _setup(os.path.join(str(tmp_path), 'col'))
     manifest, tcl = _manifest_and_tcl(root)
