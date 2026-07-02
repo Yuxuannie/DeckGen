@@ -220,7 +220,18 @@ CSS_COMPONENTS += """
 #view-run:not(.view-hidden){display:block !important;}
 #view-run>.panel{flex:none !important;min-width:0 !important;border-right:none;}
 .run-card{background:var(--surface);border:1px solid var(--border);
-  border-radius:8px;padding:10px 12px;margin:10px 0;font:13px var(--font-ui);}
+  border-radius:var(--r-card);padding:10px 12px;margin:10px 0;font:13px var(--font-ui);}
+.run-scope{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+  gap:10px 14px;margin:0 0 12px;}
+.run-fld{display:flex;flex-direction:column;gap:4px;}
+.run-fld>span{font:600 11px var(--font-ui);color:var(--text-mut);
+  text-transform:uppercase;letter-spacing:.04em;}
+.run-in{height:30px;padding:0 8px;border:1px solid var(--border);
+  border-radius:var(--r-chip);background:var(--surface);
+  font:13px var(--font-mono);color:var(--text);width:100%;box-sizing:border-box;}
+.run-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 8px;}
+.run-note{font:12px/1.5 var(--font-ui);color:var(--text-mut);
+  max-width:620px;margin:0 0 12px;}
 .run-tbl{border-collapse:collapse;margin-top:8px;width:100%;
   font:12px var(--font-mono);}
 .run-tbl th,.run-tbl td{border:1px solid var(--border);padding:3px 8px;
@@ -692,33 +703,33 @@ def run_tab_html():
     return """
 <div class="main view-hidden" id="view-run">
   <div class="panel eng-panel">
-    <div class="ca-bar">
-      <span class="ca-lbl">Corner</span>
-      <select id="runCorner" class="ca-sel"></select>
-      <span class="ca-lbl">Cells</span>
-      <input id="runCells" class="ca-filter" placeholder="glob(s), blank = all">
-      <span class="ca-lbl">Arcs/cell</span>
-      <input id="runArcsN" class="ca-filter" style="width:64px" placeholder="all">
-      <span class="ca-lbl">Table pts</span>
-      <input id="runTP" class="ca-filter" placeholder="(1,1) (2,3), blank = all">
-      <span class="ca-lbl">Out</span>
-      <input id="runOut" class="ca-filter" placeholder="./run_output">
+    <div class="run-scope">
+      <label class="run-fld"><span>Corner</span>
+        <select id="runCorner" class="run-in"></select></label>
+      <label class="run-fld"><span>Cells</span>
+        <input id="runCells" class="run-in" placeholder="glob(s), blank = all">
+      </label>
+      <label class="run-fld"><span>Arcs per cell</span>
+        <input id="runArcsN" class="run-in" placeholder="all"></label>
+      <label class="run-fld"><span>Table points</span>
+        <input id="runTP" class="run-in" placeholder="(1,1) (2,3), blank = all">
+      </label>
+      <label class="run-fld"><span>Output dir</span>
+        <input id="runOut" class="run-in" placeholder="./run_output/"></label>
     </div>
-    <div class="ca-bar">
+    <div class="run-actions">
       <button class="btn" onclick="runPlan()">Preview scope</button>
       <button class="btn btn-primary" id="runGenerateBtn"
               onclick="runGenerate()">Generate decks</button>
       <button class="btn" id="runSubmitBtn" onclick="runSubmit()" disabled>
         Submit to LSF</button>
-      <span class="ca-note">Generate builds decks and stops at rest. Review the
-        coverage below, then Submit emits the bsub arrays -- the operator
-        confirm gate. Nothing is submitted until you confirm.</span>
     </div>
+    <p class="run-note">Generate builds the decks locally and stops. Review the
+      coverage below, then Submit emits the bsub arrays -- nothing is queued to
+      LSF until you confirm.</p>
     <div id="run-progress" style="display:none;margin:8px 0">
-      <div style="height:10px;background:var(--border);border-radius:5px;
-                  overflow:hidden">
-        <div id="run-bar-fill" style="height:100%;width:0;
-             background:var(--accent);transition:width .2s"></div></div>
+      <div class="ca-prog"><div class="ca-prog-bar">
+        <div class="ca-prog-fill" id="run-bar-fill"></div></div></div>
       <div id="run-progress-text" class="eng-mut"></div>
     </div>
     <div id="run-summary"></div>
@@ -772,8 +783,8 @@ function runPlan(){
       '<div class="run-card"><b>Scope preview:</b> '+d.expected+
       ' work items across '+cells.length+' cell'+(cells.length===1?'':'s')+
       ' &times; '+ncorn+' corner'+(ncorn===1?'':'s')+
-      '<div class="eng-mut" style="margin:4px 0">rough upper bound ~'+est+
-      ' min (crude 90s/arc, sequential -- real LSF fan-out is far less)</div>'+
+      '<div class="eng-mut" style="margin:4px 0">Estimated ~'+est+
+      ' min if run sequentially; actual LSF time is much lower.</div>'+
       '<div style="max-height:240px;overflow:auto">'+
       '<table class="run-tbl"><tr><th>cell</th><th>items</th></tr>'+
       rows+'</table></div></div>';
@@ -796,8 +807,8 @@ function runPoll(){
     var pct=d.total?Math.round(100*d.progress/d.total):0;
     document.getElementById('run-bar-fill').style.width=pct+'%';
     document.getElementById('run-progress-text').textContent=
-      'generated '+(d.progress||0)+'/'+(d.total||0)+
-      (d.current?'  ('+d.current+')':'');
+      'Generating '+(d.progress||0)+'/'+(d.total||0)+' ('+pct+'%)'+
+      (d.current?' - '+d.current:'');
     if(d.status==='running'){setTimeout(runPoll,400);return;}
     RUN.polling=false;
     RUN.outDir=d.out_dir||'';
@@ -815,10 +826,11 @@ function runRenderCoverage(d){
   var badge=su.balanced?'<span class="eng-chip chip-pass">BALANCED</span>':
     '<span class="eng-chip chip-fail">UNBALANCED</span>';
   var gen=su.generated||0;
-  var loc=RUN.outDir?'<div class="eng-mut" style="margin-top:6px">wrote '+gen+
-    ' deck'+(gen===1?'':'s')+' to <code>'+esc(RUN.outDir)+'</code>'+
-    (gen===0?' &mdash; no decks generated; see triage below and '+
-      'ledger.ndjson in that folder for every arc and why':'')+'</div>':'';
+  var loc=RUN.outDir?'<div class="eng-mut" style="margin-top:6px">Wrote '+gen+
+    ' deck'+(gen===1?'':'s')+' to <code>'+esc(RUN.outDir)+'</code>.'+
+    (gen===0?' No decks were generated -- see the triage table below, or '+
+      '<code>ledger.ndjson</code> in that folder for the reason on every '+
+      'arc.':'')+'</div>':'';
   document.getElementById('run-summary').innerHTML=
     '<div class="run-card">'+badge+' &nbsp;expected '+su.expected+
     ' = generated '+su.generated+' + submitted '+(su.submitted||0)+
