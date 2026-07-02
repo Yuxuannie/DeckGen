@@ -1,0 +1,3 @@
+set_var constraint_glitch_peak 0.1
+set_var constraint_delay_degrade 0.4
+set_var constraint_output_load index_2
