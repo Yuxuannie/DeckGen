@@ -59,6 +59,15 @@ def build_coverage(rows, universe):
     accounted = generated + submitted + errors + skipped
     balanced = (accounted == expected) and (not unaccounted)
 
+    # Demo-1 scoreboard: tally the per-deck parity verdicts (rows that carry
+    # one). byte + engine_extras = the trust cohort; diff = the review cohort.
+    by_parity = {}
+    for r in rows:
+        p = r.get('parity')
+        if p:
+            key = p.split(':', 1)[0]        # golden_error:<msg> -> golden_error
+            by_parity[key] = by_parity.get(key, 0) + 1
+
     summary = {
         'expected': expected,
         'generated': generated,
@@ -70,6 +79,7 @@ def build_coverage(rows, universe):
     return {
         'summary': summary,
         'by_category': by_category,
+        'by_parity': by_parity,
         'by_corner': by_corner,
         'matrix': matrix,
         'triage': triage,

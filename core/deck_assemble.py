@@ -8,7 +8,13 @@ engine-derived bias agrees with the kit -when is BYTE-IDENTICAL to the golden
 template-substitution deck. stdlib only, ASCII only, simulator-free."""
 from __future__ import annotations
 
+import re
+
 from engine.whencond import parse_when_conjunction
+
+# Same token shape deck_builder._substitute_vars resolves; used only to NAME
+# the placeholders a line consumed in the audit record.
+_PLACEHOLDER_RE = re.compile(r"\$([A-Z_][A-Z_0-9]*)")
 
 
 def _vline(pin, value):
@@ -31,7 +37,7 @@ def _kit_pin_order(kit_when, side_bias):
     return out
 
 
-def fill_frame(frame_text, arc_info, side_bias, kit_when=None):
+def fill_frame(frame_text, arc_info, side_bias, kit_when=None, audit=None):
     """Fill a grammar entry's frame (the family template's full text, verbatim)
     the way the golden flow fills a template: deck_builder's substitution map
     for $VARS, load caps injected after '* Output Load', and engine V-sources
@@ -41,7 +47,13 @@ def fill_frame(frame_text, arc_info, side_bias, kit_when=None):
     frame has no Unspecified section -- some mpw frames do not). Engine values
     are the source of truth even for kit-named pins. .inc lines de-duplicate
     exactly like build_deck. Unknown $PLACEHOLDERS survive (they trip the
-    no-unresolved-$ check downstream, never silently vanish)."""
+    no-unresolved-$ check downstream, never silently vanish).
+
+    audit (optional dict) is the G0 explain layer: filled with a per-line
+    origin record for EVERY output line (key "lines", 1-based "n" matching the
+    deck), plus "dropped_inc" for lines the .inc dedup removed. It is written
+    by the SAME pass that writes the deck, so it cannot drift from the deck.
+    Passing audit never changes deck bytes."""
     from core.deck_builder import _build_substitution_map, _substitute_vars
 
     sub = None      # built on first $-line; frames without $ need no arc keys
@@ -50,45 +62,65 @@ def fill_frame(frame_text, arc_info, side_bias, kit_when=None):
     has_unspec = "* Unspecified pins" in frame_text
 
     out, seen_inc = [], set()
+    alines = [] if audit is not None else None
 
-    def push(line):
+    def push(line, src="frame", **meta):
         s = line.strip()
         if s.startswith(".inc "):
             if s in seen_inc:
+                if audit is not None:
+                    audit.setdefault("dropped_inc", []).append(s)
                 return
             seen_inc.add(s)
         out.append(line)
+        if alines is not None:
+            rec = {"n": len(out), "src": src}
+            rec.update(meta)
+            alines.append(rec)
+
+    def push_bias(pin, section):
+        why = ("kit -when names %s; engine-proven value ties it" % pin
+               if section == "kit" else
+               "engine-derived: kit leaves %s unspecified; P1 state pins it"
+               % pin)
+        push(_vline(pin, side_bias[pin]), src="engine",
+             pin=pin, value=side_bias[pin], why=why)
 
     for line in frame_text.split("\n"):
         if "* Pin definitions" in line:
             push(line)
             for p in kit_pins:
-                push(_vline(p, side_bias[p]))
+                push_bias(p, "kit")
             if not has_unspec:
                 for p in extras:
-                    push(_vline(p, side_bias[p]))
+                    push_bias(p, "extra")
             continue
         if "* Unspecified pins" in line:
             push(line)
             for p in extras:
-                push(_vline(p, side_bias[p]))
+                push_bias(p, "extra")
             continue
         if "* Output Load" in line:
             push(line)
             pins = (arc_info.get("OUTPUT_PINS") or
                     arc_info.get("PROBE_PIN_1", "")).split()
             for pin in pins:
-                push("C%s %s 0 'cl'" % (pin, pin))
+                push("C%s %s 0 'cl'" % (pin, pin), src="load", pin=pin,
+                     why="load cap on output %s; cl from collateral "
+                         "(template.tcl index_2)" % pin)
             continue
         if "$" in line:
             if sub is None:
                 sub = _build_substitution_map(arc_info, None, None, None)
+            phs = [m for m in _PLACEHOLDER_RE.findall(line) if m in sub]
             # HEADER_INFO substitution embeds newlines; split so .inc dedup
             # and line accounting stay per-line.
             for piece in _substitute_vars(line, sub).split("\n"):
-                push(piece)
+                push(piece, src="subst", placeholders=phs)
             continue
         push(line)
+    if audit is not None:
+        audit["lines"] = alines
     return "\n".join(out)
 
 
@@ -165,6 +197,31 @@ def _err(msg, **extra):
          "output": "", "out_dir": "", "kit_match": False, "error": msg}
     r.update(extra)
     return r
+
+
+def _collateral_facts(arc_info):
+    """The resolved collateral values the deck consumed, with their sources --
+    the G0 'where did this number come from' block."""
+    g = arc_info.get
+    return {
+        "netlist": {"value": g("NETLIST_PATH", ""),
+                    "source": "manifest netlist dir"},
+        "model_inc": {"value": g("INCLUDE_FILE", ""),
+                      "source": "manifest Char *.inc"},
+        "waveform_inc": {"value": g("WAVEFORM_FILE", ""),
+                         "source": "manifest / std_wv convention"},
+        "vdd": {"value": g("VDD_VALUE", ""), "source": "corner name voltage"},
+        "temp": {"value": g("TEMPERATURE", ""),
+                 "source": "corner name temperature"},
+        "slew_index_1": {"value": g("INDEX_1_VALUE", ""),
+                         "source": "template.tcl index_1[i1]"},
+        "load_index_2": {"value": g("INDEX_2_VALUE", ""),
+                         "source": "template.tcl index_2[i2]"},
+        "output_load": {"value": g("OUTPUT_LOAD", ""),
+                        "source": "template.tcl (constraint arcs)"},
+        "max_slew": {"value": g("MAX_SLEW", ""),
+                     "source": "template.tcl / config"},
+    }
 
 
 def _engine_ctx(engine_cache, cell, netlist_src):
@@ -244,12 +301,35 @@ def assemble_combinational(arc_info: dict, netlist_src: str, grammar: dict,
                         "re-mine the corpus (python -m core.measurement.mine "
                         "mine <dir>)" % (rel_dir, out_dir))
 
+        audit = {}
         deck_text = fill_frame(entry["frame_text"], arc_info, cb["bias"],
-                               arc_info.get("WHEN"))
+                               arc_info.get("WHEN"), audit=audit)
+        explain = {
+            "selection": {
+                "arc_class": "combinational",
+                "grammar_key": dict(entry.get("key", {})),
+                "provenance": list(entry.get("provenance", [])),
+                "why": "engine derived %s->%s as a %s-input arc whose output "
+                       "%ss; grammar entry keyed (delay, %s, %s)"
+                       % (rel, res.output, rel_dir, out_dir, rel_dir, out_dir),
+            },
+            "engine": {
+                "bias": dict(cb["bias"]),
+                "chosen_state": cb["chosen_label"],
+                "kit_when": arc_info.get("WHEN") or "NO_CONDITION",
+                "kit_match": cb["kit_match"],
+                "sensitizing_states": [s.label for s in res.sensitizing],
+                "why": "side pins tied to the chosen P1 sensitizing state; "
+                       "kit_match means the kit -when covers that state",
+            },
+            "collateral": _collateral_facts(arc_info),
+            "audit": audit,
+        }
         return {"status": "OK", "deck_text": deck_text,
                 "bias": cb["bias"], "chosen_when": cb["chosen_label"],
                 "output": res.output, "out_dir": out_dir,
-                "kit_match": cb["kit_match"], "error": None}
+                "kit_match": cb["kit_match"], "explain": explain,
+                "error": None}
     except Exception as e:
         return _err("internal error during assembly: %s" % e)
 
@@ -350,10 +430,33 @@ def assemble_sequential(arc_info: dict, netlist_src: str, grammar: dict,
         if not arc_info.get("NETLIST_PINS"):
             arc_info = dict(arc_info)
             arc_info["NETLIST_PINS"] = _subckt_ports(netlist_src, cell)
+        audit = {}
         deck_text = fill_frame(entry["frame_text"], arc_info, bias,
-                               arc_info.get("WHEN"))
+                               arc_info.get("WHEN"), audit=audit)
+        explain = {
+            "selection": {
+                "arc_class": "sequential",
+                "family": family, "cluster_tag": tag, "depth": depth,
+                "verdict": seq.verdict,
+                "grammar_key": dict(entry.get("key", {})),
+                "provenance": list(entry.get("provenance", [])),
+                "why": "structural classify: verdict=%s depth=%d -> recipe "
+                       "cluster %s (%s family)"
+                       % (seq.verdict, depth, tag, family),
+            },
+            "engine": {
+                "bias": dict(bias),
+                "kit_when": arc_info.get("WHEN") or "NO_CONDITION",
+                "p1_proven": True,
+                "why": "side-pin values from the proven P1 sensitization "
+                       "obligation; deck refused earlier if P1 unproven",
+            },
+            "collateral": _collateral_facts(arc_info),
+            "audit": audit,
+        }
         return {"status": "OK", "deck_text": deck_text,
                 "bias": bias, "verdict": seq.verdict, "depth": depth,
-                "cluster_tag": tag, "family": family, "error": None}
+                "cluster_tag": tag, "family": family, "explain": explain,
+                "error": None}
     except Exception as e:
         return _err("internal error during assembly: %s" % e)

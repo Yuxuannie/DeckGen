@@ -8,6 +8,35 @@ import re
 from core.measurement.regions import extract_recipe
 
 
+_VLINE_RE = re.compile(r"^V\w+ \w+ 0 '(?:vdd|vss)_value'$")
+
+
+def classify_parity(deck_text: str, golden_text: str) -> str:
+    """Demo-1 per-deck verdict vs the golden template-substitution deck.
+
+    'byte'          -- byte-identical.
+    'engine_extras' -- golden's lines appear in order and the ONLY additions
+                       are engine V-source ties (pins the kit left floating);
+                       the trust story is intact, the engine added coverage.
+    'diff'          -- any other difference: recipe/collateral disagree ->
+                       review queue (the DIVERGENCE cohort).
+    """
+    if deck_text == golden_text:
+        return "byte"
+    ours = deck_text.split("\n")
+    gold = golden_text.split("\n")
+    i = 0
+    extras = []
+    for line in ours:
+        if i < len(gold) and line == gold[i]:
+            i += 1
+        else:
+            extras.append(line)
+    if i == len(gold) and all(_VLINE_RE.match(l) for l in extras):
+        return "engine_extras"
+    return "diff"
+
+
 def _bias_ok(deck_text: str, side_bias: dict, toggling_pin: str, detail: list) -> bool:
     ok = True
     for pin, val in side_bias.items():

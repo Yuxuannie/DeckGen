@@ -191,13 +191,15 @@ def categorize(error_msg):
     return 'unsupported_arc'
 
 
-def _row(wi, state, category='', reason='', netlist_path='', deck_path=''):
+def _row(wi, state, category='', reason='', netlist_path='', deck_path='',
+         parity='', kit_match=None):
     return {
         'arc_id': wi.get('arc_id', ''),
         'cell': wi['cell'], 'arc_type': wi['arc_type'],
         'i1': wi['i1'], 'i2': wi['i2'], 'corner': wi['corner'],
         'state': state, 'category': category, 'reason': reason,
         'netlist_path': netlist_path, 'deck_path': deck_path,
+        'parity': parity, 'kit_match': kit_match,
     }
 
 
@@ -272,8 +274,50 @@ def generate_one(work_item, node, lib_type, collateral_root, grammar, out_dir,
     os.makedirs(os.path.dirname(dpath), exist_ok=True)
     with open(dpath, 'w', encoding='ascii') as fh:
         fh.write(asm['deck_text'])
+
+    # Demo-1 scoreboard: diff this deck against the golden template-
+    # substitution deck for the SAME arc_info, every run. byte/engine_extras
+    # feed the trust cohort; diff feeds the review cohort. Never fails the
+    # row -- a golden-side problem is recorded, not raised.
+    parity = _golden_parity(arc_info, asm['deck_text'])
+
+    # G0 audit sidecar: same-pass explain data (selection evidence, engine
+    # bias with whys, collateral sources, per-line origin map) written next
+    # to the deck. A sidecar failure never fails the deck.
+    explain = asm.get('explain')
+    if explain is not None:
+        explain = dict(explain)
+        explain['arc_id'] = work_item.get('arc_id', '')
+        explain['corner'] = work_item['corner']
+        explain['i1'], explain['i2'] = work_item['i1'], work_item['i2']
+        explain['parity_vs_golden'] = parity
+        try:
+            with open(dpath[:-3] + '.explain.json', 'w',
+                      encoding='ascii') as fh:
+                json.dump(explain, fh, indent=1, sort_keys=True)
+                fh.write('\n')
+        except Exception:
+            pass
     return _row(work_item, 'generated', netlist_path=netlist_path,
-                deck_path=dpath)
+                deck_path=dpath, parity=parity,
+                kit_match=asm.get('kit_match'))
+
+
+def _golden_parity(arc_info, deck_text):
+    """classify_parity vs the golden flow, or a named non-verdict:
+    'no_golden' (kit shipped no template for this arc) / 'golden_error:...'
+    (the golden flow itself failed -- not our deck's fault)."""
+    from core.deck_builder import build_deck
+    from core.deck_assemble_check import classify_parity
+
+    tpl = arc_info.get('TEMPLATE_DECK_PATH', '')
+    if not tpl or not os.path.isfile(tpl):
+        return 'no_golden'
+    try:
+        golden = ''.join(build_deck(arc_info, when=arc_info.get('WHEN')))
+    except Exception as e:
+        return 'golden_error: %s' % str(e)[:120]
+    return classify_parity(deck_text, golden)
 
 
 def write_ledger(rows, path):
