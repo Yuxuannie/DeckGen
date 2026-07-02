@@ -277,7 +277,14 @@ def read_ledger(path):
 def _load_manifest_and_tcl(collateral_dir, node, lib_type):
     from core.collateral import CollateralStore
     from tools.scan_collateral import build_manifest
-    mpath = build_manifest(collateral_dir, node, lib_type)
+    # Trust an existing manifest.json (a full scan_one is ~1s/cell -- dozens of
+    # seconds for a real leaf). The store below already trusts the on-disk
+    # manifest via skip_autoscan=True, so re-scanning here only risked the two
+    # disagreeing. A stale manifest is refreshed explicitly (GUI Rescan /
+    # tools.scan_collateral); build only when none exists yet.
+    mpath = os.path.join(collateral_dir, node, lib_type, 'manifest.json')
+    if not os.path.exists(mpath):
+        mpath = build_manifest(collateral_dir, node, lib_type)
     manifest = json.load(open(mpath, encoding='ascii'))
     store = CollateralStore(collateral_dir, node, lib_type, skip_autoscan=True)
     tcl = {c: store.get_corner(c)['template_tcl'] for c in manifest['corners']}
@@ -300,13 +307,19 @@ def _write_reports(rows, universe, out_dir):
 # deadlock). Below _PARALLEL_MIN we stay serial: small runs don't repay spawn
 # startup, and staying in-process keeps monkeypatch-based tests deterministic.
 
-_PARALLEL_MIN = 128     # item count below which serial wins
+_PARALLEL_MIN_CELLS = 8  # distinct-cell count below which serial wins. Work is
+                         # batched by cell (one parse per cell), so the number of
+                         # CELLS -- not work items -- is what parallelism divides.
+                         # A single-cell run of 50 items is one batch: a pool
+                         # would add spawn cost (~1-2s) for zero parallelism. An
+                         # all-cell run (dozens of cells, ~1s+ parse each) repays
+                         # the pool many times over.
 _WORKER_CAP = 8         # never oversubscribe past this many processes
 _W = {}                 # per-worker constants, set once by _init_worker
 
 
-def _default_workers(total):
-    if total < _PARALLEL_MIN:
+def _default_workers(n_cells):
+    if n_cells < _PARALLEL_MIN_CELLS:
         return 1
     return max(1, min(os.cpu_count() or 1, _WORKER_CAP))
 
@@ -394,8 +407,12 @@ def generate(collateral_dir, node, lib_type, out_dir, scope=None,
     grammar = load_grammar()
 
     total = len(work_items)
+    # Auto-selection keys off distinct-cell count (parallelism divides by cell
+    # batch, not by item). An explicit workers>1 is honored as documented, even
+    # for a single cell -- callers who ask for a pool get one.
     if workers is None:
-        workers = _default_workers(total)
+        n_cells = len({(wi.get('arc') or {}).get('cell') for wi in work_items})
+        workers = _default_workers(n_cells)
     if workers > 1 and total > 1:
         rows = _generate_parallel(work_items, node, lib_type, collateral_dir,
                                   grammar, out_dir, workers, progress)

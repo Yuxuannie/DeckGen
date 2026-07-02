@@ -497,8 +497,16 @@ def _api_run_plan(payload):
     # matrix_counts keys are (cell, corner) tuples -> serialize for JSON
     matrix = [{'cell': c, 'corner': cn, 'count': n}
               for (c, cn), n in sorted(pl['matrix_counts'].items())]
+    # Surface the actual arc identifiers so the user can see exactly which arcs
+    # the scope selected (the matrix only carries per-cell/corner counts). Cap
+    # the list so a huge scope doesn't bloat the JSON; report the true total.
+    wis = pl['work_items']
+    _CAP = 2000
+    arcs = [{'arc_id': wi.get('arc_id', ''), 'cell': wi['cell'],
+             'corner': wi['corner']} for wi in wis[:_CAP]]
     return {'expected': pl['expected'], 'walltime_est': pl['walltime_est'],
-            'matrix': matrix}
+            'matrix': matrix, 'arcs': arcs,
+            'arcs_truncated': len(wis) > _CAP}
 
 
 def _api_run_generate(payload):

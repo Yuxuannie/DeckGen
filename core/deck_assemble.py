@@ -9,6 +9,19 @@ from __future__ import annotations
 from engine.whencond import parse_when_conjunction
 
 
+def _split_recipe(recipe: list):
+    """Split an emitted recipe into (preamble, body) at the first '* Toggling'
+    line. The preamble is the header banner + SPICE options that must lead the
+    deck (SPICE treats line 1 as the title); the body is the stimulus +
+    measurements + .end that must follow the instance and bias. All 55 grammar
+    entries carry the marker; if it is ever absent, fall back to keeping the
+    whole recipe as the body so nothing is dropped."""
+    for i, line in enumerate(recipe):
+        if line.strip().startswith("* Toggling"):
+            return recipe[:i], recipe[i:]
+    return [], recipe
+
+
 def engine_bias_section(side_bias: dict) -> list:
     """Voltage sources tying each non-toggling input to a rail at its derived value.
     side_bias: {pin: 0|1}. 1 -> vdd_value, 0 -> vss_value. Sorted for determinism."""
@@ -189,11 +202,17 @@ def assemble_combinational(arc_info: dict, netlist_src: str, grammar: dict,
                   for l in emit(entry, arc_info, fill_values=True)]
 
         pins = arc_info.get("NETLIST_PINS", "")
+        # Header banner + SPICE options lead the deck; collateral/instance/bias
+        # sit between them and the stimulus/measurements/.end (body). Keeps the
+        # golden ordering -- SPICE reads line 1 as the title. body already ends
+        # with .end -- do not re-append.
+        preamble, body = _split_recipe(recipe)
         deck_lines = (
-            collateral_section(arc_info)
+            preamble
+            + collateral_section(arc_info)
             + ["* ===== INSTANCE =====", "X1 %s %s" % (pins, cell)]
             + engine_bias_section(cb["bias"])
-            + recipe   # emit()'s recipe already ends with .end -- do not re-append
+            + body
         )
         return {"status": "OK", "deck_text": "\n".join(deck_lines) + "\n",
                 "bias": cb["bias"], "chosen_when": cb["chosen_label"],
@@ -294,11 +313,13 @@ def assemble_sequential(arc_info: dict, netlist_src: str, grammar: dict,
                   for l in emit(entry, arc_info, fill_values=True)]
 
         pins = arc_info.get("NETLIST_PINS") or _subckt_ports(netlist_src, cell)
+        preamble, body = _split_recipe(recipe)
         deck_lines = (
-            collateral_section(arc_info)
+            preamble
+            + collateral_section(arc_info)
             + ["* ===== INSTANCE =====", "X1 %s %s" % (pins, cell)]
             + engine_bias_section(bias)
-            + recipe
+            + body
         )
         return {"status": "OK", "deck_text": "\n".join(deck_lines) + "\n",
                 "bias": bias, "verdict": seq.verdict, "depth": depth,

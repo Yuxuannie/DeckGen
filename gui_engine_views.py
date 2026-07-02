@@ -6,7 +6,7 @@ imports. gui.py concatenates these into HTML_PAGE.
 CSS_TOKENS = """
 :root{
   --bg:#f6f7f9; --surface:#ffffff; --surface-2:#f0f2f5; --border:#d8dee4;
-  --text:#1c2128; --text-mut:#59636e; --accent:var(--accent); --accent-wk:#efe7f5;
+  --text:#1c2128; --text-mut:#59636e; --accent:#5b2a86; --accent-wk:#efe7f5;
   --pass-fg:#1a7f37; --pass-bg:#dafbe1; --fail-fg:#cf222e; --fail-bg:#ffebe9;
   --stub-fg:#9a6700; --stub-bg:#fff8c5; --err-fg:#57606a; --err-bg:#eaeef2;
   --path-data:#1a7f37; --path-masked:#cf222e; --path-clock:#0a4ea3;
@@ -778,16 +778,24 @@ function runPlan(){
     var ncorn=Object.keys(corners).length;
     var rows=cells.map(function(c){return '<tr><td>'+esc(c)+
       '</td><td>'+byCell[c]+'</td></tr>';}).join('');
-    var est=Math.round(d.walltime_est/60);
+    // The exact arc identifiers the scope selected -- so it is visible which
+    // arc is which, not just how many per cell.
+    var arcs=d.arcs||[];
+    var arcRows=arcs.map(function(a){return '<tr><td>'+esc(a.arc_id)+
+      '</td><td>'+esc(a.corner)+'</td></tr>';}).join('');
+    var arcNote=d.arcs_truncated?
+      ' (showing first '+arcs.length+' of '+d.expected+')':'';
     document.getElementById('run-summary').innerHTML=
       '<div class="run-card"><b>Scope preview:</b> '+d.expected+
       ' work items across '+cells.length+' cell'+(cells.length===1?'':'s')+
       ' &times; '+ncorn+' corner'+(ncorn===1?'':'s')+
-      '<div class="eng-mut" style="margin:4px 0">Estimated ~'+est+
-      ' min if run sequentially; actual LSF time is much lower.</div>'+
-      '<div style="max-height:240px;overflow:auto">'+
+      '<div style="max-height:200px;overflow:auto;margin-top:6px">'+
       '<table class="run-tbl"><tr><th>cell</th><th>items</th></tr>'+
-      rows+'</table></div></div>';
+      rows+'</table></div>'+
+      '<div style="margin-top:8px"><b>Selected arcs'+arcNote+':</b>'+
+      '<div style="max-height:220px;overflow:auto;margin-top:6px">'+
+      '<table class="run-tbl"><tr><th>arc_id</th><th>corner</th></tr>'+
+      arcRows+'</table></div></div></div>';
   });
 }
 function runGenerate(){

@@ -78,6 +78,47 @@ def test_assemble_sequential_mpw_sdfx_ok():
     assert "cp2q_del2" not in r["deck_text"]
 
 
+def test_assemble_sequential_header_leads_deck():
+    # Regression: the SPICE title banner must be line 1 (SPICE reads line 1 as
+    # the title), collateral/instance/bias sit in the middle, and .end is last.
+    # Previously the whole recipe was appended after collateral, burying the
+    # banner ~line 25.
+    grammar = load_grammar()
+    src = open(_SDFX, encoding="ascii").read()
+    r = assemble_sequential(_arc_info("SDFX_LPE_PLACEHOLDER", "hold"), src, grammar)
+    assert r["status"] == "OK", r["error"]
+    lines = r["deck_text"].splitlines()
+    assert "SPICE Deck created by TSMC ADC Timing Team" in lines[0]
+    assert lines[-1].strip() == ".end"
+    i_banner = 0
+    i_coll = next(i for i, l in enumerate(lines) if "COLLATERAL" in l)
+    i_toggle = next(i for i, l in enumerate(lines) if l.strip().startswith("* Toggling"))
+    # banner (preamble) < collateral/instance/bias < toggling body
+    assert i_banner < i_coll < i_toggle
+
+
+def _split_recipe_probe():
+    from core.deck_assemble import _split_recipe
+    return _split_recipe
+
+
+def test_split_recipe_marker_present():
+    _split_recipe = _split_recipe_probe()
+    recipe = ["*** banner ***", "* SPICE options", ".option x",
+              "* Toggling pins", "V1 a 0 1", ".end"]
+    pre, body = _split_recipe(recipe)
+    assert pre == ["*** banner ***", "* SPICE options", ".option x"]
+    assert body == ["* Toggling pins", "V1 a 0 1", ".end"]
+    assert pre + body == recipe                       # no lines lost
+
+
+def test_split_recipe_marker_absent_falls_back():
+    _split_recipe = _split_recipe_probe()
+    recipe = ["*** banner ***", ".option x", ".end"]  # no marker
+    pre, body = _split_recipe(recipe)
+    assert pre == [] and body == recipe               # whole recipe kept as body
+
+
 def test_assemble_sequential_combinational_is_named_error():
     grammar = load_grammar()
     src = open(_XOR2, encoding="ascii").read()
