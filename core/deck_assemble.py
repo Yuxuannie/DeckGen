@@ -128,14 +128,19 @@ def _seq_cluster_tag(family, depth, rel_dir):
     fall->rise only); mpw -> CPN (depth 1) / sync{N}.CP (2..6), variant follows
     the arc's rel_dir. Corpus depth ceiling is 6. Never returns silently on a
     miss -- raises SeqScope with a reason."""
+    _EXTEND = ("to support it, add that family's golden template to the "
+               "corpus and re-mine: python -m core.measurement.mine mine "
+               "<template_dir> -o config/measurement_grammar.json")
     if family == "hold":
         if depth == 1:
             tag = "CP.syncx.D"
         elif 2 <= depth <= 6:
             tag = "CP.sync%d.D" % depth
         else:
-            raise SeqScope("depth %d beyond mined hold corpus (syncx=1..sync6=6)"
-                           % depth)
+            raise SeqScope(
+                "depth %d beyond mined hold corpus (syncx=1..sync6=6); "
+                "nearest mined recipe is CP.sync6.D (depth 6) -- %s"
+                % (depth, _EXTEND))
         return tag, "fall", "rise"
     if family == "mpw":
         other = {"rise": "fall", "fall": "rise"}.get(rel_dir)
@@ -146,10 +151,13 @@ def _seq_cluster_tag(family, depth, rel_dir):
         elif 2 <= depth <= 6:
             tag = "sync%d.CP" % depth
         else:
-            raise SeqScope("depth %d beyond mined mpw corpus (CPN=1, sync2..6)"
-                           % depth)
+            raise SeqScope(
+                "depth %d beyond mined mpw corpus (CPN=1, sync2..6); "
+                "nearest mined recipe is sync6.CP (depth 6) -- %s"
+                % (depth, _EXTEND))
         return tag, rel_dir, other
-    raise SeqScope("unknown deck family %r (want hold|mpw)" % family)
+    raise SeqScope("unknown deck family %r (want hold|mpw); mined families "
+                   "cover hold and mpw only -- %s" % (family, _EXTEND))
 
 
 def _err(msg, **extra):
@@ -171,7 +179,10 @@ def _engine_ctx(engine_cache, cell, netlist_src):
         return engine_cache[cell]
     graph = stage0_parse.parse(netlist_src, cell)
     ccc = stage1_ccc.decompose(graph)
-    ctx = {"graph": graph, "ccc": ccc, "seq": None}
+    # "sens" caches stage2 derivations per arc identity: a full-grid run
+    # visits the SAME arc once per (i1, i2) table point, and the derivation
+    # depends only on the topology + arc pins -- never on the point.
+    ctx = {"graph": graph, "ccc": ccc, "seq": None, "sens": {}}
     if engine_cache is not None:
         engine_cache[cell] = ctx
     return ctx
@@ -203,7 +214,11 @@ def assemble_combinational(arc_info: dict, netlist_src: str, grammar: dict,
         if not stage2_sensitize.is_combinational_arc(graph, arc, ccc):
             return _err("arc CCC has a state node -- sequential, handled by B2/B3")
 
-        res = stage2_sensitize.derive_combinational(graph, arc, ccc)
+        skey = ("comb", rel, probe)
+        res = ctx["sens"].get(skey)
+        if res is None:
+            res = stage2_sensitize.derive_combinational(graph, arc, ccc)
+            ctx["sens"][skey] = res
         if not res.sensitizing:
             return _err("empty SENSITIZING: %s does not combinationally drive %s "
                         "(sequential/clock or wrong probe)" % (rel, res.output))
@@ -306,7 +321,11 @@ def assemble_sequential(arc_info: dict, netlist_src: str, grammar: dict,
                   constr_pin=constr, constr_dir=constr_dir,
                   when=arc_info.get("WHEN", "NO_CONDITION"),
                   measurement="", raw={"probe_pin": probe})
-        sens = stage2_sensitize.derive(graph, arc, ccc)
+        skey = ("seq", rel, rel_dir, constr, constr_dir, at, arc.when, probe)
+        sens = ctx["sens"].get(skey)
+        if sens is None:
+            sens = stage2_sensitize.derive(graph, arc, ccc)
+            ctx["sens"][skey] = sens
         # P1 not proven -> side biases are None placeholders. Emitting anyway would
         # silently hard-tie every undetermined side pin to 0 (fill_frame maps
         # None -> vss_value). The combinational sibling gates on res.sensitizing

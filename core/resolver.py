@@ -27,9 +27,30 @@ class ResolutionError(Exception):
         self.suggestions = suggestions or []
 
 
+# (abspath -> (mtime, parsed)). Resolvers are constructed per work item
+# (N arcs x M corners in a batch run), and profiling showed ~100% of
+# resolve_all_from_collateral's ~40ms/item was yaml.safe_load re-parsing the
+# same registry/corner configs. mtime keying keeps edited configs live while
+# making repeat loads free. Contract: callers treat the returned dict as
+# READ-ONLY (all current callers do); mutate a copy, never the cached object.
+_YAML_CACHE = {}
+
+
 def load_yaml(path):
-    with open(path, 'r') as f:
-        return yaml.safe_load(f)
+    ap = os.path.abspath(path)
+    try:
+        mt = os.path.getmtime(ap)
+    except OSError:
+        mt = None                      # missing file: fall through to open()
+    if mt is not None:
+        hit = _YAML_CACHE.get(ap)
+        if hit is not None and hit[0] == mt:
+            return hit[1]
+    with open(ap, 'r') as f:
+        data = yaml.safe_load(f)
+    if mt is not None:
+        _YAML_CACHE[ap] = (mt, data)
+    return data
 
 
 class TemplateResolver:
