@@ -34,12 +34,23 @@ def engine_bias_section(side_bias: dict) -> list:
 
 def collateral_section(arc_info: dict) -> list:
     """Collateral lines with REAL values (Phase-A 'collateral' class). Order mirrors
-    the golden template: waveform/model/netlist .inc, corner, slew/load, rails."""
+    the golden template: waveform/model/netlist .inc, corner, slew/load, rails,
+    output-load cap. The std waveform library (stdvs_* subckt definitions) and the
+    load cap are injected by the golden flow at build time -- they are in NO
+    template's text, so the mined grammar cannot carry them; they must be emitted
+    here (found missing 2026-07-02: decks measured an unloaded output and, when
+    WAVEFORM_FILE != std_wv, had no stdvs_* definition at all)."""
+    from core.deck_recipe import STD_WV
     g = lambda k: arc_info.get(k, "")
-    return [
+    lines = [
         "* ===== COLLATERAL (resolved from manifest) =====",
         "* Waveform",
-        ".inc '%s'" % g("WAVEFORM_FILE"),
+    ]
+    # De-duplicate like the golden path (WAVEFORM_FILE often == std_wv).
+    for p in dict.fromkeys([STD_WV, g("WAVEFORM_FILE")]):
+        if p:
+            lines.append(".inc '%s'" % p)
+    lines += [
         "* Model include file",
         ".inc '%s'" % g("INCLUDE_FILE"),
         "* Netlist path",
@@ -56,7 +67,11 @@ def collateral_section(arc_info: dict) -> list:
         "VVSS VSS 0 'vss_value'",
         "VVPP VPP 0 'vdd_value'",
         "VVBB VBB 0 'vss_value'",
+        "* Output Load",
     ]
+    pins = (g("OUTPUT_PINS") or g("PROBE_PIN_1")).split()
+    lines += ["C%s %s 0 'cl'" % (pin, pin) for pin in pins]
+    return lines
 
 
 def choose_bias(sensitizing: list, kit_when):

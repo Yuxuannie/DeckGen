@@ -1,5 +1,29 @@
 # DeckGen Task List (for local Claude Code continuation)
 
+## CURRENT (2026-07-03) -- everything below this block is historical
+
+Authoritative status lives in `ARCHITECTURE.md` section 9. Open items, in
+priority order (fast+accurate > usable > debuggable):
+
+1. **Grammar-path parity decision (owner: Yuxuan).** `core/deck_assemble.py`
+   (what Run/orchestrate ship) has no full-deck byte-parity gate vs the golden
+   flow; two missing build-time collateral pieces (load cap, std_wv .inc) were
+   found and fixed 2026-07-02. Remaining deltas are cosmetic (banners, blank
+   lines, header block). Decide: (A) align bytes to golden so Demo 1's parity
+   claim covers the shipping path, or (B) keep format, scope the byte claim to
+   `core/deck_recipe.py` and gate the shipping path at normalized tier.
+2. **Phase G explainable grammar** -- spec at
+   `docs/superpowers/specs/2026-07-02-generative-grammar-design.md` (approved
+   direction). G0 sidecar first; reuse `core/verify_sidecar.py` plumbing.
+3. **Merge to main** -- the working branch is ~290 commits ahead of
+   `point2a-non-cons`; PR + merge before the next airgap download.
+4. **Airgap layout reconciliation** before any library-scale run
+   (ARCHITECTURE.md section 4).
+
+Historical content below is kept for archaeology; do not work from it.
+
+---
+
 Branch to pull from: `claude/analyze-repo-structure-i8J6b` (or merge to main
 first). Read `design.md` and `../CLAUDE.md` alongside this file.
 

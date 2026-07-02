@@ -368,11 +368,24 @@ autopilot loop.**
 Honest status so a fresh agent does not mis-assume:
 
 - **Engine pipeline:** S0–S2 (parse / CCC / sensitize) are real; S3–S5 (init /
-  deckgen / verify) are stubs in the *engine* pipeline. Production deck generation
-  currently runs through the **`core/` recipe path** (`core/deck_recipe.py`,
-  `core/deck_builder.py`, `core/batch.py`), which has template+generator dual-path
-  cross-validation and byte-parity (GOAL 1 baseline). Unifying the engine S4 with the
-  recipe path is future work; until then, know that "deck gen" lives in `core/`.
+  deckgen / verify) are stubs in the *engine* pipeline. **Three deck emitters
+  coexist (updated 2026-07-03):**
+  1. `core/deck_builder.py` — legacy template substitution (the golden flow).
+  2. `core/deck_recipe.py` — programmatic combinational generator; holds the
+     **byte-parity lock** vs (1) (`tests/test_deck_recipe_parity.py`,
+     `tools/deck_diff.py`). GOAL 1's trust anchor lives HERE, combinational only.
+  3. `core/deck_assemble.py` — the grammar+engine path (Phase A/B/C): what the
+     **Run tab / `deckgen_run.py` / `core/orchestrate.py` actually ship** for
+     library-scale runs, combinational AND sequential (hold/mpw).
+  **Known gap:** path (3) has recipe-region round-trip + structural checks but NO
+  full-deck byte-parity gate vs (1). A 2026-07-02 probe found (and fixed) two
+  build-time collateral pieces (3) was missing entirely — the output-load cap and
+  the std waveform `.inc` (they appear in no template's TEXT, so mining cannot see
+  them; `tests/test_deck_assemble_collateral_parity.py` now guards the class).
+  Remaining cosmetic deltas (section banners, blank lines, header block) mean (3)
+  cannot yet claim byte-parity; closing or formally re-scoping that claim is an
+  OPEN DECISION (owner: Yuxuan). Until it is closed, Demo 1's byte-parity number
+  must be computed via path (2), not (3).
 - **Charge layer (L3):** real and partially built (cap-graph aggregation done; resolve
   step present). **Not empty** — a common mis-read.
 - **Combinational region-derivation (P1 region equivalence, partition hook, structural
@@ -380,11 +393,11 @@ Honest status so a fresh agent does not mis-assume:
   **may not yet be merged to mainline** (`derive_combinational` / `comb_verdict`).
   Reconcile/push before treating it as in-repo. The *decisions* in §3 are settled
   regardless of merge state.
-- **GUI:** the data layer (`engine_present.py` → region/verdict/SIG JSON) is ready;
-  the *visualization* (purple+gold, collapsible, region/verdict rendering) is **not yet
-  built** — correctly deferred behind engine correctness. One demo screen (a real cell's
-  region + a red DIVERGENCE + named bad state) is enough for the MJ demo; full GUI is
-  not required first.
+- **GUI (updated 2026-07-03):** substantially built — Explore / engine views /
+  Validation panel / **Run–Report tab** (scope preview with arc + arc-type
+  checkboxes, parallel generate with Stop + partial report, coverage ledger,
+  operator-gated LSF submit). The remaining demo-specific piece is the
+  region/verdict DIVERGENCE rendering for the MJ demo screen.
 - **MJ demo material:** the engine-story walkthrough is in `docs/engine_walkthrough/`
   (s0_parse / s1_ccc / s2_sensitize + figure/pptx builders).
 
