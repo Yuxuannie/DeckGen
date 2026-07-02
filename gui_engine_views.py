@@ -6,7 +6,7 @@ imports. gui.py concatenates these into HTML_PAGE.
 CSS_TOKENS = """
 :root{
   --bg:#f6f7f9; --surface:#ffffff; --surface-2:#f0f2f5; --border:#d8dee4;
-  --text:#1c2128; --text-mut:#59636e; --accent:#0a4ea3; --accent-wk:#e7eef7;
+  --text:#1c2128; --text-mut:#59636e; --accent:var(--accent); --accent-wk:#efe7f5;
   --pass-fg:#1a7f37; --pass-bg:#dafbe1; --fail-fg:#cf222e; --fail-bg:#ffebe9;
   --stub-fg:#9a6700; --stub-bg:#fff8c5; --err-fg:#57606a; --err-bg:#eaeef2;
   --path-data:#1a7f37; --path-masked:#cf222e; --path-clock:#0a4ea3;
@@ -89,10 +89,10 @@ CSS_COMPONENTS += """
 .ca-cohort{margin:0 0 18px;}
 .ca-cohort-h{font:600 15px var(--font-ui);color:var(--text);margin:0 0 10px;
   display:flex;align-items:center;gap:8px;}
-.ca-flagged-h{color:#5b2a86;border-left:4px solid #b8860b;padding-left:10px;}
+.ca-flagged-h{color:var(--accent);border-left:4px solid #b8860b;padding-left:10px;}
 details.ca-cohort>summary.ca-cohort-h{cursor:pointer;list-style:revert;}
 .ca-card{background:var(--surface);border:1px solid var(--border);
-  border-left:3px solid #5b2a86;border-radius:var(--r-card);margin:0 0 8px;}
+  border-left:3px solid var(--accent);border-radius:var(--r-card);margin:0 0 8px;}
 .ca-card>summary{cursor:pointer;padding:10px 12px;font:600 13px var(--font-mono);
   display:flex;align-items:center;gap:10px;list-style:revert;}
 .ca-card[data-st="MATCH"]{border-left-color:var(--pass-fg);}
@@ -107,7 +107,7 @@ details.ca-cohort>summary.ca-cohort-h{cursor:pointer;list-style:revert;}
   margin:0 3px 3px 0;}
 .ca-bad{background:var(--fail-bg);color:var(--fail-fg);}
 .ca-gold{background:#fff8c5;color:#7a5b00;}
-.ca-sig{color:#5b2a86;}
+.ca-sig{color:var(--accent);}
 .ca-arrow{color:var(--text-mut);}
 """
 
@@ -116,20 +116,20 @@ CSS_COMPONENTS += """
 .ca-ws{display:flex;height:calc(100vh - 240px);min-height:420px;margin-top:12px;}
 .ca-list{width:320px;min-width:200px;overflow:auto;padding-right:6px;}
 .ca-list h5{margin:10px 0 6px;font:700 11px var(--font-ui);letter-spacing:.05em;
-  text-transform:uppercase;color:#5b2a86;}
+  text-transform:uppercase;color:var(--accent);}
 .ca-list .trust-h{color:var(--text-mut);}
 .ca-split{width:6px;cursor:col-resize;flex:0 0 auto;
   background:linear-gradient(var(--border),var(--border)) center/1px 100% no-repeat;}
-.ca-split:hover{background:linear-gradient(#5b2a86,#5b2a86) center/2px 100% no-repeat;}
+.ca-split:hover{background:linear-gradient(var(--accent),var(--accent)) center/2px 100% no-repeat;}
 .ca-detail{flex:1;overflow:auto;padding-left:16px;min-width:320px;}
 .ca-li{padding:7px 9px;border-radius:5px;cursor:pointer;border-left:3px solid transparent;
   font:12px var(--font-mono);display:flex;gap:8px;align-items:center;
   justify-content:space-between;}
 .ca-li:hover{background:var(--surface-2);}
-.ca-li.sel{background:#f3eef8;border-left-color:#5b2a86;}
+.ca-li.sel{background:#f3eef8;border-left-color:var(--accent);}
 .ca-d-head{font:600 15px var(--font-ui);margin:0 0 10px;display:flex;gap:10px;
   align-items:center;flex-wrap:wrap;}
-.ca-d-bool{font:13px var(--font-mono);color:#5b2a86;}
+.ca-d-bool{font:13px var(--font-mono);color:var(--accent);}
 .ca-d-grid{display:grid;grid-template-columns:minmax(300px,1fr) minmax(300px,1fr);
   gap:18px;align-items:start;}
 .ca-card2{border:1px solid var(--border);border-radius:6px;padding:10px 12px;
@@ -154,7 +154,7 @@ CSS_COMPONENTS += """
 .ca-empty{color:var(--text-mut);font:13px var(--font-ui);padding:40px 0;text-align:center;}
 .ca-summary{font:13px/1.5 var(--font-ui);color:var(--text);background:#fbf1d6;
   border-left:4px solid #b8860b;border-radius:4px;padding:9px 12px;margin:0 0 14px;}
-.ca-why{font:12px/1.5 var(--font-mono);color:#5b2a86;margin:0 0 8px;min-height:18px;}
+.ca-why{font:12px/1.5 var(--font-mono);color:var(--accent);margin:0 0 8px;min-height:18px;}
 """
 
 # Chrome polish (2026-06-24): purple nav identity, compact toolbar, framed panes.
@@ -168,8 +168,8 @@ CSS_COMPONENTS += """
 #view-comb-audit:not(.view-hidden){display:block !important;}
 #view-comb-audit>.panel{flex:none !important;min-width:0 !important;
   border-right:none;}
-.tab.active{color:#5b2a86 !important;border-bottom-color:#5b2a86 !important;}
-.brand{color:#5b2a86 !important;}
+.tab.active{color:var(--accent) !important;border-bottom-color:var(--accent) !important;}
+.brand{color:var(--accent) !important;}
 .ca-bar{display:flex;align-items:center;gap:10px;margin:2px 0 12px;flex-wrap:wrap;}
 .ca-lbl{font:600 11px var(--font-ui);text-transform:uppercase;letter-spacing:.04em;
   color:var(--text-mut);}
@@ -177,7 +177,7 @@ CSS_COMPONENTS += """
   font:13px var(--font-ui);min-width:230px;background:var(--surface);}
 .ca-note{font:12px/1.45 var(--font-ui);color:var(--text-mut);max-width:560px;}
 .ca-note code{font:11px var(--font-mono);background:var(--surface-2);padding:0 4px;
-  border-radius:3px;color:#5b2a86;}
+  border-radius:3px;color:var(--accent);}
 /* frame the two panes as cards instead of bare columns */
 .ca-list{border:1px solid var(--border);border-radius:8px;background:var(--surface);
   padding:8px 10px;}
@@ -199,7 +199,7 @@ CSS_COMPONENTS += """
 .ca-filter{width:100%;box-sizing:border-box;padding:6px 9px;margin:0 0 8px;
   border:1px solid var(--border);border-radius:5px;font:12px var(--font-mono);
   position:sticky;top:0;background:var(--surface);z-index:1;}
-.ca-more{cursor:pointer;color:#5b2a86;font:600 12px var(--font-ui);padding:7px 9px;
+.ca-more{cursor:pointer;color:var(--accent);font:600 12px var(--font-ui);padding:7px 9px;
   border-radius:5px;}
 .ca-more:hover{background:#f3eef8;}
 .oos-h{margin:12px 0 6px;font:700 11px var(--font-ui);letter-spacing:.05em;
@@ -209,7 +209,7 @@ CSS_COMPONENTS += """
 .ca-prog{display:flex;align-items:center;gap:12px;margin:4px 0 6px;}
 .ca-prog-bar{flex:1;height:10px;background:var(--surface-2);border-radius:6px;
   overflow:hidden;}
-.ca-prog-fill{height:100%;width:0;background:#5b2a86;transition:width .3s;}
+.ca-prog-fill{height:100%;width:0;background:var(--accent);transition:width .3s;}
 .ca-prog-txt{font:12px var(--font-mono);color:var(--text-mut);min-width:280px;}
 .ca-log{margin:0 0 10px;max-height:120px;overflow:auto;background:#1c2128;color:#d6dae0;
   font:11px/1.5 var(--font-mono);padding:8px 10px;border-radius:6px;white-space:pre-wrap;}
