@@ -952,18 +952,20 @@ table.vtbl tr:hover td{background:var(--tint);}
       <button class="btn btn-sm btn-ghost" onclick="exportArcList()">Export list</button>
       <button class="btn" onclick="doPreview()">Preview</button>
       <button class="btn btn-primary" id="btnGenerate" onclick="doGenerate()">Generate</button>
+      <span id="previewMsg" style="flex-basis:100%;font-size:11px;color:var(--text-3);"></span>
     </div>
     <div class="pb view-hidden" id="resultsBody">
       <div class="qsl">Generated decks
         <div class="spacer"></div>
         <button class="btn btn-sm btn-ghost" onclick="showQueueView()">&larr; Back</button>
       </div>
-      <div id="genStatus" style="font-size:11px;color:var(--text-2);margin-bottom:10px;"></div>
+      <div id="genStatus" style="font-size:11px;color:var(--text-2);margin-bottom:6px;"></div>
+      <div id="genBar" style="display:none;height:6px;background:var(--tint);border-radius:3px;overflow:hidden;margin-bottom:10px;"><div id="genBarFill" style="height:100%;width:0;background:var(--accent);transition:width .3s;"></div></div>
       <div id="resultList"></div>
     </div>
     <div class="pf view-hidden" id="resultsFooter">
-      <button class="btn btn-sm btn-ghost" onclick="copyAllPaths()">Copy all paths</button>
-      <button class="btn btn-sm btn-ghost" onclick="openOutputDir()" style="margin-left:6px;">Open output dir</button>
+      <button class="btn btn-sm btn-ghost" onclick="copyAllPaths(event)">Copy all paths</button>
+      <button class="btn btn-sm btn-ghost" onclick="openOutputDir(event)" style="margin-left:6px;">Open output dir</button>
       <div class="spacer"></div>
     </div>
   </div>
@@ -1123,9 +1125,11 @@ document.addEventListener('click',function(e){
 function doRescan(){post('/api/rescan',{node:S.node,lib_type:S.libtype}).then(function(){loadCells();});}
 function updateStatusPill(){var pill=document.getElementById('statusPill');
   var nc=document.getElementById('cellsCount');
-  var n=S.node||'--';var lt=S.libtype?S.libtype.split('_').slice(-1)[0]:'--';
-  var c=S.selCorners.size;var cells=S.cells?S.cells.length:0;
-  pill.textContent=n+' / '+lt+' / '+c+' corners / '+cells+' cells';
+  var cells=S.cells?S.cells.length:0;
+  if(!S.node||!S.libtype){pill.textContent='Select a library to begin';}
+  else{var lt=S.libtype.split('_').slice(-1)[0];var c=S.selCorners.size;
+    pill.textContent=S.node+' / '+lt+' / '+c+' corner'+(c===1?'':'s')+
+      ' / '+cells+' cell'+(cells===1?'':'s');}
   if(nc)nc.textContent=cells+' cells';}
 function loadCells(){document.getElementById('cellList').innerHTML='<div class="cell-loading">Loading cells...</div>';
   post('/api/cells',{node:S.node,lib_type:S.libtype}).then(function(d){
@@ -1400,8 +1404,13 @@ function calcTotal(){var byType={};
   Object.keys(byType).forEach(function(t){total+=byType[t]*parseTpText(tpMap[t]||'').length;});
   return total*S.selCorners.size;}
 function doPreview(){var body=buildGenerateBody();
+  var m=document.getElementById('previewMsg');m.textContent='Previewing...';
   post('/api/preview_v2',body).then(function(d){
-    alert('Preview: '+(d.jobs?d.jobs.length:0)+' jobs planned. Errors: '+(d.errors?d.errors.length:0));});}
+    var nj=d.jobs?d.jobs.length:0,ne=d.errors?d.errors.length:0;
+    m.textContent=nj+' job'+(nj===1?'':'s')+' planned'+
+      (ne?', '+ne+' error'+(ne===1?'':'s'):'')+'.';
+    m.style.color=ne?'var(--err)':'var(--text-3)';}).catch(function(e){
+    m.textContent='Preview failed: '+e.message;m.style.color='var(--err)';});}
 function buildGenerateBody(){var tpMap=getTpMap();
   var arcQueue=S.queue.map(function(q){return{arc_id:q.arc_id,vector:q.vector||''};});
   var outDir=document.getElementById('outputDir').value.trim()||'./output/';
@@ -1409,6 +1418,8 @@ function buildGenerateBody(){var tpMap=getTpMap();
     corners:Array.from(S.selCorners),arc_queue:arcQueue,table_points:tpMap,output_dir:outDir};}
 function doGenerate(){var body=buildGenerateBody();showResultsView();
   document.getElementById('genStatus').textContent='Starting...';
+  var bar=document.getElementById('genBar');bar.style.display='block';
+  document.getElementById('genBarFill').style.width='0';
   document.getElementById('resultList').innerHTML='';S.results=[];S.genTaskId='';S.genTotal=0;
   post('/api/generate_v2',body).then(function(d){
     if(d.task_id){
@@ -1421,8 +1432,11 @@ function doGenerate(){var body=buildGenerateBody();showResultsView();
     document.getElementById('genStatus').textContent='Error: '+e.message;});}
 function pollGenerate(){
   post('/api/generate_status',{task_id:S.genTaskId}).then(function(d){
+    var pct=d.total?Math.round(100*d.progress/d.total):0;
+    document.getElementById('genBarFill').style.width=pct+'%';
     document.getElementById('genStatus').textContent=
-      'Generating '+d.progress+'/'+d.total+'... '+(d.current||'');
+      'Generating '+(d.progress||0)+'/'+(d.total||0)+' ('+pct+'%)'+
+      (d.current?' - '+d.current:'');
     var newResults=(d.results||[]).slice(S.results.length);
     newResults.forEach(function(res){S.results.push(res);appendResultRow(res);});
     if(d.status==='done'){finalizeResults();}
@@ -1462,6 +1476,7 @@ function appendResultRow(r){
   group.querySelector('.rcnt').textContent='('+cnt+' corner'+(cnt>1?'s':'')+')';
 }
 function finalizeResults(){var ok=S.results.filter(function(r){return r.success!==false&&!r.error;}).length;
+  document.getElementById('genBar').style.display='none';
   var fail=S.results.length-ok;var arcs=document.querySelectorAll('#resultList .rgroup').length;
   document.getElementById('genStatus').innerHTML=
     '<span style="color:var(--ok);font-weight:600;">&#10003; '+ok+' succeeded</span>&nbsp;&nbsp;'+
@@ -1477,13 +1492,17 @@ function showQueueView(){
   document.getElementById('queueFooter').classList.remove('view-hidden');
   document.getElementById('resultsBody').classList.add('view-hidden');
   document.getElementById('resultsFooter').classList.add('view-hidden');closeDeck();}
-function copyAllPaths(){var paths=S.results.filter(function(r){return r.output_path;})
+function copyAllPaths(ev){var paths=S.results.filter(function(r){return r.output_path;})
   .map(function(r){return r.output_path;}).join('\\n');
-  navigator.clipboard.writeText(paths).catch(function(){});}
-function openOutputDir(){var row=document.querySelector('#resultList .result-row');
+  navigator.clipboard.writeText(paths).then(function(){
+    flashBtn(ev&&ev.target,'Copied');}).catch(function(){});}
+function flashBtn(btn,msg){if(!btn)return;var t=btn.textContent;
+  btn.textContent=msg;setTimeout(function(){btn.textContent=t;},1400);}
+function openOutputDir(ev){var row=document.querySelector('#resultList .result-row');
   if(!row)return;var path=row.dataset.path||'';
   var dir=path.split('/').slice(0,-1).join('/');
-  if(dir){navigator.clipboard.writeText(dir).then(function(){alert('Output directory path copied: '+dir);}).catch(function(){});}}
+  if(dir){navigator.clipboard.writeText(dir).then(function(){
+    flashBtn(ev&&ev.target,'Path copied');}).catch(function(){});}}
 function openDeck(row,path,title){
   document.querySelectorAll('.rrow').forEach(function(r){r.classList.remove('sel');});
   if(row)row.classList.add('sel');S.lastDeckPath=path;
