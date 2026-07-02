@@ -215,6 +215,19 @@ CSS_COMPONENTS += """
   font:11px/1.5 var(--font-mono);padding:8px 10px;border-radius:6px;white-space:pre-wrap;}
 """
 
+CSS_COMPONENTS += """
+/* Phase C-2 Run/Report tab: full-width panel like the audit view. */
+#view-run:not(.view-hidden){display:block !important;}
+#view-run>.panel{flex:none !important;min-width:0 !important;border-right:none;}
+.run-card{background:var(--surface);border:1px solid var(--border);
+  border-radius:8px;padding:10px 12px;margin:10px 0;font:13px var(--font-ui);}
+.run-tbl{border-collapse:collapse;margin-top:8px;width:100%;
+  font:12px var(--font-mono);}
+.run-tbl th,.run-tbl td{border:1px solid var(--border);padding:3px 8px;
+  text-align:left;vertical-align:top;}
+.run-tbl th{background:var(--surface-2);font:600 11px var(--font-ui);}
+"""
+
 
 def topology_tab_html():
     return """
@@ -670,4 +683,154 @@ function engRenderDetail(d){
 // This script block is emitted AFTER the engine tab divs, so view-comb-audit now
 // exists in the DOM -- safe to land on the audit workspace here.
 if(typeof showTab==='function') showTab('comb-audit');
+"""
+
+
+def run_tab_html():
+    """Phase C-2 Run/Report tab: scope -> Generate (stops) -> review coverage
+    -> Submit (operator confirm gate emits bsub arrays)."""
+    return """
+<div class="main view-hidden" id="view-run">
+  <div class="panel eng-panel">
+    <div class="ca-bar">
+      <span class="ca-lbl">Corner</span>
+      <select id="runCorner" class="ca-sel"></select>
+      <span class="ca-lbl">Cells</span>
+      <input id="runCells" class="ca-filter" placeholder="glob(s), blank = all">
+      <span class="ca-lbl">Arcs/cell</span>
+      <input id="runArcsN" class="ca-filter" style="width:64px" placeholder="all">
+      <span class="ca-lbl">Table pts</span>
+      <input id="runTP" class="ca-filter" placeholder="(1,1) (2,3), blank = all">
+      <span class="ca-lbl">Out</span>
+      <input id="runOut" class="ca-filter" placeholder="./run_output">
+    </div>
+    <div class="ca-bar">
+      <button class="btn" onclick="runPlan()">Preview scope</button>
+      <button class="btn btn-primary" id="runGenerateBtn"
+              onclick="runGenerate()">Generate decks</button>
+      <button class="btn" id="runSubmitBtn" onclick="runSubmit()" disabled>
+        Submit to LSF</button>
+      <span class="ca-note">Generate builds decks and stops at rest. Review the
+        coverage below, then Submit emits the bsub arrays -- the operator
+        confirm gate. Nothing is submitted until you confirm.</span>
+    </div>
+    <div id="run-progress" style="display:none;margin:8px 0">
+      <div style="height:10px;background:var(--border);border-radius:5px;
+                  overflow:hidden">
+        <div id="run-bar-fill" style="height:100%;width:0;
+             background:var(--accent);transition:width .2s"></div></div>
+      <div id="run-progress-text" class="eng-mut"></div>
+    </div>
+    <div id="run-summary"></div>
+    <div id="run-triage"></div>
+    <div id="run-lsf"></div>
+  </div>
+</div>
+"""
+
+
+def run_js():
+    return r"""
+var RUN={taskId:'',polling:false};
+function runInit(){
+  if(typeof engCorners==='function'&&typeof engFillSelect==='function')
+    engFillSelect(document.getElementById('runCorner'),
+                  ['(all corners)'].concat(engCorners()));
+}
+function runParseTP(s){var r=[],m,re=/\(\s*(\d+)\s*,\s*(\d+)\s*\)/g;
+  while((m=re.exec(s||''))!==null)
+    r.push([parseInt(m[1],10),parseInt(m[2],10)]);return r;}
+function runPayload(){
+  var corner=document.getElementById('runCorner').value;
+  var cells=document.getElementById('runCells').value.trim();
+  var arcsN=document.getElementById('runArcsN').value.trim();
+  var tp=runParseTP(document.getElementById('runTP').value);
+  var out=document.getElementById('runOut').value.trim()||'./run_output';
+  var p={node:S.node,lib_type:S.libtype,out:out};
+  if(corner&&corner.indexOf('(all')!==0)p.corners=[corner];
+  if(cells)p.cells=cells.split(/[\s,]+/).filter(Boolean);
+  if(arcsN)p.arcs_per_cell=parseInt(arcsN,10);
+  if(tp.length)p.table_points=tp;
+  return p;
+}
+function runErr(id,msg){document.getElementById(id).innerHTML=
+  '<div class="ca-empty">'+esc(msg)+'</div>';}
+function runPlan(){
+  post('/api/run/plan',runPayload()).then(function(d){
+    if(d.error){runErr('run-summary',d.error);return;}
+    var rows=(d.matrix||[]).map(function(m){return '<tr><td>'+esc(m.cell)+
+      '</td><td>'+esc(m.corner)+'</td><td>'+m.count+'</td></tr>';}).join('');
+    document.getElementById('run-summary').innerHTML=
+      '<div class="run-card"><b>Scope preview:</b> '+d.expected+
+      ' work items, est ~'+Math.round(d.walltime_est/60)+' min'+
+      '<table class="run-tbl"><tr><th>cell</th><th>corner</th>'+
+      '<th>items</th></tr>'+rows+'</table></div>';
+  });
+}
+function runGenerate(){
+  document.getElementById('runSubmitBtn').disabled=true;
+  document.getElementById('run-triage').innerHTML='';
+  document.getElementById('run-lsf').innerHTML='';
+  post('/api/run/generate',runPayload()).then(function(d){
+    if(d.error){runErr('run-summary',d.error);return;}
+    RUN.taskId=d.task_id;
+    document.getElementById('run-progress').style.display='block';
+    RUN.polling=true;runPoll();
+  });
+}
+function runPoll(){
+  if(!RUN.polling)return;
+  post('/api/run/status',{task_id:RUN.taskId}).then(function(d){
+    var pct=d.total?Math.round(100*d.progress/d.total):0;
+    document.getElementById('run-bar-fill').style.width=pct+'%';
+    document.getElementById('run-progress-text').textContent=
+      'generated '+(d.progress||0)+'/'+(d.total||0)+
+      (d.current?'  ('+d.current+')':'');
+    if(d.status==='running'){setTimeout(runPoll,400);return;}
+    RUN.polling=false;
+    if(d.status==='error'){runErr('run-summary',d.error||'error');return;}
+    runLoadCoverage();
+    document.getElementById('runSubmitBtn').disabled=false;
+  });
+}
+function runLoadCoverage(){
+  post('/api/run/coverage',{task_id:RUN.taskId}).then(function(d){
+    if(d.error)return;runRenderCoverage(d);});
+}
+function runRenderCoverage(d){
+  var su=d.summary||{};
+  var badge=su.balanced?'<span class="eng-chip chip-pass">BALANCED</span>':
+    '<span class="eng-chip chip-fail">UNBALANCED</span>';
+  document.getElementById('run-summary').innerHTML=
+    '<div class="run-card">'+badge+' &nbsp;expected '+su.expected+
+    ' = generated '+su.generated+' + submitted '+(su.submitted||0)+
+    ' + error '+su.generation_error+' + skipped '+su.skipped+'</div>';
+  var tri=d.triage||[];
+  var th=document.getElementById('run-triage');
+  if(!tri.length){th.innerHTML=
+    '<div class="eng-mut">No generation errors.</div>';return;}
+  var body=tri.map(function(r){return '<tr><td>'+esc(r.category||'')+
+    '</td><td>'+esc(r.arc_id||'')+'</td><td>'+esc(r.reason||'')+
+    '</td></tr>';}).join('');
+  th.innerHTML='<div class="run-card"><b>Triage ('+tri.length+
+    ' generation errors)</b><table class="run-tbl"><tr><th>category</th>'+
+    '<th>arc</th><th>reason</th></tr>'+body+'</table></div>';
+}
+function runSubmit(){
+  if(!RUN.taskId)return;
+  if(!confirm('Submit generated decks to LSF? This emits bsub job arrays.'))
+    return;
+  post('/api/run/submit',{task_id:RUN.taskId}).then(function(d){
+    var el=document.getElementById('run-lsf');
+    if(d.nothing_to_submit){el.innerHTML=
+      '<div class="ca-empty">Nothing to submit: '+esc(d.error||'')+
+      '</div>';return;}
+    if(d.error){runErr('run-lsf',d.error);return;}
+    if(d.coverage)runRenderCoverage(d.coverage);
+    var lines=(d.bjobs||[]).map(function(l){return esc(l);}).join('<br>');
+    el.innerHTML='<div class="run-card"><b>Submitted -- bsub arrays queued'+
+      '</b><pre style="white-space:pre-wrap">'+lines+'</pre></div>';
+    document.getElementById('runSubmitBtn').disabled=true;
+  });
+}
 """

@@ -43,6 +43,11 @@ _GENERATE_LOCK = threading.Lock()
 _AUDIT_TASKS = {}
 _AUDIT_LOCK = threading.Lock()
 
+# Phase C-2 orchestration run store: task_id ->
+# {phase, status, progress, total, current, out_dir, coverage, error}
+_RUN_TASKS = {}
+_RUN_LOCK = threading.Lock()
+
 
 def _get_store(node, lib_type):
     """Return a cached CollateralStore for (node, lib_type), reloading if manifest changed."""
@@ -432,6 +437,165 @@ def _api_source_search(file_id, query, max_results=500):
     return {'lines': hits, 'total': len(hits)}
 
 
+# ---------------------------------------------------------------------------
+# Phase C-2: orchestration Run/Report APIs (pure module-level, test seam).
+# Thin wiring over core.orchestrate; the browser calls these via /api/run/*.
+# Generate writes NO bsub; Submit is the operator confirm gate.
+# ---------------------------------------------------------------------------
+
+def _run_config(payload):
+    """(collateral_root, node, lib_type) from a run payload."""
+    root = payload.get('collateral') or getattr(
+        DeckgenHandler, 'COLLATERAL_ROOT', _DEFAULT_COLLATERAL_ROOT)
+    return root, payload.get('node', ''), payload.get('lib_type', '')
+
+
+def _run_scope(payload):
+    """Build a core.orchestrate scope dict from a run payload, or None."""
+    scope = {}
+    if payload.get('cells'):
+        scope['cells'] = list(payload['cells'])
+    if payload.get('arcs_per_cell') not in (None, ''):
+        scope['arcs_per_cell'] = int(payload['arcs_per_cell'])
+    tp = payload.get('table_points')
+    if isinstance(tp, int):
+        scope['table_points'] = tp
+    elif tp:
+        scope['table_points'] = [tuple(p) for p in tp]
+    if payload.get('corners'):
+        scope['corners'] = list(payload['corners'])
+    return scope or None
+
+
+def _coverage_json(report):
+    """Return a JSON-safe copy of a CoverageReport. build_coverage keys the
+    matrix by (cell, arc_type, i1, i2) tuples and lists unaccounted as tuples,
+    neither of which json.dumps can encode -- flatten them to lists/dicts."""
+    matrix = [{'cell': c, 'arc_type': at, 'i1': i1, 'i2': i2,
+               'states': per_corner}
+              for (c, at, i1, i2), per_corner in report.get('matrix', {}).items()]
+    return {
+        'summary': report.get('summary', {}),
+        'by_category': report.get('by_category', {}),
+        'by_corner': report.get('by_corner', {}),
+        'triage': report.get('triage', []),
+        'matrix': matrix,
+        'unaccounted': [list(u) for u in report.get('unaccounted', [])],
+    }
+
+
+def _api_run_plan(payload):
+    """Dry-run: discover the scope and return the plan without generating."""
+    from core import orchestrate
+    root, node, lib_type = _run_config(payload)
+    try:
+        pl = orchestrate.plan(root, node, lib_type, _run_scope(payload))
+    except orchestrate.SelectionEmpty as e:
+        return {'error': str(e), 'selection_empty': True}
+    except Exception as e:
+        return {'error': str(e)}
+    # matrix_counts keys are (cell, corner) tuples -> serialize for JSON
+    matrix = [{'cell': c, 'corner': cn, 'count': n}
+              for (c, cn), n in sorted(pl['matrix_counts'].items())]
+    return {'expected': pl['expected'], 'walltime_est': pl['walltime_est'],
+            'matrix': matrix}
+
+
+def _api_run_generate(payload):
+    """Kick off core.orchestrate.generate in a worker thread. Returns
+    {task_id} immediately; writes NO bsub (resting state 'generated')."""
+    import uuid
+    from core import orchestrate
+    root, node, lib_type = _run_config(payload)
+    scope = _run_scope(payload)
+    out_dir = payload.get('out') or payload.get('output_dir') or './run_output'
+    task_id = uuid.uuid4().hex[:12]
+    with _RUN_LOCK:
+        _RUN_TASKS[task_id] = {
+            'phase': 'generate', 'status': 'running', 'progress': 0,
+            'total': 0, 'current': '', 'out_dir': out_dir,
+            'coverage': None, 'error': ''}
+
+    def _worker():
+        def _prog(done, total, row):
+            with _RUN_LOCK:
+                t = _RUN_TASKS[task_id]
+                t['progress'], t['total'] = done, total
+                t['current'] = row.get('arc_id', '')
+        try:
+            res = orchestrate.generate(root, node, lib_type, out_dir,
+                                       scope=scope, progress=_prog)
+            with _RUN_LOCK:
+                t = _RUN_TASKS[task_id]
+                t['status'], t['current'] = 'generated', ''
+                t['coverage'] = res['coverage']
+        except orchestrate.SelectionEmpty as e:
+            with _RUN_LOCK:
+                t = _RUN_TASKS[task_id]
+                t['status'], t['error'] = 'error', str(e)
+                t['selection_empty'] = True
+        except Exception as e:
+            with _RUN_LOCK:
+                t = _RUN_TASKS[task_id]
+                t['status'], t['error'] = 'error', str(e)
+
+    th = threading.Thread(target=_worker, daemon=True)
+    th.start()
+    with _RUN_LOCK:
+        _RUN_TASKS[task_id]['_thread'] = th
+    return {'task_id': task_id}
+
+
+def _api_run_status(task_id):
+    """Live snapshot of a run task (no thread handle, JSON-safe)."""
+    with _RUN_LOCK:
+        t = _RUN_TASKS.get(task_id)
+        if t is None:
+            return {'error': 'Unknown task_id'}
+        snap = {k: v for k, v in t.items() if k != '_thread'}
+    if snap.get('coverage') is not None:
+        snap['coverage'] = _coverage_json(snap['coverage'])
+    return snap
+
+
+def _api_run_coverage(task_id):
+    """CoverageReport dict for the matrix + triage view; error if not ready."""
+    with _RUN_LOCK:
+        t = _RUN_TASKS.get(task_id)
+        if t is None:
+            return {'error': 'Unknown task_id'}
+        cov = t.get('coverage')
+    if cov is None:
+        return {'error': 'coverage not ready'}
+    return _coverage_json(cov)
+
+
+def _api_run_submit(task_id, slot_limit=50):
+    """Operator confirm gate: emit real bsub arrays for generated rows and
+    advance them to 'submitted'. Refuses (nothing_to_submit) if none."""
+    from core import orchestrate
+    from core.lsf import bjobs_snapshot
+    with _RUN_LOCK:
+        t = _RUN_TASKS.get(task_id)
+        if t is None:
+            return {'error': 'Unknown task_id'}
+        out_dir = t['out_dir']
+    try:
+        res = orchestrate.submit(out_dir, slot_limit=int(slot_limit))
+    except orchestrate.NothingToSubmit as e:
+        return {'error': str(e), 'nothing_to_submit': True}
+    except Exception as e:
+        return {'error': str(e)}
+    arrays = {c: {'n_jobs': info['n_jobs']}
+              for c, info in res['arrays'].items()}
+    with _RUN_LOCK:
+        t = _RUN_TASKS[task_id]
+        t['status'], t['phase'] = 'submitted', 'submit'
+        t['coverage'] = res['coverage']
+    return {'coverage': _coverage_json(res['coverage']), 'arrays': arrays,
+            'bjobs': bjobs_snapshot(res['arrays'])}
+
+
 def _parse_table_points(text):
     """Parse a table-point text string into a list of (i1, i2) int tuples.
 
@@ -699,6 +863,7 @@ table.vtbl tr:hover td{background:var(--tint);}
     <div class="tab active" data-tab="comb-audit" onclick="showTab('comb-audit')">Audit</div>
     <div class="tab" onclick="showTab('explore')">Decks &middot; Explore</div>
     <div class="tab" onclick="showTab('direct')">Decks &middot; Direct</div>
+    <div class="tab" onclick="showTab('run')">Run &middot; Report</div>
   </div>
   <div class="spacer"></div>
   <div class="status-pill" id="statusPill">Loading&#x2026;</div>
@@ -903,15 +1068,16 @@ var S={node:'',libtype:'',corners:[],selCorners:new Set(),cells:[],arcCache:{},
   vResults:[],vFilter:'all',genTaskId:'',genTotal:0,_restore:{}};
 function showTab(name){
   // nav order must match the .tab elements in the header
-  var tabs=['comb-audit','explore','direct'];
+  var tabs=['comb-audit','explore','direct','run'];
   // every view div (incl. retired validate/topology/audit) hidden unless selected
-  ['comb-audit','explore','direct','validate','topology','audit'].forEach(function(n){
+  ['comb-audit','explore','direct','run','validate','topology','audit'].forEach(function(n){
     var el=document.getElementById('view-'+n);
     if(el) el.classList.toggle('view-hidden',n!==name);});
   document.querySelectorAll('.tab').forEach(function(t,i){
     t.classList.toggle('active',tabs[i]===name);});
   document.getElementById('dbar').style.display='flex';
   if(name==='comb-audit'&&typeof engCombAuditInit==='function')engCombAuditInit();
+  if(name==='run'&&typeof runInit==='function')runInit();
   closeDeck();}
 function post(url,body){return fetch(url,{method:'POST',
   headers:{'Content-Type':'application/json'},body:JSON.stringify(body)
@@ -1594,10 +1760,10 @@ HTML_PAGE = (
              '<style>' + _ev.CSS_TOKENS + _ev.CSS_COMPONENTS + '</style>')
     .replace('<!--ENGINE_TABS-->',
              _ev.topology_tab_html() + _ev.audit_tab_html()
-             + _ev.comb_audit_tab_html())
+             + _ev.comb_audit_tab_html() + _ev.run_tab_html())
     .replace('<!--ENGINE_JS-->',
              '<script>' + _ev.engine_js() + _ev.comb_audit_js()
-             + _ENGINE_JS_GLUE + '</script>')
+             + _ev.run_js() + _ENGINE_JS_GLUE + '</script>')
 )
 
 
@@ -1831,6 +1997,17 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
             self._handle_audit_status(data)
         elif path == '/api/engine/arc_detail':
             self._engine_arc_detail(data)
+        elif path == '/api/run/plan':
+            self._send_json(_api_run_plan(data)); return
+        elif path == '/api/run/generate':
+            self._send_json(_api_run_generate(data)); return
+        elif path == '/api/run/status':
+            self._send_json(_api_run_status(data.get('task_id', ''))); return
+        elif path == '/api/run/coverage':
+            self._send_json(_api_run_coverage(data.get('task_id', ''))); return
+        elif path == '/api/run/submit':
+            self._send_json(_api_run_submit(
+                data.get('task_id', ''), data.get('slot_limit', 50))); return
         else:
             self.send_response(404)
             self.end_headers()
