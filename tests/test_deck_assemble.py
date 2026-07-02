@@ -1,5 +1,5 @@
 import os
-from core.deck_assemble import engine_bias_section, collateral_section, choose_bias
+from core.deck_assemble import fill_frame, choose_bias
 from core.deck_assemble import assemble_combinational
 from engine.types import CombState
 from core.measurement.mine import mine
@@ -48,42 +48,55 @@ def test_assemble_combinational_sequential_is_named_error():
     assert "sequential" in r["error"].lower()
 
 
-_ARC_INFO = {
-    "VDD_VALUE": "0.45", "TEMPERATURE": "-40",
-    "INDEX_1_VALUE": "1.2n", "INDEX_2_VALUE": "0.5f",
-    "INCLUDE_FILE": "/c/model.inc", "WAVEFORM_FILE": "/c/wv.spi",
-    "NETLIST_PATH": "/c/AOI22.spi",
-}
-
-
-def test_collateral_section_has_real_values_no_placeholders():
-    lines = collateral_section(_ARC_INFO)
-    text = "\n".join(lines)
+def test_assembled_deck_collateral_has_real_values_no_placeholders():
+    src = open(_AOI22).read()
+    r = assemble_combinational(_arc_info("A1", "ZN"), src, _grammar())
+    assert r["status"] == "OK", r["error"]
+    text = r["deck_text"]
     assert "$" not in text                              # all values resolved
     assert ".param vdd_value = '0.45'" in text
     assert ".temp -40" in text
-    assert ".param cl = '0.5f'" in text                 # INDEX_2 = load
-    assert ".param rel_pin_slew = '1.2n'" in text       # INDEX_1 = slew
+    assert ".param cl = '0.5f'" in text                 # INDEX_2 = load (delay)
+    assert ".param rel_pin_slew = '1.2n'" in text       # INDEX_1 = slew (delay)
     assert ".inc '/c/model.inc'" in text
     assert ".inc '/c/wv.spi'" in text
-    assert ".inc '/c/AOI22.spi'" in text
+    assert ".inc '%s'" % _AOI22 in text
     assert "VVDD VDD 0 'vdd_value'" in text
     assert "VVSS VSS 0 'vss_value'" in text
     assert "VVPP VPP 0 'vdd_value'" in text
     assert "VVBB VBB 0 'vss_value'" in text
 
 
-def test_engine_bias_section_sorted_and_railed():
-    lines = engine_bias_section({"A2": 1, "A1": 0})
-    assert lines == [
-        "* ===== ENGINE-DERIVED side-pin bias =====",
-        "VA1 A1 0 'vss_value'",
-        "VA2 A2 0 'vdd_value'",
-    ]
+_FRAME = ("* Pin definitions\n"
+          "* Unspecified pins\n"
+          "* Toggling pins\n")
 
 
-def test_engine_bias_section_empty():
-    assert engine_bias_section({}) == ["* ===== ENGINE-DERIVED side-pin bias ====="]
+def test_fill_frame_kit_pins_in_when_order_then_extras_sorted():
+    out = fill_frame(_FRAME, {}, {"A2": 1, "A1": 0, "B9": 0},
+                     kit_when="B9&!A1").split("\n")
+    i_pin = out.index("* Pin definitions")
+    i_un = out.index("* Unspecified pins")
+    # kit-named pins under Pin definitions, in the WHEN's token order,
+    # values from the ENGINE bias (railed, never literals)
+    assert out[i_pin + 1] == "VB9 B9 0 'vss_value'"
+    assert out[i_pin + 2] == "VA1 A1 0 'vss_value'"
+    # remaining engine-derived pins under Unspecified pins, sorted
+    assert out[i_un + 1] == "VA2 A2 0 'vdd_value'"
+
+
+def test_fill_frame_no_unspecified_anchor_appends_extras_after_kit():
+    frame = "* Pin definitions\n* Toggling pins\n"
+    out = fill_frame(frame, {}, {"SE": 0, "SI": 1}, kit_when="SI").split("\n")
+    i_pin = out.index("* Pin definitions")
+    assert out[i_pin + 1] == "VSI SI 0 'vdd_value'"     # kit-named first
+    assert out[i_pin + 2] == "VSE SE 0 'vss_value'"     # extras follow
+    assert out[i_pin + 3] == "* Toggling pins"
+
+
+def test_fill_frame_empty_bias_injects_nothing():
+    out = fill_frame(_FRAME, {}, {})
+    assert out == _FRAME.rstrip("\n") + "\n"
 
 
 def _states():

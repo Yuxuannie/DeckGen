@@ -1,77 +1,95 @@
-"""deck_assemble.py -- assemble a runnable SPICE deck for a COMBINATIONAL delay/
-slew arc from collateral + the Phase-A measurement recipe + an engine-derived
-side-pin bias. No per-cell template. stdlib only, ASCII only, simulator-free.
-
-Sequential arcs are out of scope here (B2/B3): they are detected and returned as a
-named ERROR, never assembled."""
+"""deck_assemble.py -- assemble a runnable SPICE deck for an arc from collateral
++ the measurement grammar + an engine-derived side-pin bias. No per-cell
+template file at runtime: the grammar entry carries its family template's FULL
+text verbatim as frame_text (mined by core/measurement/mine.py), and assembly
+fills that frame exactly like the golden flow fills a template -- the same
+deck_builder substitution map and the same injection points -- so a deck whose
+engine-derived bias agrees with the kit -when is BYTE-IDENTICAL to the golden
+template-substitution deck. stdlib only, ASCII only, simulator-free."""
 from __future__ import annotations
 
 from engine.whencond import parse_when_conjunction
 
 
-def _split_recipe(recipe: list):
-    """Split an emitted recipe into (preamble, body) at the first '* Toggling'
-    line. The preamble is the header banner + SPICE options that must lead the
-    deck (SPICE treats line 1 as the title); the body is the stimulus +
-    measurements + .end that must follow the instance and bias. All 55 grammar
-    entries carry the marker; if it is ever absent, fall back to keeping the
-    whole recipe as the body so nothing is dropped."""
-    for i, line in enumerate(recipe):
-        if line.strip().startswith("* Toggling"):
-            return recipe[:i], recipe[i:]
-    return [], recipe
+def _vline(pin, value):
+    rail = "vdd_value" if value else "vss_value"
+    return "V%s %s 0 '%s'" % (pin, pin, rail)
 
 
-def engine_bias_section(side_bias: dict) -> list:
-    """Voltage sources tying each non-toggling input to a rail at its derived value.
-    side_bias: {pin: 0|1}. 1 -> vdd_value, 0 -> vss_value. Sorted for determinism."""
-    lines = ["* ===== ENGINE-DERIVED side-pin bias ====="]
-    for pin in sorted(side_bias):
-        rail = "vdd_value" if side_bias[pin] else "vss_value"
-        lines.append("V%s %s 0 '%s'" % (pin, pin, rail))
-    return lines
+def _kit_pin_order(kit_when, side_bias):
+    """Side pins named by the kit -when, in the WHEN's own token order -- that
+    is the order build_deck injects them under '* Pin definitions', so the
+    order must match for byte-parity. Pins the engine did not bias are
+    skipped (nothing to tie)."""
+    if not kit_when or kit_when in ("NO_CONDITION", "NONE"):
+        return []
+    out = []
+    for tok in kit_when.split("&"):
+        pin = tok.strip().lstrip("!")
+        if pin and pin in side_bias and pin not in out:
+            out.append(pin)
+    return out
 
 
-def collateral_section(arc_info: dict) -> list:
-    """Collateral lines with REAL values (Phase-A 'collateral' class). Order mirrors
-    the golden template: waveform/model/netlist .inc, corner, slew/load, rails,
-    output-load cap. The std waveform library (stdvs_* subckt definitions) and the
-    load cap are injected by the golden flow at build time -- they are in NO
-    template's text, so the mined grammar cannot carry them; they must be emitted
-    here (found missing 2026-07-02: decks measured an unloaded output and, when
-    WAVEFORM_FILE != std_wv, had no stdvs_* definition at all)."""
-    from core.deck_recipe import STD_WV
-    g = lambda k: arc_info.get(k, "")
-    lines = [
-        "* ===== COLLATERAL (resolved from manifest) =====",
-        "* Waveform",
-    ]
-    # De-duplicate like the golden path (WAVEFORM_FILE often == std_wv).
-    for p in dict.fromkeys([STD_WV, g("WAVEFORM_FILE")]):
-        if p:
-            lines.append(".inc '%s'" % p)
-    lines += [
-        "* Model include file",
-        ".inc '%s'" % g("INCLUDE_FILE"),
-        "* Netlist path",
-        ".inc '%s'" % g("NETLIST_PATH"),
-        "* Library information",
-        ".param vdd_value = '%s'" % g("VDD_VALUE"),
-        ".param vss_value = 0",
-        ".temp %s" % g("TEMPERATURE"),
-        "* Slew and load information",
-        ".param cl = '%s'" % g("INDEX_2_VALUE"),
-        ".param rel_pin_slew = '%s'" % g("INDEX_1_VALUE"),
-        "* Voltage",
-        "VVDD VDD 0 'vdd_value'",
-        "VVSS VSS 0 'vss_value'",
-        "VVPP VPP 0 'vdd_value'",
-        "VVBB VBB 0 'vss_value'",
-        "* Output Load",
-    ]
-    pins = (g("OUTPUT_PINS") or g("PROBE_PIN_1")).split()
-    lines += ["C%s %s 0 'cl'" % (pin, pin) for pin in pins]
-    return lines
+def fill_frame(frame_text, arc_info, side_bias, kit_when=None):
+    """Fill a grammar entry's frame (the family template's full text, verbatim)
+    the way the golden flow fills a template: deck_builder's substitution map
+    for $VARS, load caps injected after '* Output Load', and engine V-sources
+    for side pins -- kit-named pins after '* Pin definitions' (golden's
+    injection point, WHEN token order), remaining engine-derived pins after
+    '* Unspecified pins' (sorted; appended right after the kit pins when the
+    frame has no Unspecified section -- some mpw frames do not). Engine values
+    are the source of truth even for kit-named pins. .inc lines de-duplicate
+    exactly like build_deck. Unknown $PLACEHOLDERS survive (they trip the
+    no-unresolved-$ check downstream, never silently vanish)."""
+    from core.deck_builder import _build_substitution_map, _substitute_vars
+
+    sub = None      # built on first $-line; frames without $ need no arc keys
+    kit_pins = _kit_pin_order(kit_when, side_bias)
+    extras = sorted(p for p in side_bias if p not in set(kit_pins))
+    has_unspec = "* Unspecified pins" in frame_text
+
+    out, seen_inc = [], set()
+
+    def push(line):
+        s = line.strip()
+        if s.startswith(".inc "):
+            if s in seen_inc:
+                return
+            seen_inc.add(s)
+        out.append(line)
+
+    for line in frame_text.split("\n"):
+        if "* Pin definitions" in line:
+            push(line)
+            for p in kit_pins:
+                push(_vline(p, side_bias[p]))
+            if not has_unspec:
+                for p in extras:
+                    push(_vline(p, side_bias[p]))
+            continue
+        if "* Unspecified pins" in line:
+            push(line)
+            for p in extras:
+                push(_vline(p, side_bias[p]))
+            continue
+        if "* Output Load" in line:
+            push(line)
+            pins = (arc_info.get("OUTPUT_PINS") or
+                    arc_info.get("PROBE_PIN_1", "")).split()
+            for pin in pins:
+                push("C%s %s 0 'cl'" % (pin, pin))
+            continue
+        if "$" in line:
+            if sub is None:
+                sub = _build_substitution_map(arc_info, None, None, None)
+            # HEADER_INFO substitution embeds newlines; split so .inc dedup
+            # and line accounting stay per-line.
+            for piece in _substitute_vars(line, sub).split("\n"):
+                push(piece)
+            continue
+        push(line)
+    return "\n".join(out)
 
 
 def choose_bias(sensitizing: list, kit_when):
@@ -166,8 +184,7 @@ def assemble_combinational(arc_info: dict, netlist_src: str, grammar: dict,
     lets sibling arcs of the same cell reuse one parse -- see _engine_ctx."""
     from engine.stages import stage2_sensitize
     from engine.types import Arc
-    from core.measurement.emit import select_entry, emit
-    from core.measurement.emit import SelectionError
+    from core.measurement.emit import select_entry, SelectionError
 
     cell = arc_info.get("CELL_NAME", "")
     rel = arc_info.get("REL_PIN", "")
@@ -207,29 +224,14 @@ def assemble_combinational(arc_info: dict, netlist_src: str, grammar: dict,
                                  other_dir=out_dir)
         except SelectionError as e:
             return _err("no grammar entry: %s" % e)
+        if "frame_text" not in entry:
+            return _err("grammar entry for delay/%s/%s has no frame_text -- "
+                        "re-mine the corpus (python -m core.measurement.mine "
+                        "mine <dir>)" % (rel_dir, out_dir))
 
-        # $HEADER_INFO is a provenance comment placeholder emit has no value key for.
-        # Resolve ONLY it (targeted, never a blanket strip) so any other unresolved
-        # placeholder still survives and trips the no-unresolved-$ check.
-        header = arc_info.get("HEADER_INFO") or "%s %s %s->%s" % (
-            cell, arc_info.get("ARC_TYPE", "delay"), rel, probe)
-        recipe = [l.replace("$HEADER_INFO", header)
-                  for l in emit(entry, arc_info, fill_values=True)]
-
-        pins = arc_info.get("NETLIST_PINS", "")
-        # Header banner + SPICE options lead the deck; collateral/instance/bias
-        # sit between them and the stimulus/measurements/.end (body). Keeps the
-        # golden ordering -- SPICE reads line 1 as the title. body already ends
-        # with .end -- do not re-append.
-        preamble, body = _split_recipe(recipe)
-        deck_lines = (
-            preamble
-            + collateral_section(arc_info)
-            + ["* ===== INSTANCE =====", "X1 %s %s" % (pins, cell)]
-            + engine_bias_section(cb["bias"])
-            + body
-        )
-        return {"status": "OK", "deck_text": "\n".join(deck_lines) + "\n",
+        deck_text = fill_frame(entry["frame_text"], arc_info, cb["bias"],
+                               arc_info.get("WHEN"))
+        return {"status": "OK", "deck_text": deck_text,
                 "bias": cb["bias"], "chosen_when": cb["chosen_label"],
                 "output": res.output, "out_dir": out_dir,
                 "kit_match": cb["kit_match"], "error": None}
@@ -258,7 +260,7 @@ def assemble_sequential(arc_info: dict, netlist_src: str, grammar: dict,
     from engine.stages import stage2_sensitize
     from engine.stages.stage1b_classify import classify, depth_of
     from engine.types import Arc
-    from core.measurement.emit import select_entry, emit, SelectionError
+    from core.measurement.emit import select_entry, SelectionError
 
     cell = arc_info.get("CELL_NAME", "")
     rel = arc_info.get("REL_PIN", "CP")
@@ -306,10 +308,10 @@ def assemble_sequential(arc_info: dict, netlist_src: str, grammar: dict,
                   measurement="", raw={"probe_pin": probe})
         sens = stage2_sensitize.derive(graph, arc, ccc)
         # P1 not proven -> side biases are None placeholders. Emitting anyway would
-        # silently hard-tie every undetermined side pin to 0 (engine_bias_section
-        # maps None -> vss_value). The combinational sibling gates on
-        # res.sensitizing and stage3 filters None; do the same here rather than
-        # ship a deck with unproven biases masquerading as logic 0.
+        # silently hard-tie every undetermined side pin to 0 (fill_frame maps
+        # None -> vss_value). The combinational sibling gates on res.sensitizing
+        # and stage3 filters None; do the same here rather than ship a deck with
+        # unproven biases masquerading as logic 0.
         if not sens.proven:
             return _err("P1 not proven for %s: side-pin biases undetermined "
                         "(%s) -- refusing to emit a deck that would silently tie "
@@ -321,22 +323,17 @@ def assemble_sequential(arc_info: dict, netlist_src: str, grammar: dict,
                                  other_dir=sel_other, cluster_tag=tag)
         except SelectionError as e:
             return _err("no grammar entry for %s: %s" % (tag, e))
+        if "frame_text" not in entry:
+            return _err("grammar entry for %s has no frame_text -- re-mine the "
+                        "corpus (python -m core.measurement.mine mine <dir>)"
+                        % tag)
 
-        header = arc_info.get("HEADER_INFO") or "%s %s %s->%s depth=%d" % (
-            cell, at, rel, probe, depth)
-        recipe = [l.replace("$HEADER_INFO", header)
-                  for l in emit(entry, arc_info, fill_values=True)]
-
-        pins = arc_info.get("NETLIST_PINS") or _subckt_ports(netlist_src, cell)
-        preamble, body = _split_recipe(recipe)
-        deck_lines = (
-            preamble
-            + collateral_section(arc_info)
-            + ["* ===== INSTANCE =====", "X1 %s %s" % (pins, cell)]
-            + engine_bias_section(bias)
-            + body
-        )
-        return {"status": "OK", "deck_text": "\n".join(deck_lines) + "\n",
+        if not arc_info.get("NETLIST_PINS"):
+            arc_info = dict(arc_info)
+            arc_info["NETLIST_PINS"] = _subckt_ports(netlist_src, cell)
+        deck_text = fill_frame(entry["frame_text"], arc_info, bias,
+                               arc_info.get("WHEN"))
+        return {"status": "OK", "deck_text": deck_text,
                 "bias": bias, "verdict": seq.verdict, "depth": depth,
                 "cluster_tag": tag, "family": family, "error": None}
     except Exception as e:

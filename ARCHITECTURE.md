@@ -377,15 +377,18 @@ Honest status so a fresh agent does not mis-assume:
   3. `core/deck_assemble.py` — the grammar+engine path (Phase A/B/C): what the
      **Run tab / `deckgen_run.py` / `core/orchestrate.py` actually ship** for
      library-scale runs, combinational AND sequential (hold/mpw).
-  **Known gap:** path (3) has recipe-region round-trip + structural checks but NO
-  full-deck byte-parity gate vs (1). A 2026-07-02 probe found (and fixed) two
-  build-time collateral pieces (3) was missing entirely — the output-load cap and
-  the std waveform `.inc` (they appear in no template's TEXT, so mining cannot see
-  them; `tests/test_deck_assemble_collateral_parity.py` now guards the class).
-  Remaining cosmetic deltas (section banners, blank lines, header block) mean (3)
-  cannot yet claim byte-parity; closing or formally re-scoping that claim is an
-  OPEN DECISION (owner: Yuxuan). Until it is closed, Demo 1's byte-parity number
-  must be computed via path (2), not (3).
+  **Parity (decided A, 2026-07-03):** grammar entries now carry the family
+  template's full text verbatim (`frame_text`, mined by
+  `core/measurement/mine.py`); path (3) fills the frame with deck_builder's own
+  substitution map + injection points, so a deck whose engine bias agrees with
+  the kit `-when` is **byte-identical to (1) by construction** — gated by
+  `tests/test_deck_assemble_collateral_parity.py` (delay both directions +
+  hold CP.syncx.D locally; the airgap re-mine extends frames to the full
+  corpus automatically). When the engine proves MORE side pins than the kit
+  named, the only byte delta is the added V-sources under `* Unspecified pins`
+  — a feature, not a drift (the engine ties what the kit left floating). The
+  2026-07-02 missing-collateral bugs (load cap, std_wv `.inc`, mpw slew/load
+  mapping) are structurally impossible in the frame path.
 - **Charge layer (L3):** real and partially built (cap-graph aggregation done; resolve
   step present). **Not empty** — a common mis-read.
 - **Combinational region-derivation (P1 region equivalence, partition hook, structural

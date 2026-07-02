@@ -22,16 +22,27 @@ from core.measurement.regions import extract_recipe, parse_template_key, partiti
 def mine(template_dir: str) -> dict:
     entries = []
     by_recipe = {}                         # recipe-tuple -> entry index
-    for path in sorted(glob.glob(os.path.join(template_dir, "*.sp"))):
-        recipe = extract_recipe(open(path, encoding="ascii", errors="replace").read())
+    # Accept both a flat template dir and a corpus root with one level of
+    # arc-type subdirs (templates/N2P_v1.0/{delay,mpw}/...).
+    paths = sorted(glob.glob(os.path.join(template_dir, "*.sp"))
+                   + glob.glob(os.path.join(template_dir, "*", "*.sp")))
+    for path in paths:
+        text = open(path, encoding="ascii", errors="replace").read()
+        recipe = extract_recipe(text)
         fname = os.path.basename(path)
         sig = tuple(recipe)
         if sig in by_recipe:
             entries[by_recipe[sig]]["provenance"].append(fname)
             continue
         by_recipe[sig] = len(entries)
+        # frame_text is the ENTIRE template verbatim (collateral lines, blank
+        # and trailing-space lines included), from the entry's first
+        # provenance file. The assembler fills the frame exactly like the
+        # golden flow (deck_builder substitution + injection points), so deck
+        # byte-parity is by construction, not by re-composing sections.
         entries.append({"key": parse_template_key(path),
-                        "recipe_lines": recipe, "provenance": [fname]})
+                        "recipe_lines": recipe, "provenance": [fname],
+                        "frame_text": text})
     return {"version": 1, "source_corpus": template_dir, "entries": entries}
 
 

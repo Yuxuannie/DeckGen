@@ -5,13 +5,12 @@
 Authoritative status lives in `ARCHITECTURE.md` section 9. Open items, in
 priority order (fast+accurate > usable > debuggable):
 
-1. **Grammar-path parity decision (owner: Yuxuan).** `core/deck_assemble.py`
-   (what Run/orchestrate ship) has no full-deck byte-parity gate vs the golden
-   flow; two missing build-time collateral pieces (load cap, std_wv .inc) were
-   found and fixed 2026-07-02. Remaining deltas are cosmetic (banners, blank
-   lines, header block). Decide: (A) align bytes to golden so Demo 1's parity
-   claim covers the shipping path, or (B) keep format, scope the byte claim to
-   `core/deck_recipe.py` and gate the shipping path at normalized tier.
+1. **Grammar-path parity — DECIDED (A) and DONE 2026-07-03.** Grammar entries
+   carry the family template verbatim (`frame_text`); `deck_assemble.fill_frame`
+   reproduces the golden flow's substitution + injections, so the shipping path
+   is byte-identical to golden when engine bias == kit WHEN (gate:
+   `tests/test_deck_assemble_collateral_parity.py`). Airgap follow-up: re-mine
+   the full hold+delay corpus so every family gets a frame.
 2. **Phase G explainable grammar** -- spec at
    `docs/superpowers/specs/2026-07-02-generative-grammar-design.md` (approved
    direction). G0 sidecar first; reuse `core/verify_sidecar.py` plumbing.
