@@ -388,7 +388,15 @@ Honest status so a fresh agent does not mis-assume:
   named, the only byte delta is the added V-sources under `* Unspecified pins`
   — a feature, not a drift (the engine ties what the kit left floating). The
   2026-07-02 missing-collateral bugs (load cap, std_wv `.inc`, mpw slew/load
-  mapping) are structurally impossible in the frame path.
+  mapping) are structurally impossible in the frame path. Every run now also
+  emits (a) a per-deck `nominal_sim.explain.json` audit sidecar (G0 of the
+  Phase G spec: selection evidence, engine bias whys, collateral sources,
+  per-line origin map, written by the same pass that writes the deck) and
+  (b) the Demo-1 parity scoreboard: each generated deck is diffed against the
+  golden flow in-run; verdicts (byte / engine_extras / diff / no_golden /
+  golden_error) land in the ledger, coverage.html, and the GUI Run report.
+  e2e proof: `tests/test_e2e_demo_lib_generates.py` (real AOI22 topology,
+  25/25 parity=byte at full grid).
 - **Charge layer (L3):** real and partially built (cap-graph aggregation done; resolve
   step present). **Not empty** — a common mis-read.
 - **Combinational region-derivation (P1 region equivalence, partition hook, structural

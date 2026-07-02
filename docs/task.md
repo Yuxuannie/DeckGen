@@ -12,9 +12,15 @@ priority order (fast+accurate > usable > debuggable):
    `tests/test_deck_assemble_collateral_parity.py`). Airgap follow-up: re-mine
    the full hold+delay corpus so every family gets a frame.
 2. **Phase G explainable grammar** -- spec at
-   `docs/superpowers/specs/2026-07-02-generative-grammar-design.md` (approved
-   direction). G0 sidecar first; reuse `core/verify_sidecar.py` plumbing.
-3. **Merge to main** -- the working branch is ~290 commits ahead of
+   `docs/superpowers/specs/2026-07-02-generative-grammar-design.md`.
+   **G0 DONE 2026-07-03**: every generated deck ships a
+   `nominal_sim.explain.json` sidecar written by the same assembly pass
+   (selection evidence, engine bias whys, collateral value sources,
+   per-line origin map with conservation test). Every run also computes the
+   Demo-1 scoreboard: per-deck parity vs the golden flow
+   (byte / engine_extras / diff / no_golden / golden_error) in the ledger,
+   coverage.html, and the GUI Run report. Next: G1 decompiler + IR.
+3. **Merge to main** -- the working branch is ~300 commits ahead of
    `point2a-non-cons`; PR + merge before the next airgap download.
 4. **Airgap layout reconciliation** before any library-scale run
    (ARCHITECTURE.md section 4).
