@@ -291,17 +291,46 @@ def _write_reports(rows, universe, out_dir):
     return report
 
 
-def generate(collateral_dir, node, lib_type, out_dir, scope=None,
-             progress=None):
-    """Phase 1: discover -> generate_one each -> ledger + coverage. Writes NO
-    bsub. Returns RunResult. Stops at the resting state."""
-    from core.measurement.emit import load_grammar
+# --- parallel generation -----------------------------------------------------
+# Work items expand N arcs over few cells; the engine parse/decompose/classify
+# is per-cell (see _engine_ctx). To parallelise without losing that cache, we
+# batch items BY CELL and hand each batch to one worker, which keeps its own
+# per-cell cache. spawn (not fork) is used so generate() is safe to call from a
+# threaded front-end (the GUI runs it in a daemon thread; fork-after-threads can
+# deadlock). Below _PARALLEL_MIN we stay serial: small runs don't repay spawn
+# startup, and staying in-process keeps monkeypatch-based tests deterministic.
 
-    os.makedirs(out_dir, exist_ok=True)
-    manifest, tcl = _load_manifest_and_tcl(collateral_dir, node, lib_type)
-    work_items = discover(manifest, tcl, scope)     # may raise SelectionEmpty
-    grammar = load_grammar()
+_PARALLEL_MIN = 128     # item count below which serial wins
+_WORKER_CAP = 8         # never oversubscribe past this many processes
+_W = {}                 # per-worker constants, set once by _init_worker
 
+
+def _default_workers(total):
+    if total < _PARALLEL_MIN:
+        return 1
+    return max(1, min(os.cpu_count() or 1, _WORKER_CAP))
+
+
+def _init_worker(node, lib_type, collateral_dir, grammar, out_dir):
+    _W.update(node=node, lib_type=lib_type, collateral_dir=collateral_dir,
+              grammar=grammar, out_dir=out_dir)
+
+
+def _gen_batch(batch):
+    """Worker entry: process one cell's items with a fresh per-cell cache.
+    Returns [(original_index, OutcomeRow), ...]. Never raises for data errors
+    (generate_one doesn't); a hard process death is caught by the parent."""
+    cache = {}
+    out = []
+    for idx, wi in batch:
+        out.append((idx, generate_one(
+            wi, _W['node'], _W['lib_type'], _W['collateral_dir'],
+            _W['grammar'], _W['out_dir'], engine_cache=cache)))
+    return out
+
+
+def _generate_serial(work_items, node, lib_type, collateral_dir, grammar,
+                     out_dir, progress):
     rows = []
     total = len(work_items)
     engine_cache = {}    # per-run: parse/decompose/classify once per cell
@@ -310,6 +339,69 @@ def generate(collateral_dir, node, lib_type, out_dir, scope=None,
                                  out_dir, engine_cache=engine_cache))
         if progress:
             progress(idx + 1, total, rows[-1])
+    return rows
+
+
+def _generate_parallel(work_items, node, lib_type, collateral_dir, grammar,
+                       out_dir, workers, progress):
+    import multiprocessing as mp
+
+    by_cell = {}         # cell -> [(idx, wi), ...]; contiguous cache per batch
+    for idx, wi in enumerate(work_items):
+        arc = wi.get('arc') or {}
+        by_cell.setdefault(arc.get('cell', '__skip__'), []).append((idx, wi))
+    batches = list(by_cell.values())
+
+    rows = [None] * len(work_items)
+    total = len(work_items)
+    done = 0
+    ctx = mp.get_context('spawn')
+    pool = ctx.Pool(workers, initializer=_init_worker,
+                    initargs=(node, lib_type, collateral_dir, grammar, out_dir))
+    try:
+        pending = [(pool.apply_async(_gen_batch, (b,)), b) for b in batches]
+        for ar, batch in pending:
+            try:
+                results = ar.get()
+            except Exception as e:      # worker process died -- never drop arcs
+                results = [(idx, _row(wi, 'generation_error',
+                                      category='worker_crash',
+                                      reason='worker process failed: %s' % e))
+                           for idx, wi in batch]
+            for idx, row in results:
+                rows[idx] = row
+                done += 1
+                if progress:
+                    progress(done, total, row)
+    finally:
+        pool.close()
+        pool.join()
+    return rows
+
+
+def generate(collateral_dir, node, lib_type, out_dir, scope=None,
+             progress=None, workers=None):
+    """Phase 1: discover -> generate_one each -> ledger + coverage. Writes NO
+    bsub. Returns RunResult. Stops at the resting state.
+
+    workers: None auto-selects (serial below _PARALLEL_MIN, else a process pool
+    batched by cell); 1 forces serial; >1 forces that many worker processes."""
+    from core.measurement.emit import load_grammar
+
+    os.makedirs(out_dir, exist_ok=True)
+    manifest, tcl = _load_manifest_and_tcl(collateral_dir, node, lib_type)
+    work_items = discover(manifest, tcl, scope)     # may raise SelectionEmpty
+    grammar = load_grammar()
+
+    total = len(work_items)
+    if workers is None:
+        workers = _default_workers(total)
+    if workers > 1 and total > 1:
+        rows = _generate_parallel(work_items, node, lib_type, collateral_dir,
+                                  grammar, out_dir, workers, progress)
+    else:
+        rows = _generate_serial(work_items, node, lib_type, collateral_dir,
+                                grammar, out_dir, progress)
 
     write_ledger(rows, os.path.join(out_dir, 'ledger.ndjson'))
     with open(os.path.join(out_dir, 'run_config.json'), 'w',
