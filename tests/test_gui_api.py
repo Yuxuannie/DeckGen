@@ -99,9 +99,10 @@ def test_engine_topology_via_present_layer():
 
 def test_index_audit_first_nav_after_redesign():
     # 2026-06-24 redesign: audit-first nav. The Audit (combinational) workspace is
-    # the default view; Explore/Direct are demoted to "Decks"; the Validate and old
-    # sequential-Audit nav tabs are removed (their view divs may remain as hidden,
-    # non-nav siblings). Topology is embedded in the per-arc detail, not a tab.
+    # the default view; Explore is demoted to "Decks". The Direct (paste exact
+    # arc-ids) tab is retired in favor of scope-based Run; the Validate and old
+    # sequential-Audit nav tabs are removed too (their view divs may remain as
+    # hidden, non-nav siblings). Topology is embedded in the per-arc detail.
     import gui
     page = gui.HTML_PAGE if isinstance(getattr(gui, "HTML_PAGE", None), str) \
         else gui.build_page()
@@ -109,6 +110,7 @@ def test_index_audit_first_nav_after_redesign():
                    'id="ca-d-svg"', "showTab('comb-audit')", "showTab('explore')"):
         assert marker in page, marker
     # the retired tabs are no longer reachable from the nav bar
+    assert "showTab('direct')" not in page
     assert "showTab('validate')" not in page
     assert "showTab('topology')" not in page
     page.encode('ascii')

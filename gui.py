@@ -830,12 +830,6 @@ html,body{background:var(--bg);color:var(--text);
 .deck-ln{width:36px;text-align:right;padding-right:8px;color:#555;user-select:none;flex-shrink:0;}
 .deck-link{color:#4ec9b0;text-decoration:underline;text-decoration-style:dotted;cursor:pointer;}
 .deck-link:hover{color:#fff;background:#4ec9b0;border-radius:2px;}
-.dgrid{display:flex;height:100%;}
-.dgrid>.panel{flex:1 1 0;min-width:200px;border-right:1px solid var(--border);}
-.dgrid>.panel:last-child{border-right:none;flex:1 1 0;}
-.dta{width:100%;height:100%;border:none;resize:none;outline:none;
-  font-family:"SF Mono",Menlo,monospace;font-size:12px;padding:14px 16px;
-  line-height:1.6;background:var(--panel);color:var(--text);}
 .vi{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;}
 .vi .fl{flex:1;min-width:200px;}
 .vi .fl input{width:100%;font-family:"SF Mono",Menlo,monospace;font-size:12px;}
@@ -862,7 +856,6 @@ table.vtbl tr:hover td{background:var(--tint);}
   <div class="tabs">
     <div class="tab active" data-tab="comb-audit" onclick="showTab('comb-audit')">Audit</div>
     <div class="tab" onclick="showTab('explore')">Decks &middot; Explore</div>
-    <div class="tab" onclick="showTab('direct')">Decks &middot; Direct</div>
     <div class="tab" onclick="showTab('run')">Run &middot; Report</div>
   </div>
   <div class="spacer"></div>
@@ -978,38 +971,6 @@ table.vtbl tr:hover td{background:var(--tint);}
   </div>
   <div class="dvbody"><pre id="dvContent"></pre></div>
 </div>
-<div class="main view-hidden" id="view-direct">
-  <div class="dgrid">
-    <div class="panel" style="border-right:1px solid var(--border);">
-      <div class="ph">
-        <span class="pt">cell_arc_pt identifiers</span>
-        <span class="status-pill" style="margin-left:4px;">one per line</span>
-        <div class="spacer"></div>
-        <button class="btn btn-sm" onclick="directLoadFile()">Load file&hellip;</button>
-        <button class="btn btn-sm btn-ghost" onclick="directClear()">Clear</button>
-        <input type="file" id="directFile" accept=".txt" style="display:none" onchange="directFileChosen(event)">
-      </div>
-      <div style="flex:1;min-height:0;display:flex;flex-direction:column;">
-        <textarea class="dta" id="directTA" spellcheck="false" oninput="directParse()"></textarea>
-      </div>
-    </div>
-    <div class="resizer" id="directResizer"></div>
-    <div class="panel">
-      <div class="ph">
-        <span class="pt">Parsed summary</span>
-        <span class="status-pill" id="directPill" style="margin-left:4px;">&#x2014;</span>
-      </div>
-      <div class="pb" id="directSummary">
-        <div class="qempty">Paste identifiers or load a file to begin.</div>
-      </div>
-      <div class="pf">
-        <div class="spacer"></div>
-        <button class="btn" onclick="directPreview()">Preview</button>
-        <button class="btn btn-primary" onclick="directGenerate()">Generate</button>
-      </div>
-    </div>
-  </div>
-</div>
 <div class="main main-full view-hidden" id="view-validate">
   <div class="panel">
     <div class="ph">
@@ -1068,9 +1029,9 @@ var S={node:'',libtype:'',corners:[],selCorners:new Set(),cells:[],arcCache:{},
   vResults:[],vFilter:'all',genTaskId:'',genTotal:0,_restore:{}};
 function showTab(name){
   // nav order must match the .tab elements in the header
-  var tabs=['comb-audit','explore','direct','run'];
-  // every view div (incl. retired validate/topology/audit) hidden unless selected
-  ['comb-audit','explore','direct','run','validate','topology','audit'].forEach(function(n){
+  var tabs=['comb-audit','explore','run'];
+  // every view div (incl. retired direct/validate/topology/audit) hidden unless selected
+  ['comb-audit','explore','run','validate','topology','audit'].forEach(function(n){
     var el=document.getElementById('view-'+n);
     if(el) el.classList.toggle('view-hidden',n!==name);});
   document.querySelectorAll('.tab').forEach(function(t,i){
@@ -1548,43 +1509,6 @@ function renderDeckContent(txt,deckPath){
 function closeDeck(){document.getElementById('deckOv').classList.remove('open');
   document.querySelectorAll('.rrow').forEach(function(r){r.classList.remove('sel');});}
 function copyDeck(){navigator.clipboard.writeText(document.getElementById('dvContent').textContent).catch(function(){});}
-function directLoadFile(){document.getElementById('directFile').click();}
-function directFileChosen(e){var f=e.target.files[0];if(!f)return;
-  var reader=new FileReader();reader.onload=function(ev){
-    document.getElementById('directTA').value=ev.target.result;directParse();};reader.readAsText(f);}
-function directClear(){document.getElementById('directTA').value='';directParse();}
-function directParse(){var lines=document.getElementById('directTA').value.split('\\n')
-  .map(function(l){return l.trim();}).filter(Boolean);
-  var byType={};var errors=[];
-  lines.forEach(function(l){var parts=l.split('_');var arcType=parts[0]||'';
-    if(!arcType){errors.push(l);return;}byType[arcType]=(byType[arcType]||0)+1;});
-  var corners=S.selCorners.size;var total=lines.length*corners;
-  var pill=document.getElementById('directPill');
-  pill.textContent=lines.length+' arcs x '+corners+' corners = '+total+' decks';
-  var sumEl=document.getElementById('directSummary');
-  if(!lines.length){sumEl.innerHTML='<div class="qempty">Paste identifiers or load a file to begin.</div>';return;}
-  var html='<div class="qsl">Arc-types detected</div>';
-  Object.keys(byType).forEach(function(t){html+='<div class="qrow"><span class="atag" style="flex-shrink:0;">'+esc(t)+
-    '</span><span class="qtext">'+byType[t]+' arcs -- i1/i2 from identifier suffix</span></div>';});
-  if(errors.length)html+='<div style="margin-top:8px;font-size:11px;color:var(--err);">'+errors.length+' unrecognized lines</div>';
-  html+='<div style="margin-top:14px;" class="qsum"><div class="qsrow total"><span>'+
-    lines.length+' arcs x '+corners+' corners</span><span class="qnum">'+total+' decks</span></div></div>';
-  sumEl.innerHTML=html;}
-function directPreview(){var lines=document.getElementById('directTA').value.split('\\n')
-  .map(function(l){return l.trim();}).filter(Boolean);
-  post('/api/preview_v2',{mode:'batch',node:S.node,lib_type:S.libtype,
-    corners:Array.from(S.selCorners),arc_ids:lines}).then(function(d){
-    alert('Preview: '+(d.jobs?d.jobs.length:0)+' jobs planned. Errors: '+(d.errors?d.errors.length:0));});}
-function directGenerate(){var lines=document.getElementById('directTA').value.split('\\n')
-  .map(function(l){return l.trim();}).filter(Boolean);
-  showTab('explore');showResultsView();
-  document.getElementById('genStatus').textContent='Generating (direct mode)...';
-  document.getElementById('resultList').innerHTML='';S.results=[];
-  post('/api/generate_v2',{mode:'batch',node:S.node,lib_type:S.libtype,
-      corners:Array.from(S.selCorners),arc_ids:lines,output_dir:document.getElementById('outputDir').value.trim()||'./output/'})
-  .then(function(d){
-    if(d.results){d.results.forEach(function(res){S.results.push(res);appendResultRow(res);});}
-    finalizeResults();});}
 var _vAllRows=[];
 function runValidation(){post('/api/validate',{
   deckgen_root:document.getElementById('vDeckgenRoot').value,
