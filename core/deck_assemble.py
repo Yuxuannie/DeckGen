@@ -113,10 +113,30 @@ def _err(msg, **extra):
     return r
 
 
-def assemble_combinational(arc_info: dict, netlist_src: str, grammar: dict) -> dict:
+def _engine_ctx(engine_cache, cell, netlist_src):
+    """Parse + CCC-decompose the cell netlist, reusing a per-cell cached result
+    when engine_cache (a dict the caller owns for one run) is provided. The
+    engine treats graph/CCC read-only -- proven: classify+derive give identical
+    results and leave both objects byte-unchanged across reuse -- so the many
+    arcs of one cell share a single parse instead of re-parsing per arc. The
+    cache is per-run because a cell name maps to one netlist within a run."""
+    from engine.stages import stage0_parse, stage1_ccc
+    if engine_cache is not None and cell in engine_cache:
+        return engine_cache[cell]
+    graph = stage0_parse.parse(netlist_src, cell)
+    ccc = stage1_ccc.decompose(graph)
+    ctx = {"graph": graph, "ccc": ccc, "seq": None}
+    if engine_cache is not None:
+        engine_cache[cell] = ctx
+    return ctx
+
+
+def assemble_combinational(arc_info: dict, netlist_src: str, grammar: dict,
+                           engine_cache=None) -> dict:
     """Assemble a combinational delay/slew deck. Never raises: a bad arc is a named
-    ERROR row (feeds B4's coverage report)."""
-    from engine.stages import stage0_parse, stage1_ccc, stage2_sensitize
+    ERROR row (feeds B4's coverage report). engine_cache (optional per-run dict)
+    lets sibling arcs of the same cell reuse one parse -- see _engine_ctx."""
+    from engine.stages import stage2_sensitize
     from engine.types import Arc
     from core.measurement.emit import select_entry, emit
     from core.measurement.emit import SelectionError
@@ -125,8 +145,8 @@ def assemble_combinational(arc_info: dict, netlist_src: str, grammar: dict) -> d
     rel = arc_info.get("REL_PIN", "")
     probe = arc_info.get("PROBE_PIN_1", "")
     try:
-        graph = stage0_parse.parse(netlist_src, cell)
-        ccc = stage1_ccc.decompose(graph)
+        ctx = _engine_ctx(engine_cache, cell, netlist_src)
+        graph, ccc = ctx["graph"], ctx["ccc"]
     except Exception as e:
         return _err("netlist parse failed: %s" % e)
 
@@ -194,12 +214,14 @@ def _subckt_ports(netlist_src, cell):
     return ""
 
 
-def assemble_sequential(arc_info: dict, netlist_src: str, grammar: dict) -> dict:
+def assemble_sequential(arc_info: dict, netlist_src: str, grammar: dict,
+                        engine_cache=None) -> dict:
     """Assemble a runnable sequential deck (hold or mpw family). Never raises: a
     bad/unsupported arc is a named ERROR row. Family from ARC_TYPE
     (hold -> CP.sync{N}.D; mpw|min_pulse_width -> sync{N}.CP/CPN); depth from the
-    B2 structural class."""
-    from engine.stages import stage0_parse, stage1_ccc, stage2_sensitize
+    B2 structural class. engine_cache (optional per-run dict) lets sibling arcs
+    of the same cell reuse one parse + classify -- see _engine_ctx."""
+    from engine.stages import stage2_sensitize
     from engine.stages.stage1b_classify import classify, depth_of
     from engine.types import Arc
     from core.measurement.emit import select_entry, emit, SelectionError
@@ -221,13 +243,16 @@ def assemble_sequential(arc_info: dict, netlist_src: str, grammar: dict) -> dict
                     "(want hold|mpw)" % at)
 
     try:
-        graph = stage0_parse.parse(netlist_src, cell)
-        ccc = stage1_ccc.decompose(graph)
+        ctx = _engine_ctx(engine_cache, cell, netlist_src)
+        graph, ccc = ctx["graph"], ctx["ccc"]
     except Exception as e:
         return _err("netlist parse failed: %s" % e)
 
     try:
-        seq = classify(graph, cell)
+        seq = ctx["seq"]
+        if seq is None:
+            seq = classify(graph, cell)
+            ctx["seq"] = seq
         if seq.verdict in ("combinational", "recognized_unsupported"):
             return _err("not an assemblable sequential arc: verdict=%s (%s)"
                         % (seq.verdict, seq.reason or "no storage core"))

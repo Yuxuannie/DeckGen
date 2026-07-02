@@ -185,7 +185,8 @@ def _deck_path(out_dir, lib_type, wi):
                         wi['arc_type'], wi['arc_id'], 'nominal_sim.sp')
 
 
-def generate_one(work_item, node, lib_type, collateral_root, grammar, out_dir):
+def generate_one(work_item, node, lib_type, collateral_root, grammar, out_dir,
+                 engine_cache=None):
     """Resolve + route + assemble one work item; write its deck if OK.
     Returns an OutcomeRow. Never raises for data/generation problems."""
     from core.deck_assemble import assemble_combinational, assemble_sequential
@@ -234,9 +235,11 @@ def generate_one(work_item, node, lib_type, collateral_root, grammar, out_dir):
     netlist_src = open(netlist_path, encoding='latin-1').read()
 
     if arc['arc_type'].startswith('combinational'):
-        asm = assemble_combinational(arc_info, netlist_src, grammar)
+        asm = assemble_combinational(arc_info, netlist_src, grammar,
+                                     engine_cache=engine_cache)
     else:
-        asm = assemble_sequential(arc_info, netlist_src, grammar)
+        asm = assemble_sequential(arc_info, netlist_src, grammar,
+                                  engine_cache=engine_cache)
 
     if asm.get('status') != 'OK':
         return _row(work_item, 'generation_error',
@@ -301,9 +304,10 @@ def generate(collateral_dir, node, lib_type, out_dir, scope=None,
 
     rows = []
     total = len(work_items)
+    engine_cache = {}    # per-run: parse/decompose/classify once per cell
     for idx, wi in enumerate(work_items):
         rows.append(generate_one(wi, node, lib_type, collateral_dir, grammar,
-                                 out_dir))
+                                 out_dir, engine_cache=engine_cache))
         if progress:
             progress(idx + 1, total, rows[-1])
 
