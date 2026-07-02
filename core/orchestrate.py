@@ -314,7 +314,10 @@ _PARALLEL_MIN_CELLS = 8  # distinct-cell count below which serial wins. Work is
                          # would add spawn cost (~1-2s) for zero parallelism. An
                          # all-cell run (dozens of cells, ~1s+ parse each) repays
                          # the pool many times over.
-_WORKER_CAP = 8         # never oversubscribe past this many processes
+_WORKER_CAP = 32        # auto never spawns more than this; min(cpu, cap) leaves
+                        # the real ceiling at the machine's core count. Local
+                        # generation is core-bound -- for full-library scope
+                        # (thousands of cells) Submit-to-LSF fans out far wider.
 _W = {}                 # per-worker constants, set once by _init_worker
 
 
@@ -342,22 +345,36 @@ def _gen_batch(batch):
     return out
 
 
+def _cancelled_row(wi):
+    # A work item the run stopped before reaching. state 'skipped' keeps the
+    # coverage identity balanced (never a silently dropped arc); category
+    # 'cancelled' distinguishes it from a scope-time skip.
+    return _row(wi, 'skipped', category='cancelled',
+                reason='run cancelled before generation')
+
+
 def _generate_serial(work_items, node, lib_type, collateral_dir, grammar,
-                     out_dir, progress):
-    rows = []
+                     out_dir, progress, should_cancel=None):
     total = len(work_items)
+    rows = [None] * total
     engine_cache = {}    # per-run: parse/decompose/classify once per cell
     for idx, wi in enumerate(work_items):
-        rows.append(generate_one(wi, node, lib_type, collateral_dir, grammar,
-                                 out_dir, engine_cache=engine_cache))
+        if should_cancel and should_cancel():
+            break
+        rows[idx] = generate_one(wi, node, lib_type, collateral_dir, grammar,
+                                 out_dir, engine_cache=engine_cache)
         if progress:
-            progress(idx + 1, total, rows[-1])
+            progress(idx + 1, total, rows[idx])
+    for idx, wi in enumerate(work_items):     # fill any unreached (cancelled) items
+        if rows[idx] is None:
+            rows[idx] = _cancelled_row(wi)
     return rows
 
 
 def _generate_parallel(work_items, node, lib_type, collateral_dir, grammar,
-                       out_dir, workers, progress):
+                       out_dir, workers, progress, should_cancel=None):
     import multiprocessing as mp
+    import time
 
     by_cell = {}         # cell -> [(idx, wi), ...]; contiguous cache per batch
     for idx, wi in enumerate(work_items):
@@ -371,34 +388,60 @@ def _generate_parallel(work_items, node, lib_type, collateral_dir, grammar,
     ctx = mp.get_context('spawn')
     pool = ctx.Pool(workers, initializer=_init_worker,
                     initargs=(node, lib_type, collateral_dir, grammar, out_dir))
+    cancelled = False
     try:
-        pending = [(pool.apply_async(_gen_batch, (b,)), b) for b in batches]
-        for ar, batch in pending:
-            try:
-                results = ar.get()
-            except Exception as e:      # worker process died -- never drop arcs
-                results = [(idx, _row(wi, 'generation_error',
-                                      category='worker_crash',
-                                      reason='worker process failed: %s' % e))
-                           for idx, wi in batch]
-            for idx, row in results:
-                rows[idx] = row
-                done += 1
-                if progress:
-                    progress(done, total, row)
+        # Drain as-completed (not in submission order): a slow first cell no
+        # longer blocks progress for cells that already finished, so the bar
+        # advances the moment ANY cell is done -- and we get a cancel checkpoint.
+        remaining = [(pool.apply_async(_gen_batch, (b,)), b) for b in batches]
+        while remaining:
+            if should_cancel and should_cancel():
+                cancelled = True
+                pool.terminate()
+                break
+            progressed = False
+            still = []
+            for ar, batch in remaining:
+                if not ar.ready():
+                    still.append((ar, batch))
+                    continue
+                try:
+                    results = ar.get()
+                except Exception as e:  # worker process died -- never drop arcs
+                    results = [(idx, _row(wi, 'generation_error',
+                                          category='worker_crash',
+                                          reason='worker process failed: %s' % e))
+                               for idx, wi in batch]
+                for idx, row in results:
+                    rows[idx] = row
+                    done += 1
+                    if progress:
+                        progress(done, total, row)
+                progressed = True
+            remaining = still
+            if remaining and not progressed:
+                time.sleep(0.1)
     finally:
-        pool.close()
+        if not cancelled:
+            pool.close()
         pool.join()
+    if cancelled:
+        for idx, wi in enumerate(work_items):
+            if rows[idx] is None:
+                rows[idx] = _cancelled_row(wi)
     return rows
 
 
 def generate(collateral_dir, node, lib_type, out_dir, scope=None,
-             progress=None, workers=None):
+             progress=None, workers=None, should_cancel=None):
     """Phase 1: discover -> generate_one each -> ledger + coverage. Writes NO
     bsub. Returns RunResult. Stops at the resting state.
 
-    workers: None auto-selects (serial below _PARALLEL_MIN, else a process pool
-    batched by cell); 1 forces serial; >1 forces that many worker processes."""
+    workers: None auto-selects (serial below _PARALLEL_MIN_CELLS, else a process
+    pool batched by cell); 1 forces serial; >1 forces that many worker processes.
+    should_cancel: optional 0-arg predicate polled between items/batches; when it
+    returns True the run stops early and every unreached arc becomes a
+    skipped:cancelled row (coverage stays balanced -- no silent drop)."""
     from core.measurement.emit import load_grammar
 
     os.makedirs(out_dir, exist_ok=True)
@@ -407,6 +450,9 @@ def generate(collateral_dir, node, lib_type, out_dir, scope=None,
     grammar = load_grammar()
 
     total = len(work_items)
+    if progress:
+        progress(0, total, None)     # publish the total BEFORE the (slow) pool
+                                     # spawn so the UI shows 0/N, not a dead 0/0
     # Auto-selection keys off distinct-cell count (parallelism divides by cell
     # batch, not by item). An explicit workers>1 is honored as documented, even
     # for a single cell -- callers who ask for a pool get one.
@@ -415,10 +461,12 @@ def generate(collateral_dir, node, lib_type, out_dir, scope=None,
         workers = _default_workers(n_cells)
     if workers > 1 and total > 1:
         rows = _generate_parallel(work_items, node, lib_type, collateral_dir,
-                                  grammar, out_dir, workers, progress)
+                                  grammar, out_dir, workers, progress,
+                                  should_cancel=should_cancel)
     else:
         rows = _generate_serial(work_items, node, lib_type, collateral_dir,
-                                grammar, out_dir, progress)
+                                grammar, out_dir, progress,
+                                should_cancel=should_cancel)
 
     write_ledger(rows, os.path.join(out_dir, 'ledger.ndjson'))
     with open(os.path.join(out_dir, 'run_config.json'), 'w',
@@ -428,8 +476,9 @@ def generate(collateral_dir, node, lib_type, out_dir, scope=None,
                    'out_dir': out_dir}, fh, indent=2)
     universe = [wi_universe_tuple(wi) for wi in work_items]
     report = _write_reports(rows, universe, out_dir)
+    cancelled = any(r['category'] == 'cancelled' for r in rows)
     return {'run_dir': out_dir, 'universe': universe, 'rows': rows,
-            'coverage': report}
+            'coverage': report, 'cancelled': cancelled}
 
 
 class NothingToSubmit(Exception):

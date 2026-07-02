@@ -518,26 +518,35 @@ def _api_run_generate(payload):
     scope = _run_scope(payload)
     out_dir = os.path.abspath(
         payload.get('out') or payload.get('output_dir') or './run_output')
+    try:
+        workers = int(payload.get('workers') or 0) or None   # 0/blank -> auto
+    except (TypeError, ValueError):
+        workers = None
+    cancel_event = threading.Event()
     task_id = uuid.uuid4().hex[:12]
     with _RUN_LOCK:
         _RUN_TASKS[task_id] = {
             'phase': 'generate', 'status': 'running', 'progress': 0,
             'total': 0, 'current': '', 'out_dir': out_dir,
-            'coverage': None, 'error': ''}
+            'coverage': None, 'error': '', 'cancelled': False,
+            'cancel': cancel_event}
 
     def _worker():
         def _prog(done, total, row):
             with _RUN_LOCK:
                 t = _RUN_TASKS[task_id]
                 t['progress'], t['total'] = done, total
-                t['current'] = row.get('arc_id', '')
+                t['current'] = row.get('arc_id', '') if row else ''
         try:
             res = orchestrate.generate(root, node, lib_type, out_dir,
-                                       scope=scope, progress=_prog)
+                                       scope=scope, progress=_prog,
+                                       workers=workers,
+                                       should_cancel=cancel_event.is_set)
             with _RUN_LOCK:
                 t = _RUN_TASKS[task_id]
                 t['status'], t['current'] = 'generated', ''
                 t['coverage'] = res['coverage']
+                t['cancelled'] = res.get('cancelled', False)
         except orchestrate.SelectionEmpty as e:
             with _RUN_LOCK:
                 t = _RUN_TASKS[task_id]
@@ -561,10 +570,23 @@ def _api_run_status(task_id):
         t = _RUN_TASKS.get(task_id)
         if t is None:
             return {'error': 'Unknown task_id'}
-        snap = {k: v for k, v in t.items() if k != '_thread'}
+        snap = {k: v for k, v in t.items() if k not in ('_thread', 'cancel')}
     if snap.get('coverage') is not None:
         snap['coverage'] = _coverage_json(snap['coverage'])
     return snap
+
+
+def _api_run_cancel(task_id):
+    """Signal a running generate task to stop. It finishes the arcs already in
+    flight, marks the rest skipped:cancelled, and writes a partial report."""
+    with _RUN_LOCK:
+        t = _RUN_TASKS.get(task_id)
+        if t is None:
+            return {'error': 'Unknown task_id'}
+        ev = t.get('cancel')
+    if ev is not None:
+        ev.set()
+    return {'ok': True}
 
 
 def _api_run_coverage(task_id):
@@ -1960,6 +1982,8 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
             self._send_json(_api_run_generate(data)); return
         elif path == '/api/run/status':
             self._send_json(_api_run_status(data.get('task_id', ''))); return
+        elif path == '/api/run/cancel':
+            self._send_json(_api_run_cancel(data.get('task_id', ''))); return
         elif path == '/api/run/coverage':
             self._send_json(_api_run_coverage(data.get('task_id', ''))); return
         elif path == '/api/run/submit':

@@ -716,17 +716,23 @@ def run_tab_html():
       </label>
       <label class="run-fld"><span>Output dir</span>
         <input id="runOut" class="run-in" placeholder="./run_output/"></label>
+      <label class="run-fld"><span>Workers</span>
+        <input id="runWorkers" class="run-in" placeholder="auto"></label>
     </div>
     <div class="run-actions">
       <button class="btn" onclick="runPlan()">Preview scope</button>
       <button class="btn btn-primary" id="runGenerateBtn"
               onclick="runGenerate()">Generate decks</button>
+      <button class="btn" id="runStopBtn" onclick="runStop()"
+              style="display:none">Stop</button>
       <button class="btn" id="runSubmitBtn" onclick="runSubmit()" disabled>
         Submit to LSF</button>
     </div>
     <p class="run-note">Generate builds the decks locally and stops. Review the
       coverage below, then Submit emits the bsub arrays -- nothing is queued to
-      LSF until you confirm.</p>
+      LSF until you confirm. Stop halts generation and still writes a report for
+      whatever finished. Local generation is core-bound (Workers defaults to the
+      machine's cores); for full-library scope, Submit to LSF fans out wider.</p>
     <div id="run-progress" style="display:none;margin:8px 0">
       <div class="ca-prog"><div class="ca-prog-bar">
         <div class="ca-prog-fill" id="run-bar-fill"></div></div></div>
@@ -757,11 +763,13 @@ function runPayload(){
   var arcsN=document.getElementById('runArcsN').value.trim();
   var tp=runParseTP(document.getElementById('runTP').value);
   var out=document.getElementById('runOut').value.trim()||'./run_output';
+  var wk=document.getElementById('runWorkers').value.trim();
   var p={node:S.node,lib_type:S.libtype,out:out};
   if(corner&&corner.indexOf('(all')!==0)p.corners=[corner];
   if(cells)p.cells=cells.split(/[\s,]+/).filter(Boolean);
   if(arcsN)p.arcs_per_cell=parseInt(arcsN,10);
   if(tp.length)p.table_points=tp;
+  if(wk)p.workers=parseInt(wk,10);
   return p;
 }
 function runErr(id,msg){document.getElementById(id).innerHTML=
@@ -800,27 +808,48 @@ function runPlan(){
 }
 function runGenerate(){
   document.getElementById('runSubmitBtn').disabled=true;
+  document.getElementById('runGenerateBtn').disabled=true;
+  var stop=document.getElementById('runStopBtn');
+  stop.style.display='';stop.disabled=false;stop.textContent='Stop';
   document.getElementById('run-triage').innerHTML='';
   document.getElementById('run-lsf').innerHTML='';
   post('/api/run/generate',runPayload()).then(function(d){
-    if(d.error){runErr('run-summary',d.error);return;}
+    if(d.error){runErr('run-summary',d.error);runResetBtns();return;}
     RUN.taskId=d.task_id;
     document.getElementById('run-progress').style.display='block';
     RUN.polling=true;runPoll();
   });
+}
+function runStop(){
+  if(!RUN.taskId)return;
+  var stop=document.getElementById('runStopBtn');
+  stop.disabled=true;stop.textContent='Stopping...';
+  post('/api/run/cancel',{task_id:RUN.taskId});
+}
+function runResetBtns(){
+  document.getElementById('runGenerateBtn').disabled=false;
+  document.getElementById('runStopBtn').style.display='none';
 }
 function runPoll(){
   if(!RUN.polling)return;
   post('/api/run/status',{task_id:RUN.taskId}).then(function(d){
     var pct=d.total?Math.round(100*d.progress/d.total):0;
     document.getElementById('run-bar-fill').style.width=pct+'%';
-    document.getElementById('run-progress-text').textContent=
-      'Generating '+(d.progress||0)+'/'+(d.total||0)+' ('+pct+'%)'+
-      (d.current?' - '+d.current:'');
+    // total is published before the worker pool spawns, so progress can sit at
+    // 0/N for a bit while collateral loads and workers start -- say so.
+    var txt=(d.progress>0)?
+      ('Generating '+(d.progress||0)+'/'+(d.total||0)+' ('+pct+'%)'+
+        (d.current?' - '+d.current:'')):
+      ('Preparing '+(d.total||0)+' arcs (loading collateral, starting workers)...');
+    document.getElementById('run-progress-text').textContent=txt;
     if(d.status==='running'){setTimeout(runPoll,400);return;}
     RUN.polling=false;
     RUN.outDir=d.out_dir||'';
+    runResetBtns();
     if(d.status==='error'){runErr('run-summary',d.error||'error');return;}
+    if(d.cancelled)document.getElementById('run-progress-text').textContent=
+      'Stopped at '+(d.progress||0)+'/'+(d.total||0)+
+      ' -- partial report below (unreached arcs counted as skipped).';
     runLoadCoverage();
     document.getElementById('runSubmitBtn').disabled=false;
   });
