@@ -481,6 +481,7 @@ def _coverage_json(report):
     return {
         'summary': report.get('summary', {}),
         'by_category': report.get('by_category', {}),
+        'by_parity': report.get('by_parity', {}),
         'by_corner': report.get('by_corner', {}),
         'triage': report.get('triage', []),
         'matrix': matrix,

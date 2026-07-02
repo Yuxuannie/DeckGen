@@ -940,15 +940,34 @@ function runRenderCoverage(d){
     ' deck'+(gen===1?'':'s')+' to <code>'+esc(RUN.outDir)+'</code>.'+
     (gen===0?' No decks were generated -- see the triage table below, or '+
       '<code>ledger.ndjson</code> in that folder for the reason on every '+
-      'arc.':'')+'</div>':'';
+      'arc.':' Each deck has a matching <code>nominal_sim.explain.json</code>'+
+      ' audit sidecar next to it (selection evidence, engine bias whys, '+
+      'collateral sources, per-line origin map).')+'</div>':'';
+  var bp=d.by_parity||{};
+  var parity='';
+  if(Object.keys(bp).length){
+    var byteN=bp.byte||0, extrasN=bp.engine_extras||0, diffN=bp.diff||0;
+    var noGold=(bp.no_golden||0)+(bp.golden_error||0);
+    var trustTxt=byteN+' byte'+(extrasN?' + '+extrasN+' engine-extras':'')+
+      ' (trust)';
+    var bits=['<span class="eng-chip chip-pass">'+trustTxt+'</span>'];
+    if(diffN)bits.push('<span class="eng-chip chip-fail">'+diffN+
+      ' diff (review)</span>');
+    if(noGold)bits.push('<span class="eng-mut">'+noGold+' no-golden</span>');
+    parity='<div class="eng-mut" style="margin-top:6px">Parity vs golden: '+
+      bits.join(' / ')+'</div>';
+  }
   document.getElementById('run-summary').innerHTML=
     '<div class="run-card">'+badge+' &nbsp;expected '+su.expected+
     ' = generated '+su.generated+' + submitted '+(su.submitted||0)+
-    ' + error '+su.generation_error+' + skipped '+su.skipped+loc+'</div>';
+    ' + error '+su.generation_error+' + skipped '+su.skipped+loc+parity+
+    '</div>';
   var tri=d.triage||[];
   var th=document.getElementById('run-triage');
   if(!tri.length){th.innerHTML=
     '<div class="eng-mut">No generation errors.</div>';return;}
+  // Triage rows are generation errors (no deck was produced), so they never
+  // carry a 'parity' verdict -- nothing to render per-row here.
   var body=tri.map(function(r){return '<tr><td>'+esc(r.category||'')+
     '</td><td>'+esc(r.arc_id||'')+'</td><td>'+esc(r.reason||'')+
     '</td></tr>';}).join('');
