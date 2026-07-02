@@ -317,3 +317,70 @@ def generate(collateral_dir, node, lib_type, out_dir, scope=None,
     report = _write_reports(rows, universe, out_dir)
     return {'run_dir': out_dir, 'universe': universe, 'rows': rows,
             'coverage': report}
+
+
+class NothingToSubmit(Exception):
+    """submit() called but no rows are in the 'generated' state."""
+
+
+def submit(run_dir, slot_limit=50, runlimit="00:20", progress=None):
+    """Phase 2 (post-confirm): read generated rows, emit real bsub arrays,
+    advance rows generated -> submitted, rewrite ledger + coverage. Refuses
+    (NothingToSubmit, no partial writes) if there is nothing to submit."""
+    from core.lsf import emit_arrays
+
+    ledger_path = os.path.join(run_dir, 'ledger.ndjson')
+    rows = read_ledger(ledger_path)
+    generated = [r for r in rows if r['state'] == 'generated']
+    if not generated:
+        raise NothingToSubmit('no generated decks to submit in %s' % run_dir)
+
+    arrays = emit_arrays(generated, run_dir, slot_limit=slot_limit,
+                         runlimit=runlimit)
+    submitted_ids = {r['arc_id'] for r in generated}
+    for r in rows:
+        if r['state'] == 'generated' and r['arc_id'] in submitted_ids:
+            r['state'] = 'submitted'
+    write_ledger(rows, ledger_path)
+
+    universe = [(r['cell'], r['arc_type'], r['i1'], r['i2'], r['corner'])
+                for r in rows]
+    report = _write_reports(rows, universe, run_dir)
+    if progress:
+        progress(arrays)
+    return {'run_dir': run_dir, 'universe': universe, 'rows': rows,
+            'coverage': report, 'arrays': arrays}
+
+
+_PIN_BUCKET_SECONDS = {'small': 30, 'medium': 90, 'large': 180}
+
+
+def plan(collateral_dir, node, lib_type, scope=None):
+    """dry-run: discover only, return the scope plan without generating."""
+    manifest, tcl = _load_manifest_and_tcl(collateral_dir, node, lib_type)
+    work_items = discover(manifest, tcl, scope)      # may raise SelectionEmpty
+    matrix_counts = {}
+    for wi in work_items:
+        key = (wi['cell'], wi['corner'])
+        matrix_counts[key] = matrix_counts.get(key, 0) + 1
+    # heuristic walltime: 90s/item baseline (medium pin bucket)
+    est = len(work_items) * _PIN_BUCKET_SECONDS['medium']
+    return {'expected': len(work_items), 'matrix_counts': matrix_counts,
+            'walltime_est': est, 'work_items': work_items}
+
+
+def run(collateral_dir, node, lib_type, out_dir, scope=None, dry_run=False,
+        confirm=None, slot_limit=50, progress=None):
+    """CLI convenience wiring. dry_run -> plan only. Else generate; if confirm
+    is provided and returns True, submit. confirm=None -> generate only (safe
+    default, no submission)."""
+    if dry_run:
+        return plan(collateral_dir, node, lib_type, scope)
+    res = generate(collateral_dir, node, lib_type, out_dir, scope=scope,
+                   progress=progress)
+    if confirm is not None and confirm(res):
+        try:
+            return submit(out_dir, slot_limit=slot_limit)
+        except NothingToSubmit:
+            return res
+    return res
