@@ -117,6 +117,25 @@ def coverage_html(report, path):
            '<p>expected=%d generated=%d submitted=%d error=%d skipped=%d</p>'
            % (s['expected'], s['generated'], s['submitted'],
               s['generation_error'], s['skipped'])]
+    # Demo-1 scoreboard: the two cohorts, framed for review. byte +
+    # engine_extras = trust (golden reproduced; extras are engine ties on
+    # pins the kit left floating). diff = review queue.
+    bp = report.get('by_parity') or {}
+    if bp:
+        trust = bp.get('byte', 0) + bp.get('engine_extras', 0)
+        review = bp.get('diff', 0)
+        rest = {k: v for k, v in sorted(bp.items())
+                if k not in ('byte', 'engine_extras', 'diff')}
+        line = ('<h2>Parity vs golden</h2><p>'
+                '<b style="color:#0a0">%d trust</b> '
+                '(%d byte-identical + %d engine-extras)'
+                % (trust, bp.get('byte', 0), bp.get('engine_extras', 0)))
+        if review:
+            line += ' / <b style="color:#c00">%d review (diff)</b>' % review
+        if rest:
+            line += ' / %s' % _esc(' '.join(
+                '%s=%d' % kv for kv in rest.items()))
+        out.append(line + '</p>')
     if report['unaccounted']:
         out.append('<p style="color:#c00">unaccounted: %s</p>'
                    % _esc(report['unaccounted']))
