@@ -43,10 +43,14 @@ priority order (fast+accurate > usable > debuggable):
    flag deferred to G3 (spec: extrapolation policy decided with the real
    airgap depth distribution in hand). Next: G3 airgap corpus decompile +
    extrapolation policy.
-3. **Merge to main** -- the working branch is ~300 commits ahead of
-   `point2a-non-cons`; PR + merge before the next airgap download.
+3. **Merge to main -- DONE 2026-07-03.** PR #12 merged into `main` at
+   cf37634 (303 commits: frame emitter, Phase A/B, G0-G2, Run-Report GUI).
+   Note the GitHub default branch is still `point2a-non-cons` (17 behind /
+   4 ahead of `main`); Demo 1 integration line is `main`.
 4. **Airgap layout reconciliation** before any library-scale run
-   (ARCHITECTURE.md section 4).
+   (ARCHITECTURE.md section 4). Then G3: re-mine the full hold+delay corpus,
+   review decompile verbatim residue, decide extrapolation policy (and its
+   run-CLI/GUI wiring) with the real depth distribution in hand.
 
 Historical content below is kept for archaeology; do not work from it.
 
