@@ -1,0 +1,11 @@
+* Synthetic 2:1 mux Z = (!S & I0) | (S & I1), transmission-gate style.
+* Reconstructed (real LPE photo too dense to transcribe); function confirmed
+* against the cell's own define_leakage / define_arc WHEN conditions.
+.subckt MUX2MDLIMZD0P7BWP130HPNPN3P48CPD I0 I1 S Z VDD VSS VPP VBB
+XPsn SN S VDD VPP pch_svt_mac L=3e-09 W=2e-08
+XNsn SN S VSS VBB nch_svt_mac L=3e-09 W=2e-08
+XNtg0 Z SN I0 VBB nch_svt_mac L=3e-09 W=2e-08
+XPtg0 Z S  I0 VPP pch_svt_mac L=3e-09 W=2e-08
+XNtg1 Z S  I1 VBB nch_svt_mac L=3e-09 W=2e-08
+XPtg1 Z SN I1 VPP pch_svt_mac L=3e-09 W=2e-08
+.ends MUX2MDLIMZD0P7BWP130HPNPN3P48CPD

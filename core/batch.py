@@ -8,6 +8,7 @@ Two-phase design:
 """
 
 import os
+import sys
 import concurrent.futures
 
 from core.parsers.arc import parse_arc_identifier
@@ -197,7 +198,8 @@ def plan_jobs(arc_ids, corner_names, files, overrides=None,
     return jobs, errors
 
 
-def execute_jobs(jobs, output_dir, nominal_only=False, num_samples=5000, files=None):
+def execute_jobs(jobs, output_dir, nominal_only=False, num_samples=5000,
+                 files=None, verify=False):
     """Build and write decks for a list of planned jobs.
 
     Args:
@@ -216,7 +218,8 @@ def execute_jobs(jobs, output_dir, nominal_only=False, num_samples=5000, files=N
     def _run_one(job):
         if job.get('error'):
             return {'id': job['id'], 'success': False,
-                    'nominal': None, 'mc': None, 'error': job['error']}
+                    'nominal': None, 'mc': None, 'error': job['error'],
+                    'sidecar': None}
         try:
             # Collateral-backed jobs already carry a fully-resolved arc_info;
             # legacy jobs have only field-level data, so reconstruct there.
@@ -267,11 +270,25 @@ def execute_jobs(jobs, output_dir, nominal_only=False, num_samples=5000, files=N
                 mc_path = os.path.join(deck_dir, 'mc_sim.sp')
                 write_deck(mc_lines, mc_path)
 
+            sidecar = None
+            if verify:
+                # Audit sidecar -- observer only. Its own failure must never
+                # fail the job (the deck is already written and valid).
+                try:
+                    from core.verify_sidecar import write_sidecar
+                    sidecar = write_sidecar(deck_dir, arc_info, job,
+                                            nominal_lines)
+                except Exception as ve:
+                    print("  WARN: verify sidecar failed for job "
+                          f"{job['id']}: {ve}", file=sys.stderr)
+
             return {'id': job['id'], 'success': True,
-                    'nominal': nominal_path, 'mc': mc_path, 'error': None}
+                    'nominal': nominal_path, 'mc': mc_path, 'error': None,
+                    'sidecar': sidecar}
         except Exception as e:
             return {'id': job['id'], 'success': False,
-                    'nominal': None, 'mc': None, 'error': str(e)}
+                    'nominal': None, 'mc': None, 'error': str(e),
+                    'sidecar': None}
 
     results = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
@@ -285,7 +302,8 @@ def execute_jobs(jobs, output_dir, nominal_only=False, num_samples=5000, files=N
 
 def run_batch(arc_ids, corner_names, files, overrides=None, output_dir='.',
               selected_ids=None, nominal_only=False, num_samples=5000,
-              node=None, lib_type=None, collateral_root='collateral'):
+              node=None, lib_type=None, collateral_root='collateral',
+              verify=False):
     """High-level batch runner: plan then execute.
 
     Args:
@@ -317,7 +335,7 @@ def run_batch(arc_ids, corner_names, files, overrides=None, output_dir='.',
     results = execute_jobs(jobs_to_run, output_dir,
                            nominal_only=nominal_only,
                            num_samples=num_samples,
-                           files=files)
+                           files=files, verify=verify)
     return jobs, results, errors
 
 

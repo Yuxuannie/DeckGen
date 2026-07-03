@@ -1,5 +1,57 @@
 # DeckGen Task List (for local Claude Code continuation)
 
+## CURRENT (2026-07-03) -- everything below this block is historical
+
+Authoritative status lives in `ARCHITECTURE.md` section 9. Open items, in
+priority order (fast+accurate > usable > debuggable):
+
+1. **Grammar-path parity — DECIDED (A) and DONE 2026-07-03.** Grammar entries
+   carry the family template verbatim (`frame_text`); `deck_assemble.fill_frame`
+   reproduces the golden flow's substitution + injections, so the shipping path
+   is byte-identical to golden when engine bias == kit WHEN (gate:
+   `tests/test_deck_assemble_collateral_parity.py`). Airgap follow-up: re-mine
+   the full hold+delay corpus so every family gets a frame.
+2. **Phase G explainable grammar** -- spec at
+   `docs/superpowers/specs/2026-07-02-generative-grammar-design.md`.
+   **G0 DONE 2026-07-03**: every generated deck ships a
+   `nominal_sim.explain.json` sidecar written by the same assembly pass
+   (selection evidence, engine bias whys, collateral value sources,
+   per-line origin map with conservation test). Every run also computes the
+   Demo-1 scoreboard: per-deck parity vs the golden flow
+   (byte / engine_extras / diff / no_golden / golden_error) in the ledger,
+   coverage.html, and the GUI Run report.
+   **G1 DONE 2026-07-03**: recipe decompiler + typed IR
+   (`core/measurement/decompile.py`) -- every grammar recipe line owned by a
+   named semantic rule with extracted params and a why; byte-exact round-trip
+   on all 55 local entries; 100% coverage (2862/2862 lines, zero verbatim
+   residue) with residue report CLI
+   (`python -m core.measurement.decompile report`); the explain sidecar's
+   per-line records now carry the semantic rule + why (gate:
+   `tests/test_measurement_decompile.py`).
+   **G2 DONE 2026-07-03**: parameterized generators
+   (`core/measurement/generate.py`) -- delay/common_inpin is one generator x
+   (rel_dir, out_dir); mpw sync{N}.CP and hold CP.sync{N}.D are one generator
+   each with t0x ladder / phase string / cross= indices as functions of depth
+   N. Parity gate: all 17 mined family instances byte-match the generator AND
+   self-splice their recipe into their own frame identically
+   (`python -m core.measurement.generate check`, gate:
+   `tests/test_measurement_generate.py`). Extrapolation flag landed default
+   OFF: depth>6 still refuses (refusal now names the flag);
+   `assemble_sequential(..., allow_extrapolation=True)` builds the entry from
+   the generator (frame = deepest mined donor + spliced recipe) and stamps
+   `selection.extrapolated: true` in the sidecar. Run-CLI/GUI wiring of the
+   flag deferred to G3 (spec: extrapolation policy decided with the real
+   airgap depth distribution in hand). Next: G3 airgap corpus decompile +
+   extrapolation policy.
+3. **Merge to main** -- the working branch is ~300 commits ahead of
+   `point2a-non-cons`; PR + merge before the next airgap download.
+4. **Airgap layout reconciliation** before any library-scale run
+   (ARCHITECTURE.md section 4).
+
+Historical content below is kept for archaeology; do not work from it.
+
+---
+
 Branch to pull from: `claude/analyze-repo-structure-i8J6b` (or merge to main
 first). Read `design.md` and `../CLAUDE.md` alongside this file.
 

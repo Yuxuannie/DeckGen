@@ -5,3 +5,23 @@ collateral/*/*/Netlist/
 __pycache__/
 *.py[cod]
 *.pyo
+
+# generated manifest in the shipped example collateral (rebuilt on demand)
+examples/sample_collateral/**/manifest.json
+
+# engine_walkthrough generated artifacts (regenerate via build_pptx.py)
+docs/engine_walkthrough/_png/
+docs/engine_walkthrough/engine_walkthrough.pptx
+docs/engine_walkthrough/pitch.pptx
+
+# generated tooling dirs / caches (must never land in an engine commit)
+graphify-out/
+.pytest_cache/
+.DS_Store
+
+# local agent/tooling state (not engine source)
+.claude/
+.agents/
+.omc/
+skills-lock.json
+.gstack/

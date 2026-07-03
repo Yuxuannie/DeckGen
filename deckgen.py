@@ -114,6 +114,10 @@ def parse_args():
                    help='Library type subdir under {node}/ (required with --node).')
     p.add_argument('--rescan', action='store_true',
                    help='Force rescan of collateral manifest before running.')
+    p.add_argument('--verify', action='store_true',
+                   help='also run the v2 engine per arc and write a verdict '
+                        'sidecar JSON next to each deck (audit only; never '
+                        'changes deck output)')
 
     # Config and output
     p.add_argument('--config', default=None,
@@ -227,6 +231,20 @@ def _run_single(args, script_dir):
         print(f"Nominal deck: {nominal_path}")
         print(f"MC deck:      {mc_path}")
 
+    if args.verify:
+        # Lazy import: with --verify off, no engine code is ever loaded.
+        from core.verify_sidecar import write_sidecar
+        deck_dir = os.path.dirname(out_path if args.nominal_only
+                                   else nominal_path)
+        try:
+            sc = write_sidecar(deck_dir, arc_info,
+                               {'when': args.when,
+                                'probe_pin': args.probe_pin or ''},
+                               nominal_lines)
+            print(f"Verify sidecar: {sc}")
+        except Exception as ve:
+            print(f"WARN: verify sidecar failed: {ve}", file=sys.stderr)
+
     print(f"\nDeck generated for: {args.cell} / {args.arc_type} / "
           f"{args.rel_pin}({args.rel_dir})->{args.constr_pin or ''}({args.constr_dir or ''})")
 
@@ -335,6 +353,7 @@ def _run_batch(args, script_dir):
         num_samples=args.num_samples,
         node=args.node,
         lib_type=args.lib_type,
+        verify=args.verify,
     )
 
     # Report fatal parse errors
@@ -350,6 +369,8 @@ def _run_batch(args, script_dir):
         label = f"  [{r['id']:3d}] {job.get('cell', '?')} / {job.get('corner', '?')}"
         if r['success']:
             print(f"{label}  ->  {r['nominal']}")
+            if r.get('sidecar'):
+                print(f"        verify: {r['sidecar']}")
         else:
             print(f"{label}  FAILED: {r['error']}", file=sys.stderr)
 

@@ -18,6 +18,7 @@ import sys
 import threading
 import time
 import webbrowser
+import gui_engine_views as _ev
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
@@ -39,6 +40,13 @@ _STORE_LOCK = threading.Lock()
 # Async generate task store: task_id -> {status, progress, total, current, results, errors}
 _GENERATE_TASKS = {}
 _GENERATE_LOCK = threading.Lock()
+_AUDIT_TASKS = {}
+_AUDIT_LOCK = threading.Lock()
+
+# Phase C-2 orchestration run store: task_id ->
+# {phase, status, progress, total, current, out_dir, coverage, error}
+_RUN_TASKS = {}
+_RUN_LOCK = threading.Lock()
 
 
 def _get_store(node, lib_type):
@@ -273,7 +281,7 @@ def _api_list_arcs(node, lib_type, cell):
         if not probe_pin and output_pins:
             probe_pin = output_pins[0]
 
-        # Source provenance — find cell-specific netlist file
+        # Source provenance -- find cell-specific netlist file
         netlist_file = None
         if netlist_dir:
             cell_name = a.get('cell', cell)
@@ -429,6 +437,207 @@ def _api_source_search(file_id, query, max_results=500):
     return {'lines': hits, 'total': len(hits)}
 
 
+# ---------------------------------------------------------------------------
+# Phase C-2: orchestration Run/Report APIs (pure module-level, test seam).
+# Thin wiring over core.orchestrate; the browser calls these via /api/run/*.
+# Generate writes NO bsub; Submit is the operator confirm gate.
+# ---------------------------------------------------------------------------
+
+def _run_config(payload):
+    """(collateral_root, node, lib_type) from a run payload."""
+    root = payload.get('collateral') or getattr(
+        DeckgenHandler, 'COLLATERAL_ROOT', _DEFAULT_COLLATERAL_ROOT)
+    return root, payload.get('node', ''), payload.get('lib_type', '')
+
+
+def _run_scope(payload):
+    """Build a core.orchestrate scope dict from a run payload, or None."""
+    scope = {}
+    if payload.get('cells'):
+        scope['cells'] = list(payload['cells'])
+    if payload.get('arcs_per_cell') not in (None, ''):
+        scope['arcs_per_cell'] = int(payload['arcs_per_cell'])
+    tp = payload.get('table_points')
+    if isinstance(tp, int):
+        scope['table_points'] = tp
+    elif tp:
+        scope['table_points'] = [tuple(p) for p in tp]
+    if payload.get('corners'):
+        scope['corners'] = list(payload['corners'])
+    if payload.get('arc_types'):
+        scope['arc_types'] = list(payload['arc_types'])
+    if payload.get('arc_ids'):
+        scope['arc_ids'] = list(payload['arc_ids'])
+    return scope or None
+
+
+def _coverage_json(report):
+    """Return a JSON-safe copy of a CoverageReport. build_coverage keys the
+    matrix by (cell, arc_type, i1, i2) tuples and lists unaccounted as tuples,
+    neither of which json.dumps can encode -- flatten them to lists/dicts."""
+    matrix = [{'cell': c, 'arc_type': at, 'i1': i1, 'i2': i2,
+               'states': per_corner}
+              for (c, at, i1, i2), per_corner in report.get('matrix', {}).items()]
+    return {
+        'summary': report.get('summary', {}),
+        'by_category': report.get('by_category', {}),
+        'by_parity': report.get('by_parity', {}),
+        'by_corner': report.get('by_corner', {}),
+        'triage': report.get('triage', []),
+        'matrix': matrix,
+        'unaccounted': [list(u) for u in report.get('unaccounted', [])],
+    }
+
+
+def _api_run_plan(payload):
+    """Dry-run: discover the scope and return the plan without generating."""
+    from core import orchestrate
+    root, node, lib_type = _run_config(payload)
+    try:
+        pl = orchestrate.plan(root, node, lib_type, _run_scope(payload))
+    except orchestrate.SelectionEmpty as e:
+        return {'error': str(e), 'selection_empty': True}
+    except Exception as e:
+        return {'error': str(e)}
+    # matrix_counts keys are (cell, corner) tuples -> serialize for JSON
+    matrix = [{'cell': c, 'corner': cn, 'count': n}
+              for (c, cn), n in sorted(pl['matrix_counts'].items())]
+    # Surface the actual arc identifiers so the user can see exactly which arcs
+    # the scope selected (the matrix only carries per-cell/corner counts). Cap
+    # the list so a huge scope doesn't bloat the JSON; report the true total.
+    wis = pl['work_items']
+    _CAP = 2000
+    arcs = [{'arc_id': wi.get('arc_id', ''), 'cell': wi['cell'],
+             'corner': wi['corner'], 'arc_type': wi['arc_type']}
+            for wi in wis[:_CAP]]
+    # Per-type counts over the FULL selection (not the capped list) so the type
+    # filter row stays usable even when the arc list is truncated.
+    by_type = {}
+    for wi in wis:
+        by_type[wi['arc_type']] = by_type.get(wi['arc_type'], 0) + 1
+    return {'expected': pl['expected'], 'walltime_est': pl['walltime_est'],
+            'matrix': matrix, 'arcs': arcs, 'arc_types': by_type,
+            'arcs_truncated': len(wis) > _CAP}
+
+
+def _api_run_generate(payload):
+    """Kick off core.orchestrate.generate in a worker thread. Returns
+    {task_id} immediately; writes NO bsub (resting state 'generated')."""
+    import uuid
+    from core import orchestrate
+    root, node, lib_type = _run_config(payload)
+    scope = _run_scope(payload)
+    out_dir = os.path.abspath(
+        payload.get('out') or payload.get('output_dir') or './run_output')
+    try:
+        workers = int(payload.get('workers') or 0) or None   # 0/blank -> auto
+    except (TypeError, ValueError):
+        workers = None
+    cancel_event = threading.Event()
+    task_id = uuid.uuid4().hex[:12]
+    with _RUN_LOCK:
+        _RUN_TASKS[task_id] = {
+            'phase': 'generate', 'status': 'running', 'progress': 0,
+            'total': 0, 'current': '', 'out_dir': out_dir,
+            'coverage': None, 'error': '', 'cancelled': False,
+            'cancel': cancel_event}
+
+    def _worker():
+        def _prog(done, total, row):
+            with _RUN_LOCK:
+                t = _RUN_TASKS[task_id]
+                t['progress'], t['total'] = done, total
+                t['current'] = row.get('arc_id', '') if row else ''
+        try:
+            res = orchestrate.generate(root, node, lib_type, out_dir,
+                                       scope=scope, progress=_prog,
+                                       workers=workers,
+                                       should_cancel=cancel_event.is_set)
+            with _RUN_LOCK:
+                t = _RUN_TASKS[task_id]
+                t['status'], t['current'] = 'generated', ''
+                t['coverage'] = res['coverage']
+                t['cancelled'] = res.get('cancelled', False)
+        except orchestrate.SelectionEmpty as e:
+            with _RUN_LOCK:
+                t = _RUN_TASKS[task_id]
+                t['status'], t['error'] = 'error', str(e)
+                t['selection_empty'] = True
+        except Exception as e:
+            with _RUN_LOCK:
+                t = _RUN_TASKS[task_id]
+                t['status'], t['error'] = 'error', str(e)
+
+    th = threading.Thread(target=_worker, daemon=True)
+    th.start()
+    with _RUN_LOCK:
+        _RUN_TASKS[task_id]['_thread'] = th
+    return {'task_id': task_id}
+
+
+def _api_run_status(task_id):
+    """Live snapshot of a run task (no thread handle, JSON-safe)."""
+    with _RUN_LOCK:
+        t = _RUN_TASKS.get(task_id)
+        if t is None:
+            return {'error': 'Unknown task_id'}
+        snap = {k: v for k, v in t.items() if k not in ('_thread', 'cancel')}
+    if snap.get('coverage') is not None:
+        snap['coverage'] = _coverage_json(snap['coverage'])
+    return snap
+
+
+def _api_run_cancel(task_id):
+    """Signal a running generate task to stop. It finishes the arcs already in
+    flight, marks the rest skipped:cancelled, and writes a partial report."""
+    with _RUN_LOCK:
+        t = _RUN_TASKS.get(task_id)
+        if t is None:
+            return {'error': 'Unknown task_id'}
+        ev = t.get('cancel')
+    if ev is not None:
+        ev.set()
+    return {'ok': True}
+
+
+def _api_run_coverage(task_id):
+    """CoverageReport dict for the matrix + triage view; error if not ready."""
+    with _RUN_LOCK:
+        t = _RUN_TASKS.get(task_id)
+        if t is None:
+            return {'error': 'Unknown task_id'}
+        cov = t.get('coverage')
+    if cov is None:
+        return {'error': 'coverage not ready'}
+    return _coverage_json(cov)
+
+
+def _api_run_submit(task_id, slot_limit=50):
+    """Operator confirm gate: emit real bsub arrays for generated rows and
+    advance them to 'submitted'. Refuses (nothing_to_submit) if none."""
+    from core import orchestrate
+    from core.lsf import bjobs_snapshot
+    with _RUN_LOCK:
+        t = _RUN_TASKS.get(task_id)
+        if t is None:
+            return {'error': 'Unknown task_id'}
+        out_dir = t['out_dir']
+    try:
+        res = orchestrate.submit(out_dir, slot_limit=int(slot_limit))
+    except orchestrate.NothingToSubmit as e:
+        return {'error': str(e), 'nothing_to_submit': True}
+    except Exception as e:
+        return {'error': str(e)}
+    arrays = {c: {'n_jobs': info['n_jobs']}
+              for c, info in res['arrays'].items()}
+    with _RUN_LOCK:
+        t = _RUN_TASKS[task_id]
+        t['status'], t['phase'] = 'submitted', 'submit'
+        t['coverage'] = res['coverage']
+    return {'coverage': _coverage_json(res['coverage']), 'arrays': arrays,
+            'bjobs': bjobs_snapshot(res['arrays'])}
+
+
 def _parse_table_points(text):
     """Parse a table-point text string into a list of (i1, i2) int tuples.
 
@@ -447,19 +656,24 @@ def _parse_table_points(text):
 # HTML page (ASCII-only: no em-dashes, no smart quotes, no emojis)
 # ---------------------------------------------------------------------------
 
-HTML_PAGE = """<!DOCTYPE html>
+_HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <title>DeckGen</title>
 <!-- Monaco removed: CDN blocked by corporate firewall. Using built-in viewer. -->
 <style>
+/* Shared design tokens live in gui_engine_views.CSS_TOKENS (:root, injected
+   later in this same document). This block defines only the tokens unique to
+   the older tabs, aliased onto the shared ones so both tab families draw from
+   one palette. CSS custom properties resolve lazily, so referencing a token
+   declared in a later :root is fine. */
 :root {
-  --bg:#f5f5f5; --panel:#fff; --text:#0a0a0a; --text-2:#525252;
-  --text-3:#a3a3a3; --border:#e5e5e5; --border-2:#d4d4d4;
-  --accent:#171717; --accent-h:#404040; --tint:#f5f5f5;
-  --ok:#16a34a; --warn:#ca8a04; --err:#dc2626; --info:#2563eb;
-  --tag-bg:#f1f5f9; --tag-fg:#475569;
+  --panel:var(--surface); --tint:var(--surface-2);
+  --text-2:var(--text-mut); --text-3:#8b949e; --border-2:#c9d1d9;
+  --accent-h:#4a2270;
+  --ok:var(--pass-fg); --warn:var(--stub-fg); --err:var(--fail-fg);
+  --info:#2563eb; --tag-bg:var(--accent-wk); --tag-fg:var(--text-mut);
 }
 *{box-sizing:border-box;margin:0;padding:0;}
 html,body{background:var(--bg);color:var(--text);
@@ -494,7 +708,7 @@ html,body{background:var(--bg);color:var(--text);
 .ctl:hover{background:#fafafa;}
 .chip{font-size:11px;background:var(--tag-bg);color:var(--tag-fg);
   padding:2px 7px;border-radius:8px;white-space:nowrap;
-  font-family:"SF Mono",Menlo,monospace;}
+  font-family:var(--font-mono);}
 .chip-more{font-size:11px;color:var(--text-3);white-space:nowrap;}
 .caret{margin-left:auto;color:var(--text-3);font-size:9px;flex-shrink:0;}
 .cdrop{display:none;position:absolute;top:34px;left:0;min-width:360px;
@@ -506,7 +720,7 @@ html,body{background:var(--bg);color:var(--text);
 .msearch input{width:100%;height:28px;padding:0 10px;
   border:1px solid var(--border-2);border-radius:3px;font-size:12px;}
 .mlist{max-height:220px;overflow-y:auto;}
-.mitem{padding:7px 12px;font-size:12px;font-family:"SF Mono",Menlo,monospace;
+.mitem{padding:7px 12px;font-size:12px;font-family:var(--font-mono);
   cursor:pointer;display:flex;align-items:center;gap:8px;}
 .mitem:hover{background:var(--tint);}
 .mitem input[type=checkbox]{margin:0;cursor:pointer;}
@@ -541,7 +755,7 @@ html,body{background:var(--bg);color:var(--text);
 .btn[disabled]{opacity:.38;cursor:not-allowed;pointer-events:none;}
 .atag{font-size:10px;padding:1px 6px;border-radius:8px;
   background:var(--tag-bg);color:var(--tag-fg);
-  font-family:"SF Mono",Menlo,monospace;}
+  font-family:var(--font-mono);}
 .srow{display:flex;gap:8px;margin-bottom:10px;align-items:center;}
 .swrap{flex:1;position:relative;}
 .swrap input{width:100%;height:30px;padding:0 10px 0 30px;
@@ -559,11 +773,11 @@ html,body{background:var(--bg);color:var(--text);
 .chead{padding:8px 4px;display:flex;align-items:center;gap:7px;cursor:pointer;}
 .chead:hover{background:var(--tint);}
 .twisty{width:14px;text-align:center;color:var(--text-3);font-size:9px;user-select:none;}
-.cname{font-family:"SF Mono",Menlo,monospace;font-size:12px;}
+.cname{font-family:var(--font-mono);font-size:12px;}
 .ctags{margin-left:auto;display:flex;gap:3px;flex-wrap:wrap;}
 .alist{margin:2px 0 6px 21px;border-left:2px solid var(--border);}
 .arow{padding:5px 10px;display:flex;align-items:center;gap:8px;
-  font-family:"SF Mono",Menlo,monospace;font-size:11px;color:var(--text-2);cursor:pointer;}
+  font-family:var(--font-mono);font-size:11px;color:var(--text-2);cursor:pointer;}
 .arow:hover{background:var(--tint);color:var(--text);}
 .adesc{flex:1;}
 .abtn{font-size:10px;font-weight:600;color:var(--accent);
@@ -586,7 +800,7 @@ html,body{background:var(--bg);color:var(--text);
 .src-ref{color:var(--accent);cursor:pointer;text-decoration:underline;text-decoration-style:dotted;}
 .src-ref:hover{background:var(--accent);color:#fff;border-radius:2px;}
 .lut-grid-wrap{margin-top:6px;overflow-x:auto;}
-.lut-grid{border-collapse:collapse;font-size:10px;font-family:"SF Mono",Menlo,monospace;}
+.lut-grid{border-collapse:collapse;font-size:10px;font-family:var(--font-mono);}
 .lut-grid th{padding:2px 5px;color:var(--text-3);font-weight:400;text-align:center;}
 .lut-grid td.gc{width:24px;height:24px;text-align:center;cursor:pointer;
   border:1px solid var(--border);border-radius:3px;
@@ -603,7 +817,7 @@ html,body{background:var(--bg);color:var(--text);
 .src-modal.open{display:flex;}
 .src-modal-hdr{height:48px;display:flex;align-items:center;gap:8px;
   padding:0 16px;border-bottom:1px solid var(--border);flex-shrink:0;
-  font-size:12px;font-family:"SF Mono",Menlo,monospace;}
+  font-size:12px;font-family:var(--font-mono);}
 .src-modal-path{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-2);}
 .src-modal-body{flex:1;min-height:0;}
 .rgroup{margin:2px 0;border-left:2px solid var(--border);}
@@ -615,7 +829,7 @@ html,body{background:var(--bg);color:var(--text);
   color:var(--text-3);margin:14px 0 6px;display:flex;align-items:center;gap:6px;}
 .qsl:first-child{margin-top:0;}
 .qrow{display:flex;align-items:center;gap:6px;padding:6px 4px;
-  border-bottom:1px solid var(--border);font-family:"SF Mono",Menlo,monospace;font-size:11px;}
+  border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;}
 .qrow:last-child{border-bottom:none;}
 .qrow:hover{background:var(--tint);}
 .qtext{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-2);}
@@ -626,7 +840,7 @@ html,body{background:var(--bg);color:var(--text);
 .tprow{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
 .tprow:last-child{margin-bottom:0;}
 .tpin{flex:1;height:28px;padding:0 8px;border:1px solid var(--border-2);
-  border-radius:4px;font-size:11px;font-family:"SF Mono",Menlo,monospace;color:var(--text);}
+  border-radius:4px;font-size:11px;font-family:var(--font-mono);color:var(--text);}
 .tpin:focus{outline:2px solid rgba(23,23,23,.12);border-color:var(--accent);}
 .tp-hint{font-size:10px;color:var(--text-3);margin-top:6px;margin-bottom:4px;}
 .qsum{background:var(--tint);border:1px solid var(--border);
@@ -635,14 +849,14 @@ html,body{background:var(--bg);color:var(--text);
   padding:2px 0;color:var(--text-2);}
 .qsrow.total{border-top:1px solid var(--border-2);margin-top:6px;
   padding-top:8px;color:var(--text);font-weight:600;}
-.qnum{font-family:"SF Mono",Menlo,monospace;}
+.qnum{font-family:var(--font-mono);}
 .rrow{display:flex;align-items:center;gap:6px;padding:7px 4px;
   border-bottom:1px solid var(--border);cursor:pointer;}
 .rrow:last-child{border-bottom:none;}
 .rrow:hover{background:var(--tint);}
 .rico{font-size:13px;flex-shrink:0;}
 .rtxt{flex:1;overflow:hidden;min-width:0;}
-.rname{font-family:"SF Mono",Menlo,monospace;font-size:11px;
+.rname{font-family:var(--font-mono);font-size:11px;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .rmeta{font-size:10px;color:var(--text-3);margin-top:1px;}
 .rarrow{color:var(--text-3);font-size:11px;flex-shrink:0;}
@@ -654,47 +868,42 @@ html,body{background:var(--bg);color:var(--text);
 .deck-ov.open{display:flex;}
 .dvh{padding:11px 16px;border-bottom:1px solid var(--border);
   display:flex;align-items:center;gap:10px;flex-shrink:0;}
-.dvtitle{font-family:"SF Mono",Menlo,monospace;font-size:12px;flex:1;
+.dvtitle{font-family:var(--font-mono);font-size:12px;flex:1;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .dvbody{flex:1;overflow:auto;padding:16px;background:#1a1a2e;}
-.dvbody pre{margin:0;font-family:"SF Mono",Menlo,monospace;font-size:11px;
+.dvbody pre{margin:0;font-family:var(--font-mono);font-size:11px;
   color:#c9d1d9;line-height:1.6;white-space:pre;}
 .deck-line{display:flex;white-space:pre;}
 .deck-ln{width:36px;text-align:right;padding-right:8px;color:#555;user-select:none;flex-shrink:0;}
 .deck-link{color:#4ec9b0;text-decoration:underline;text-decoration-style:dotted;cursor:pointer;}
 .deck-link:hover{color:#fff;background:#4ec9b0;border-radius:2px;}
-.dgrid{display:flex;height:100%;}
-.dgrid>.panel{flex:1 1 0;min-width:200px;border-right:1px solid var(--border);}
-.dgrid>.panel:last-child{border-right:none;flex:1 1 0;}
-.dta{width:100%;height:100%;border:none;resize:none;outline:none;
-  font-family:"SF Mono",Menlo,monospace;font-size:12px;padding:14px 16px;
-  line-height:1.6;background:var(--panel);color:var(--text);}
 .vi{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;}
 .vi .fl{flex:1;min-width:200px;}
-.vi .fl input{width:100%;font-family:"SF Mono",Menlo,monospace;font-size:12px;}
+.vi .fl input{width:100%;font-family:var(--font-mono);font-size:12px;}
 .vcards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;}
 .vcard{border:1px solid var(--border);border-radius:6px;padding:12px 14px;background:var(--panel);}
 .vc-lbl{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3);}
-.vc-num{font-size:26px;font-weight:700;font-family:"SF Mono",Menlo,monospace;margin-top:4px;}
+.vc-num{font-size:26px;font-weight:700;font-family:var(--font-mono);margin-top:4px;}
 .vc-num.ok{color:var(--ok);}.vc-num.warn{color:var(--warn);}.vc-num.err{color:var(--err);}
 table.vtbl{width:100%;border-collapse:collapse;font-size:12px;}
 table.vtbl th{text-align:left;font-size:10px;font-weight:600;text-transform:uppercase;
   letter-spacing:.06em;color:var(--text-2);padding:8px 10px;
   border-bottom:1px solid var(--border);background:#fafafa;position:sticky;top:0;}
 table.vtbl td{padding:8px 10px;border-bottom:1px solid var(--border);
-  font-family:"SF Mono",Menlo,monospace;}
+  font-family:var(--font-mono);}
 table.vtbl tr:hover td{background:var(--tint);}
 .l1{color:var(--ok);font-weight:600;}.l2{color:var(--warn);font-weight:600;}.l3{color:var(--err);font-weight:600;}
 .view-hidden{display:none!important;}
 </style>
+<!--ENGINE_CSS-->
 </head>
 <body>
 <div class="topbar">
   <div class="brand">DeckGen</div>
   <div class="tabs">
-    <div class="tab active" onclick="showTab('explore')">Explore</div>
-    <div class="tab" onclick="showTab('direct')">Direct</div>
-    <div class="tab" onclick="showTab('validate')">Validate</div>
+    <div class="tab active" data-tab="comb-audit" onclick="showTab('comb-audit')">Audit</div>
+    <div class="tab" onclick="showTab('explore')">Decks &middot; Explore</div>
+    <div class="tab" onclick="showTab('run')">Run &middot; Report</div>
   </div>
   <div class="spacer"></div>
   <div class="status-pill" id="statusPill">Loading&#x2026;</div>
@@ -784,18 +993,20 @@ table.vtbl tr:hover td{background:var(--tint);}
       <button class="btn btn-sm btn-ghost" onclick="exportArcList()">Export list</button>
       <button class="btn" onclick="doPreview()">Preview</button>
       <button class="btn btn-primary" id="btnGenerate" onclick="doGenerate()">Generate</button>
+      <span id="previewMsg" style="flex-basis:100%;font-size:11px;color:var(--text-3);"></span>
     </div>
     <div class="pb view-hidden" id="resultsBody">
       <div class="qsl">Generated decks
         <div class="spacer"></div>
         <button class="btn btn-sm btn-ghost" onclick="showQueueView()">&larr; Back</button>
       </div>
-      <div id="genStatus" style="font-size:11px;color:var(--text-2);margin-bottom:10px;"></div>
+      <div id="genStatus" style="font-size:11px;color:var(--text-2);margin-bottom:6px;"></div>
+      <div id="genBar" style="display:none;height:6px;background:var(--tint);border-radius:3px;overflow:hidden;margin-bottom:10px;"><div id="genBarFill" style="height:100%;width:0;background:var(--accent);transition:width .3s;"></div></div>
       <div id="resultList"></div>
     </div>
     <div class="pf view-hidden" id="resultsFooter">
-      <button class="btn btn-sm btn-ghost" onclick="copyAllPaths()">Copy all paths</button>
-      <button class="btn btn-sm btn-ghost" onclick="openOutputDir()" style="margin-left:6px;">Open output dir</button>
+      <button class="btn btn-sm btn-ghost" onclick="copyAllPaths(event)">Copy all paths</button>
+      <button class="btn btn-sm btn-ghost" onclick="openOutputDir(event)" style="margin-left:6px;">Open output dir</button>
       <div class="spacer"></div>
     </div>
   </div>
@@ -808,38 +1019,6 @@ table.vtbl tr:hover td{background:var(--tint);}
     <button class="btn btn-sm" onclick="copyDeck()">Copy</button>
   </div>
   <div class="dvbody"><pre id="dvContent"></pre></div>
-</div>
-<div class="main view-hidden" id="view-direct">
-  <div class="dgrid">
-    <div class="panel" style="border-right:1px solid var(--border);">
-      <div class="ph">
-        <span class="pt">cell_arc_pt identifiers</span>
-        <span class="status-pill" style="margin-left:4px;">one per line</span>
-        <div class="spacer"></div>
-        <button class="btn btn-sm" onclick="directLoadFile()">Load file&hellip;</button>
-        <button class="btn btn-sm btn-ghost" onclick="directClear()">Clear</button>
-        <input type="file" id="directFile" accept=".txt" style="display:none" onchange="directFileChosen(event)">
-      </div>
-      <div style="flex:1;min-height:0;display:flex;flex-direction:column;">
-        <textarea class="dta" id="directTA" spellcheck="false" oninput="directParse()"></textarea>
-      </div>
-    </div>
-    <div class="resizer" id="directResizer"></div>
-    <div class="panel">
-      <div class="ph">
-        <span class="pt">Parsed summary</span>
-        <span class="status-pill" id="directPill" style="margin-left:4px;">&#x2014;</span>
-      </div>
-      <div class="pb" id="directSummary">
-        <div class="qempty">Paste identifiers or load a file to begin.</div>
-      </div>
-      <div class="pf">
-        <div class="spacer"></div>
-        <button class="btn" onclick="directPreview()">Preview</button>
-        <button class="btn btn-primary" onclick="directGenerate()">Generate</button>
-      </div>
-    </div>
-  </div>
 </div>
 <div class="main main-full view-hidden" id="view-validate">
   <div class="panel">
@@ -898,11 +1077,17 @@ var S={node:'',libtype:'',corners:[],selCorners:new Set(),cells:[],arcCache:{},
   queue:[],arcFilter:'all',cellFilter:'',cellGlob:false,results:[],lastDeckPath:'',
   vResults:[],vFilter:'all',genTaskId:'',genTotal:0,_restore:{}};
 function showTab(name){
-  ['explore','direct','validate'].forEach(function(n){
-    document.getElementById('view-'+n).classList.toggle('view-hidden',n!==name);});
+  // nav order must match the .tab elements in the header
+  var tabs=['comb-audit','explore','run'];
+  // every view div (incl. retired direct/validate/topology/audit) hidden unless selected
+  ['comb-audit','explore','run','validate','topology','audit'].forEach(function(n){
+    var el=document.getElementById('view-'+n);
+    if(el) el.classList.toggle('view-hidden',n!==name);});
   document.querySelectorAll('.tab').forEach(function(t,i){
-    t.classList.toggle('active',['explore','direct','validate'][i]===name);});
-  document.getElementById('dbar').style.display=name==='validate'?'none':'flex';
+    t.classList.toggle('active',tabs[i]===name);});
+  document.getElementById('dbar').style.display='flex';
+  if(name==='comb-audit'&&typeof engCombAuditInit==='function')engCombAuditInit();
+  if(name==='run'&&typeof runInit==='function')runInit();
   closeDeck();}
 function post(url,body){return fetch(url,{method:'POST',
   headers:{'Content-Type':'application/json'},body:JSON.stringify(body)
@@ -981,9 +1166,11 @@ document.addEventListener('click',function(e){
 function doRescan(){post('/api/rescan',{node:S.node,lib_type:S.libtype}).then(function(){loadCells();});}
 function updateStatusPill(){var pill=document.getElementById('statusPill');
   var nc=document.getElementById('cellsCount');
-  var n=S.node||'--';var lt=S.libtype?S.libtype.split('_').slice(-1)[0]:'--';
-  var c=S.selCorners.size;var cells=S.cells?S.cells.length:0;
-  pill.textContent=n+' / '+lt+' / '+c+' corners / '+cells+' cells';
+  var cells=S.cells?S.cells.length:0;
+  if(!S.node||!S.libtype){pill.textContent='Select a library to begin';}
+  else{var lt=S.libtype.split('_').slice(-1)[0];var c=S.selCorners.size;
+    pill.textContent=S.node+' / '+lt+' / '+c+' corner'+(c===1?'':'s')+
+      ' / '+cells+' cell'+(cells===1?'':'s');}
   if(nc)nc.textContent=cells+' cells';}
 function loadCells(){document.getElementById('cellList').innerHTML='<div class="cell-loading">Loading cells...</div>';
   post('/api/cells',{node:S.node,lib_type:S.libtype}).then(function(d){
@@ -1198,9 +1385,9 @@ function gridCellClick(e,arcType){
     var tbl=document.getElementById('tpGrid_'+arcType);
     if(tbl){tbl.querySelectorAll('td.gc').forEach(function(c){
       var ci=parseInt(c.dataset.i);var cj=parseInt(c.dataset.j);
-      if(ci>=minI&&ci<=maxI&&cj>=minJ&&cj<=maxJ){c.classList.add('gon');c.textContent='\u2713';}});}
+      if(ci>=minI&&ci<=maxI&&cj>=minJ&&cj<=maxJ){c.classList.add('gon');c.textContent='\\u2713';}});}
   }else{
-    var on=td.classList.toggle('gon');td.textContent=on?'\u2713':'';}
+    var on=td.classList.toggle('gon');td.textContent=on?'\\u2713':'';}
   _tpLastClick[arcType]={i:i,j:j};
   syncInputFromGrid(arcType);renderQueueSummary();}
 function syncInputFromGrid(arcType){
@@ -1222,7 +1409,7 @@ function syncGridFromInput(arcType){
   var sel=new Set(pts.map(function(p){return p[0]+','+p[1];}));
   var total=0;tbl.querySelectorAll('td.gc').forEach(function(c){total++;
     var key=c.dataset.i+','+c.dataset.j;var on=sel.has(key);
-    c.classList.toggle('gon',on);c.textContent=on?'\u2713':'';});
+    c.classList.toggle('gon',on);c.textContent=on?'\\u2713':'';});
   if(countEl)countEl.textContent=sel.size+' / '+total+' selected';}
 function tpPreset(arcType,act){var q=S.queue.find(function(x){return x.arc_type===arcType&&x.index_1&&x.index_1.length;});
   if(!q)return;var ni=q.index_1.length;var nj=q.index_2.length;var pts=[];
@@ -1258,8 +1445,13 @@ function calcTotal(){var byType={};
   Object.keys(byType).forEach(function(t){total+=byType[t]*parseTpText(tpMap[t]||'').length;});
   return total*S.selCorners.size;}
 function doPreview(){var body=buildGenerateBody();
+  var m=document.getElementById('previewMsg');m.textContent='Previewing...';
   post('/api/preview_v2',body).then(function(d){
-    alert('Preview: '+(d.jobs?d.jobs.length:0)+' jobs planned. Errors: '+(d.errors?d.errors.length:0));});}
+    var nj=d.jobs?d.jobs.length:0,ne=d.errors?d.errors.length:0;
+    m.textContent=nj+' job'+(nj===1?'':'s')+' planned'+
+      (ne?', '+ne+' error'+(ne===1?'':'s'):'')+'.';
+    m.style.color=ne?'var(--err)':'var(--text-3)';}).catch(function(e){
+    m.textContent='Preview failed: '+e.message;m.style.color='var(--err)';});}
 function buildGenerateBody(){var tpMap=getTpMap();
   var arcQueue=S.queue.map(function(q){return{arc_id:q.arc_id,vector:q.vector||''};});
   var outDir=document.getElementById('outputDir').value.trim()||'./output/';
@@ -1267,6 +1459,8 @@ function buildGenerateBody(){var tpMap=getTpMap();
     corners:Array.from(S.selCorners),arc_queue:arcQueue,table_points:tpMap,output_dir:outDir};}
 function doGenerate(){var body=buildGenerateBody();showResultsView();
   document.getElementById('genStatus').textContent='Starting...';
+  var bar=document.getElementById('genBar');bar.style.display='block';
+  document.getElementById('genBarFill').style.width='0';
   document.getElementById('resultList').innerHTML='';S.results=[];S.genTaskId='';S.genTotal=0;
   post('/api/generate_v2',body).then(function(d){
     if(d.task_id){
@@ -1279,8 +1473,11 @@ function doGenerate(){var body=buildGenerateBody();showResultsView();
     document.getElementById('genStatus').textContent='Error: '+e.message;});}
 function pollGenerate(){
   post('/api/generate_status',{task_id:S.genTaskId}).then(function(d){
+    var pct=d.total?Math.round(100*d.progress/d.total):0;
+    document.getElementById('genBarFill').style.width=pct+'%';
     document.getElementById('genStatus').textContent=
-      'Generating '+d.progress+'/'+d.total+'... '+(d.current||'');
+      'Generating '+(d.progress||0)+'/'+(d.total||0)+' ('+pct+'%)'+
+      (d.current?' - '+d.current:'');
     var newResults=(d.results||[]).slice(S.results.length);
     newResults.forEach(function(res){S.results.push(res);appendResultRow(res);});
     if(d.status==='done'){finalizeResults();}
@@ -1320,6 +1517,7 @@ function appendResultRow(r){
   group.querySelector('.rcnt').textContent='('+cnt+' corner'+(cnt>1?'s':'')+')';
 }
 function finalizeResults(){var ok=S.results.filter(function(r){return r.success!==false&&!r.error;}).length;
+  document.getElementById('genBar').style.display='none';
   var fail=S.results.length-ok;var arcs=document.querySelectorAll('#resultList .rgroup').length;
   document.getElementById('genStatus').innerHTML=
     '<span style="color:var(--ok);font-weight:600;">&#10003; '+ok+' succeeded</span>&nbsp;&nbsp;'+
@@ -1335,13 +1533,17 @@ function showQueueView(){
   document.getElementById('queueFooter').classList.remove('view-hidden');
   document.getElementById('resultsBody').classList.add('view-hidden');
   document.getElementById('resultsFooter').classList.add('view-hidden');closeDeck();}
-function copyAllPaths(){var paths=S.results.filter(function(r){return r.output_path;})
+function copyAllPaths(ev){var paths=S.results.filter(function(r){return r.output_path;})
   .map(function(r){return r.output_path;}).join('\\n');
-  navigator.clipboard.writeText(paths).catch(function(){});}
-function openOutputDir(){var row=document.querySelector('#resultList .result-row');
+  navigator.clipboard.writeText(paths).then(function(){
+    flashBtn(ev&&ev.target,'Copied');}).catch(function(){});}
+function flashBtn(btn,msg){if(!btn)return;var t=btn.textContent;
+  btn.textContent=msg;setTimeout(function(){btn.textContent=t;},1400);}
+function openOutputDir(ev){var row=document.querySelector('#resultList .result-row');
   if(!row)return;var path=row.dataset.path||'';
   var dir=path.split('/').slice(0,-1).join('/');
-  if(dir){navigator.clipboard.writeText(dir).then(function(){alert('Output directory path copied: '+dir);}).catch(function(){});}}
+  if(dir){navigator.clipboard.writeText(dir).then(function(){
+    flashBtn(ev&&ev.target,'Path copied');}).catch(function(){});}}
 function openDeck(row,path,title){
   document.querySelectorAll('.rrow').forEach(function(r){r.classList.remove('sel');});
   if(row)row.classList.add('sel');S.lastDeckPath=path;
@@ -1373,43 +1575,6 @@ function renderDeckContent(txt,deckPath){
 function closeDeck(){document.getElementById('deckOv').classList.remove('open');
   document.querySelectorAll('.rrow').forEach(function(r){r.classList.remove('sel');});}
 function copyDeck(){navigator.clipboard.writeText(document.getElementById('dvContent').textContent).catch(function(){});}
-function directLoadFile(){document.getElementById('directFile').click();}
-function directFileChosen(e){var f=e.target.files[0];if(!f)return;
-  var reader=new FileReader();reader.onload=function(ev){
-    document.getElementById('directTA').value=ev.target.result;directParse();};reader.readAsText(f);}
-function directClear(){document.getElementById('directTA').value='';directParse();}
-function directParse(){var lines=document.getElementById('directTA').value.split('\\n')
-  .map(function(l){return l.trim();}).filter(Boolean);
-  var byType={};var errors=[];
-  lines.forEach(function(l){var parts=l.split('_');var arcType=parts[0]||'';
-    if(!arcType){errors.push(l);return;}byType[arcType]=(byType[arcType]||0)+1;});
-  var corners=S.selCorners.size;var total=lines.length*corners;
-  var pill=document.getElementById('directPill');
-  pill.textContent=lines.length+' arcs x '+corners+' corners = '+total+' decks';
-  var sumEl=document.getElementById('directSummary');
-  if(!lines.length){sumEl.innerHTML='<div class="qempty">Paste identifiers or load a file to begin.</div>';return;}
-  var html='<div class="qsl">Arc-types detected</div>';
-  Object.keys(byType).forEach(function(t){html+='<div class="qrow"><span class="atag" style="flex-shrink:0;">'+esc(t)+
-    '</span><span class="qtext">'+byType[t]+' arcs -- i1/i2 from identifier suffix</span></div>';});
-  if(errors.length)html+='<div style="margin-top:8px;font-size:11px;color:var(--err);">'+errors.length+' unrecognized lines</div>';
-  html+='<div style="margin-top:14px;" class="qsum"><div class="qsrow total"><span>'+
-    lines.length+' arcs x '+corners+' corners</span><span class="qnum">'+total+' decks</span></div></div>';
-  sumEl.innerHTML=html;}
-function directPreview(){var lines=document.getElementById('directTA').value.split('\\n')
-  .map(function(l){return l.trim();}).filter(Boolean);
-  post('/api/preview_v2',{mode:'batch',node:S.node,lib_type:S.libtype,
-    corners:Array.from(S.selCorners),arc_ids:lines}).then(function(d){
-    alert('Preview: '+(d.jobs?d.jobs.length:0)+' jobs planned. Errors: '+(d.errors?d.errors.length:0));});}
-function directGenerate(){var lines=document.getElementById('directTA').value.split('\\n')
-  .map(function(l){return l.trim();}).filter(Boolean);
-  showTab('explore');showResultsView();
-  document.getElementById('genStatus').textContent='Generating (direct mode)...';
-  document.getElementById('resultList').innerHTML='';S.results=[];
-  post('/api/generate_v2',{mode:'batch',node:S.node,lib_type:S.libtype,
-      corners:Array.from(S.selCorners),arc_ids:lines,output_dir:document.getElementById('outputDir').value.trim()||'./output/'})
-  .then(function(d){
-    if(d.results){d.results.forEach(function(res){S.results.push(res);appendResultRow(res);});}
-    finalizeResults();});}
 var _vAllRows=[];
 function runValidation(){post('/api/validate',{
   deckgen_root:document.getElementById('vDeckgenRoot').value,
@@ -1445,6 +1610,7 @@ function exportHtml(){post('/api/validate_html',{
     window.open('/api/validate_html_serve?path='+encodeURIComponent(d.html_path));}
   else{alert('Export failed: '+(d.error||'unknown error'));}});}
 loadNodes();
+// audit-first landing happens after the engine tabs are in the DOM (see comb_audit_js)
 // ---- Built-in source viewer (no CDN dependency) ----
 var _srcState={fileId:null,total:0,loadedStart:1,loadedEnd:0,history:[],histIdx:-1,lines:[]};
 function openSourceViewer(filePath,targetLine){
@@ -1568,9 +1734,27 @@ function _srcLazyLoad(){
   </div>
   <div class="src-modal-body" id="srcEditorMount" style="overflow:auto;flex:1;"></div>
 </div>
+<!--ENGINE_TABS-->
+<!--ENGINE_JS-->
 </body>
 </html>
 """
+
+# Engine tabs are now driven by the existing showTab() (extended above); no
+# separate glue needed. Kept as an empty hook for assembly compatibility.
+_ENGINE_JS_GLUE = ""
+
+HTML_PAGE = (
+    _HTML_TEMPLATE
+    .replace('<!--ENGINE_CSS-->',
+             '<style>' + _ev.CSS_TOKENS + _ev.CSS_COMPONENTS + '</style>')
+    .replace('<!--ENGINE_TABS-->',
+             _ev.topology_tab_html() + _ev.audit_tab_html()
+             + _ev.comb_audit_tab_html() + _ev.run_tab_html())
+    .replace('<!--ENGINE_JS-->',
+             '<script>' + _ev.engine_js() + _ev.comb_audit_js()
+             + _ev.run_js() + _ENGINE_JS_GLUE + '</script>')
+)
 
 
 # ---------------------------------------------------------------------------
@@ -1598,6 +1782,8 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
             self._serve_validate_html()
         elif self.path.startswith('/api/source/'):
             self._serve_source()
+        elif self.path.startswith('/api/engine/audit_csv'):
+            self._engine_audit_csv()
         else:
             self.send_response(404)
             self.end_headers()
@@ -1791,9 +1977,200 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
             self._send_json(self._handle_validate_html(data)); return
         elif path == '/api/source/register':
             self._send_json(_api_source_register(data.get('path', ''))); return
+        elif path == '/api/engine/topology':
+            self._engine_topology(data)
+        elif path == '/api/engine/audit':
+            self._engine_audit(data)
+        elif path == '/api/engine/comb_audit':
+            self._engine_comb_audit(data)
+        elif path == '/api/engine/audit_status':
+            self._handle_audit_status(data)
+        elif path == '/api/engine/arc_detail':
+            self._engine_arc_detail(data)
+        elif path == '/api/run/plan':
+            self._send_json(_api_run_plan(data)); return
+        elif path == '/api/run/generate':
+            self._send_json(_api_run_generate(data)); return
+        elif path == '/api/run/status':
+            self._send_json(_api_run_status(data.get('task_id', ''))); return
+        elif path == '/api/run/cancel':
+            self._send_json(_api_run_cancel(data.get('task_id', ''))); return
+        elif path == '/api/run/coverage':
+            self._send_json(_api_run_coverage(data.get('task_id', ''))); return
+        elif path == '/api/run/submit':
+            self._send_json(_api_run_submit(
+                data.get('task_id', ''), data.get('slot_limit', 50))); return
         else:
             self.send_response(404)
             self.end_headers()
+
+    # ------------------------------------------------------------------
+    # /api/engine/topology  (POST)
+    # ------------------------------------------------------------------
+
+    def _engine_topology(self, body):
+        from core.engine_present import topology_view
+        from core.collateral import CollateralStore
+        from core.resolver import NetlistResolver
+        collateral_root = getattr(DeckgenHandler, 'COLLATERAL_ROOT',
+                                  _DEFAULT_COLLATERAL_ROOT)
+        try:
+            store = CollateralStore(body.get('collateral_root', collateral_root),
+                                    body['node'], body['lib_type'],
+                                    skip_autoscan=True)
+            corner = store.get_corner(body['corner'])
+            npath, _pins = NetlistResolver(corner.get('netlist_dir')).resolve(body['cell'])
+        except Exception as e:
+            self._send_json({'status': 'ERROR', 'error': 'resolve: %s' % e})
+            return
+        self._send_json(topology_view(
+            npath, body['cell'], corner=body.get('corner'),
+            arc_type=body.get('arc_type', 'hold'),
+            rel_pin=body.get('rel_pin', 'CP'), rel_dir=body.get('rel_dir', 'rise'),
+            constr_pin=body.get('constr_pin', 'D'), constr_dir=body.get('constr_dir', 'fall'),
+            when=body.get('when'), force_bias=body.get('force_bias')))
+
+    # ------------------------------------------------------------------
+    # /api/engine/audit  (POST)
+    # ------------------------------------------------------------------
+
+    def _engine_audit(self, body):
+        from core.engine_present import audit_arcs
+        collateral_root = getattr(DeckgenHandler, 'COLLATERAL_ROOT',
+                                  _DEFAULT_COLLATERAL_ROOT)
+        try:
+            r = audit_arcs(node=body['node'], lib_type=body['lib_type'],
+                           corner=body['corner'], arc_ids=body.get('arcs', []),
+                           collateral_root=body.get('collateral_root',
+                                                     collateral_root))
+        except Exception as e:
+            r = {'status': 'ERROR', 'error': str(e), 'rows': [], 'summary': {}}
+        self._send_json(r)
+
+    # ------------------------------------------------------------------
+    # /api/engine/comb_audit  (POST) -- library-scale combinational audit
+    # ------------------------------------------------------------------
+
+    def _engine_comb_audit(self, body):
+        """Start the library audit in a background thread; return a task_id. The
+        front-end polls /api/engine/audit_status for a progress bar + log, then
+        gets the full result when status == done. (5000+ arcs is too long to block
+        a single request.)"""
+        import uuid
+        from core.library_audit import audit_combinational_library
+        cr = body.get('collateral_root',
+                      getattr(DeckgenHandler, 'COLLATERAL_ROOT',
+                              _DEFAULT_COLLATERAL_ROOT))
+        node, lib = body['node'], body['lib_type']
+        corner, cells = body['corner'], body.get('cells')
+        task_id = uuid.uuid4().hex[:12]
+        with _AUDIT_LOCK:
+            _AUDIT_TASKS[task_id] = {
+                'status': 'running', 'progress': 0, 'total': 0, 'current': '',
+                'counts': {'match': 0, 'divergence': 0, 'unsupported': 0,
+                           'error': 0, 'out_of_scope': 0},
+                'log': ['discovering combinational arcs in %s ...' % lib],
+                'result': None, 'error': None}
+        _key = {'MATCH': 'match', 'DIVERGENCE': 'divergence',
+                'UNSUPPORTED-WHEN': 'unsupported', 'ERROR': 'error',
+                'OUT-OF-SCOPE': 'out_of_scope'}
+
+        def cb(done, total, cell, status):
+            with _AUDIT_LOCK:
+                t = _AUDIT_TASKS.get(task_id)
+                if t is None:
+                    return
+                t['progress'], t['total'], t['current'] = done, total, cell
+                k = _key.get(status)
+                if k:
+                    t['counts'][k] += 1
+                if done == 1 or done % 50 == 0 or done == total:
+                    c = t['counts']
+                    t['log'].append(
+                        '%d/%d  flagged=%d  out-of-scope=%d  match=%d  (last: %s)'
+                        % (done, total,
+                           c['divergence'] + c['unsupported'] + c['error'],
+                           c['out_of_scope'], c['match'], cell))
+                    t['log'] = t['log'][-120:]
+
+        def run():
+            try:
+                r = audit_combinational_library(
+                    collateral_root=cr, node=node, lib_type=lib, corner=corner,
+                    cells=cells, progress=cb)
+                with _AUDIT_LOCK:
+                    t = _AUDIT_TASKS[task_id]
+                    t['result'] = r
+                    t['status'] = 'done'
+                    t['current'] = ''
+                    s = r.get('summary', {})
+                    t['log'].append(
+                        'done: %d arcs, %d flagged, %d out-of-scope, %d match'
+                        % (s.get('arcs', 0), s.get('flagged', 0),
+                           s.get('out_of_scope', 0), s.get('match', 0)))
+            except Exception as e:
+                with _AUDIT_LOCK:
+                    t = _AUDIT_TASKS[task_id]
+                    t['status'] = 'error'
+                    t['error'] = str(e)
+                    t['log'].append('error: %s' % e)
+
+        threading.Thread(target=run, daemon=True).start()
+        self._send_json({'task_id': task_id})
+
+    def _handle_audit_status(self, body):
+        """Poll an async library-audit task: progress + log; full result on done."""
+        tid = body.get('task_id', '')
+        with _AUDIT_LOCK:
+            t = _AUDIT_TASKS.get(tid)
+            if t is None:
+                self._send_json({'error': 'unknown task_id'})
+                return
+            snap = {'status': t['status'], 'progress': t['progress'],
+                    'total': t['total'], 'current': t['current'],
+                    'counts': dict(t['counts']), 'log': list(t['log']),
+                    'error': t['error']}
+            if t['status'] == 'done':
+                snap['result'] = t['result']
+        self._send_json(snap)
+
+    # ------------------------------------------------------------------
+    # /api/engine/arc_detail  (POST) -- per-arc detail for the triage pane
+    # ------------------------------------------------------------------
+
+    def _engine_arc_detail(self, body):
+        from core.engine_present import arc_detail_view
+        collateral_root = getattr(DeckgenHandler, 'COLLATERAL_ROOT',
+                                  _DEFAULT_COLLATERAL_ROOT)
+        try:
+            r = arc_detail_view(
+                body.get('collateral_root', collateral_root),
+                body['node'], body['lib_type'], body['corner'],
+                body['cell'], body['rel_pin'], body['output'])
+        except Exception as e:
+            r = {'status': 'ERROR', 'error': str(e)}
+        self._send_json(r)
+
+    # ------------------------------------------------------------------
+    # /api/engine/audit_csv  (GET)
+    # ------------------------------------------------------------------
+
+    def _engine_audit_csv(self):
+        import urllib.parse
+        from core.engine_present import audit_arcs, audit_csv
+        collateral_root = getattr(DeckgenHandler, 'COLLATERAL_ROOT',
+                                  _DEFAULT_COLLATERAL_ROOT)
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        arcs = [a for a in q.get('arcs', [''])[0].split(',') if a]
+        r = audit_arcs(node=q['node'][0], lib_type=q['lib_type'][0],
+                       corner=q['corner'][0], arc_ids=arcs,
+                       collateral_root=collateral_root)
+        csv_text = audit_csv(r['rows'])
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/csv')
+        self.send_header('Content-Disposition', 'attachment; filename=audit.csv')
+        self.end_headers()
+        self.wfile.write(csv_text.encode('ascii'))
 
     def _read_json(self):
         length = int(self.headers.get('Content-Length', 0))

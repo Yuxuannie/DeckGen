@@ -100,6 +100,14 @@ B 上跳时 PMOS 导通路径电阻取决于 A1/A2 state:
 
 A1/A2 各只有一种敏化 state，所以一条 unconditional arc 就够。
 
+> 修正 (2026-06-24, Claude Code + Yuxuan): 上面 PMOS 串联草图 `(A1-P||A2-P)--B-P`
+> 把 B 画成了与 A1/A2 同级的输入，隐含 B 负单调；但按 -vector，B 是**正单调**
+> (`B->ZN {xxRR}`)，cell 内部先对 B 取反 (`bbar=!B`)，再用 AOI21 核
+> `ZN=!(A1*A2+bbar)=B*!(A1*A2)`。导通路径的 RC 直觉 (并联 vs 单管 -> B 拆 3 条) 仍
+> 成立，只是 B 的极性在草图里写反了。引擎重建网表 (engine/fixtures/AIOI21_RECON.subckt)
+> 用的是修正后的拓扑，并通过 vector gate 验证 (truth table + 每条 -vector 方向)。
+> §2.4 的公式 `ZN = B * !(A1*A2)` 本身正确，未改。
+
 ## 3. MCQC 输入源参考
 
 > 验证日期: 2026-05 (Yuxuan)

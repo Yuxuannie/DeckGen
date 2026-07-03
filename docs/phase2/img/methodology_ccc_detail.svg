@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="1280"><rect width="880" height="1280" fill="white"/>
+<defs><marker id="g" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="#888"/></marker><marker id="r" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="#c00"/></marker></defs>
+<text x="24" y="32" font-family="monospace" font-size="15" text-anchor="start" fill="#111" font-weight="bold">S1 detail -- how CCC 'sees' the latch (storage = a CYCLE in the influence graph)</text>
+<text x="24" y="52" font-family="monospace" font-size="11" text-anchor="start" fill="#666" font-weight="normal">real nets from SDFQSXG... (synthetic twin; identical structure)</text>
+<line x1="136" y1="110.0" x2="210" y2="110.0" stroke="#aaa" stroke-width="1.4" marker-end="url(#g)" />
+<line x1="136" y1="110.0" x2="380" y2="134.0" stroke="#aaa" stroke-width="1.4" marker-end="url(#g)" />
+<line x1="136" y1="110.0" x2="560" y2="134.0" stroke="#aaa" stroke-width="1.4" marker-end="url(#g)" />
+<line x1="136" y1="164.0" x2="210" y2="314.0" stroke="#aaa" stroke-width="1.4" marker-end="url(#g)" />
+<line x1="136" y1="218.0" x2="210" y2="314.0" stroke="#aaa" stroke-width="1.4" marker-end="url(#g)" />
+<line x1="136" y1="218.0" x2="210" y2="224.0" stroke="#aaa" stroke-width="1.4" marker-end="url(#g)" />
+<line x1="136" y1="272.0" x2="210" y2="314.0" stroke="#aaa" stroke-width="1.4" marker-end="url(#g)" />
+<line x1="288" y1="110.0" x2="380" y2="134.0" stroke="#aaa" stroke-width="1.4" marker-end="url(#g)" />
+<line x1="288" y1="110.0" x2="560" y2="134.0" stroke="#aaa" stroke-width="1.4" marker-end="url(#g)" />
+<line x1="288" y1="314.0" x2="380" y2="134.0" stroke="#aaa" stroke-width="1.4" marker-end="url(#g)" />
+<line x1="288" y1="224.0" x2="210" y2="314.0" stroke="#aaa" stroke-width="1.4" marker-end="url(#g)" />
+<line x1="458" y1="190.0" x2="560" y2="134.0" stroke="#aaa" stroke-width="1.4" marker-end="url(#g)" />
+<line x1="638" y1="134.0" x2="740" y2="134.0" stroke="#aaa" stroke-width="1.4" marker-end="url(#g)" />
+<path d="M458,134.0 C480,134.0 480,190.0 458,190.0" fill="none" stroke="#c00" stroke-width="2" marker-end="url(#r)"/>
+<path d="M458,190.0 C496,190.0 496,134.0 458,134.0" fill="none" stroke="#c00" stroke-width="2" marker-end="url(#r)"/>
+<path d="M638,134.0 C660,134.0 660,190.0 638,190.0" fill="none" stroke="#c00" stroke-width="2" marker-end="url(#r)"/>
+<path d="M638,190.0 C676,190.0 676,134.0 638,134.0" fill="none" stroke="#c00" stroke-width="2" marker-end="url(#r)"/>
+<rect x="58" y="96" width="78" height="28" rx="14" fill="#ffffff" stroke="#333" stroke-width="1.3"/><text x="97.0" y="114" font-family="monospace" font-size="12" text-anchor="middle" fill="#111" font-weight="normal">CP</text>
+<rect x="58" y="150" width="78" height="28" rx="14" fill="#ffffff" stroke="#333" stroke-width="1.3"/><text x="97.0" y="168" font-family="monospace" font-size="12" text-anchor="middle" fill="#111" font-weight="normal">D</text>
+<rect x="58" y="204" width="78" height="28" rx="14" fill="#ffffff" stroke="#333" stroke-width="1.3"/><text x="97.0" y="222" font-family="monospace" font-size="12" text-anchor="middle" fill="#111" font-weight="normal">SE</text>
+<rect x="58" y="258" width="78" height="28" rx="14" fill="#ffffff" stroke="#333" stroke-width="1.3"/><text x="97.0" y="276" font-family="monospace" font-size="12" text-anchor="middle" fill="#111" font-weight="normal">SI</text>
+<rect x="210" y="96" width="78" height="28" rx="6" fill="#eaf3ff" stroke="#333" stroke-width="1.3"/><text x="249.0" y="114" font-family="monospace" font-size="12" text-anchor="middle" fill="#111" font-weight="normal">clkb</text>
+<rect x="210" y="210" width="78" height="28" rx="6" fill="#eaf3ff" stroke="#333" stroke-width="1.3"/><text x="249.0" y="228" font-family="monospace" font-size="12" text-anchor="middle" fill="#111" font-weight="normal">seb</text>
+<rect x="210" y="300" width="78" height="28" rx="6" fill="#fff0d8" stroke="#333" stroke-width="1.3"/><text x="249.0" y="318" font-family="monospace" font-size="12" text-anchor="middle" fill="#111" font-weight="normal">mi</text>
+<rect x="380" y="120" width="78" height="28" rx="6" fill="#e7d6ff" stroke="#333" stroke-width="1.3"/><text x="419.0" y="138" font-family="monospace" font-size="12" text-anchor="middle" fill="#111" font-weight="normal">ml_a</text>
+<rect x="380" y="176" width="78" height="28" rx="6" fill="#e7d6ff" stroke="#333" stroke-width="1.3"/><text x="419.0" y="194" font-family="monospace" font-size="12" text-anchor="middle" fill="#111" font-weight="normal">ml_b</text>
+<rect x="560" y="120" width="78" height="28" rx="6" fill="#d6f5d6" stroke="#333" stroke-width="1.3"/><text x="599.0" y="138" font-family="monospace" font-size="12" text-anchor="middle" fill="#111" font-weight="normal">sl_a</text>
+<rect x="560" y="176" width="78" height="28" rx="6" fill="#d6f5d6" stroke="#333" stroke-width="1.3"/><text x="599.0" y="194" font-family="monospace" font-size="12" text-anchor="middle" fill="#111" font-weight="normal">sl_b</text>
+<rect x="740" y="120" width="78" height="28" rx="6" fill="#ffe0e6" stroke="#333" stroke-width="1.3"/><text x="779.0" y="138" font-family="monospace" font-size="12" text-anchor="middle" fill="#111" font-weight="normal">Q</text>
+<text x="58" y="80" font-family="monospace" font-size="10" text-anchor="start" fill="#888" font-weight="normal">INPUTS (boundary)</text>
+<text x="360" y="108" font-family="monospace" font-size="10" text-anchor="start" fill="#85c" font-weight="normal">master</text>
+<text x="540" y="108" font-family="monospace" font-size="10" text-anchor="start" fill="#3a3" font-weight="normal">slave</text>
+<text x="380" y="250" font-family="monospace" font-size="11" text-anchor="start" fill="#c00" font-weight="bold">RED loops = cross-coupled feedback = a CYCLE = state is held here</text>
+<rect x="24" y="360" width="832" height="150" rx="6" fill="#f4f8ff" stroke="#333" stroke-width="1.3"/>
+<text x="40" y="384" font-family="monospace" font-size="13" text-anchor="start" fill="#258" font-weight="bold">STEP 1  Build the influence graph (purely mechanical)</text>
+<text x="40" y="406" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">For every transistor add directed edges:  gate -&gt; drain   and   source -&gt; drain</text>
+<text x="40" y="426" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">(skip power rails). Meaning: 'this net can affect that net.'  Inputs are boundaries.</text>
+<text x="40" y="446" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">e.g.  ml_a -&gt; ml_b   (ml_a is XMLA0's gate, drives ml_b)</text>
+<text x="40" y="466" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">      ml_b -&gt; ml_a   (ml_b is XMFA0's gate, drives ml_a back)   &lt;-- the two together form a loop</text>
+<rect x="24" y="525" width="832" height="150" rx="6" fill="#fff4ee" stroke="#333" stroke-width="1.3"/>
+<text x="40" y="549" font-family="monospace" font-size="13" text-anchor="start" fill="#a55" font-weight="bold">STEP 2  Find cycles = Tarjan strongly-connected components (SCC)</text>
+<text x="40" y="571" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">An SCC of size &gt;= 2 means: you can get from each node back to itself = a feedback loop.</text>
+<text x="40" y="591" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">   SCC found:  {ml_a, ml_b}   size 2   &lt;- a latch</text>
+<text x="40" y="611" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">               {sl_a, sl_b}   size 2   &lt;- a latch</text>
+<text x="40" y="631" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">   everything else (clkb, seb, mi, Q, ...) is size 1 = pure combinational, no memory.</text>
+<rect x="24" y="690" width="832" height="130" rx="6" fill="#fdf0ff" stroke="#333" stroke-width="1.3"/>
+<text x="40" y="714" font-family="monospace" font-size="13" text-anchor="start" fill="#85c" font-weight="bold">STEP 3  Keep only real storage nodes:  SCC members that are also a GATE</text>
+<text x="40" y="736" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">A stored value both IS driven (a drain) AND controls something (a gate).</text>
+<text x="40" y="755" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">Tristate latches add series-stack nodes (net_XMSA6#d ...) that are drains only -- never gates.</text>
+<text x="40" y="774" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">Intersect SCC with the set of gate-nets  -&gt;  those stack nodes drop out automatically.</text>
+<text x="40" y="793" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">(On the real cell this is what trimmed master/slave from 4 nodes back to the clean 2+2.)</text>
+<rect x="24" y="835" width="832" height="120" rx="6" fill="#eefaef" stroke="#333" stroke-width="1.3"/>
+<text x="40" y="859" font-family="monospace" font-size="13" text-anchor="start" fill="#3a3" font-weight="bold">STEP 4  Label master vs slave by hop-distance to the output Q</text>
+<text x="40" y="881" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">BFS over the influence graph from each latch to Q:</text>
+<text x="40" y="900" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">   sl_a -&gt; Q                 1 hop   =&gt; closest to output = SLAVE</text>
+<text x="40" y="919" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">   ml_a -&gt; ml_b -&gt; sl_a -&gt; Q  further =&gt; one stage back   = MASTER</text>
+<text x="40" y="938" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">(distance-from-inputs fails: the clock gates BOTH latches equally.)</text>
+<rect x="24" y="970" width="832" height="84" rx="6" fill="#e7d6ff" stroke="#333" stroke-width="1.3"/>
+<text x="40" y="1000" font-family="monospace" font-size="14" text-anchor="start" fill="#528" font-weight="bold">RESULT (name-blind):  master {ml_a, ml_b}   slave {sl_a, sl_b}</text>
+<text x="40" y="1026" font-family="monospace" font-size="11" text-anchor="start" fill="#555" font-weight="normal">Derived purely from topology -- it happened to land on the ml_*/sl_* names, proving it right.</text>
+<rect x="24" y="1070" width="832" height="96" rx="6" fill="#fff8e6" stroke="#333" stroke-width="1.3"/>
+<text x="40" y="1096" font-family="monospace" font-size="13" text-anchor="start" fill="#a70" font-weight="bold">WHY this matters</text>
+<text x="40" y="1120" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">To verify the initial state (P2) you must know WHICH nodes hold state and probe them.</text>
+<text x="40" y="1140" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">MCQC guesses by name (ml*/sl*) -&gt; a cell without that naming is silently wrong. CCC finds</text>
+<text x="40" y="1158" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">them from the circuit itself, so it works on any cell, named or not.</text>
+</svg>

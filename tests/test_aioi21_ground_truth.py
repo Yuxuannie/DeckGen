@@ -49,7 +49,7 @@ define_leakage -when "A1 A2 B ZN"     AIOI21M1LIDHMZD4BWP130HPNPN3P48CPD
 define_arc \
     -type hidden \
     -when "!A2&B" \
-    -vector {Rxxх} \
+    -vector {Rxxx} \
     -pin A1 \
     AIOI21M1LIDHMZD4BWP130HPNPN3P48CPD
 

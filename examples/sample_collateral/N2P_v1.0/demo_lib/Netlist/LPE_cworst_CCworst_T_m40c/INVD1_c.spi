@@ -1,0 +1,5 @@
+* Synthetic example inverter (ZN = !I). Replace with your real LPE netlist.
+.subckt INVD1 I ZN VDD VSS VPP VBB
+XP ZN I VDD VPP pch_svt_mac L=3e-09 W=8e-08
+XN ZN I VSS VBB nch_svt_mac L=3e-09 W=4e-08
+.ends INVD1

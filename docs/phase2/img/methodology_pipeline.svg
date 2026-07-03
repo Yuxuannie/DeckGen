@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1330">
+<defs><marker id="ar" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#777"/></marker></defs>
+<rect width="900" height="1330" fill="white"/>
+<text x="24" y="34" font-family="monospace" font-size="17" text-anchor="start" fill="#111" font-weight="bold">DeckGen v2 -- Methodology  (real cell SDFQSXG..., arc hold(CP,D))</text>
+<text x="24" y="56" font-family="monospace" font-size="12" text-anchor="start" fill="#a00" font-weight="normal">name-blind, automatic.  NO z3 / NO SAT -- a stdlib switch-level Boolean evaluator.</text>
+<rect x="24" y="80" width="852" height="232" rx="6" fill="#cde7ff" stroke="#333" stroke-width="1.5"/>
+<text x="38" y="106" font-family="monospace" font-size="15" text-anchor="start" fill="#111" font-weight="bold">S0  PARSE + DE-PARASITIC</text>
+<text x="38" y="126" font-family="monospace" font-size="11" text-anchor="start" fill="#555" font-weight="normal">reads: LPE post-layout netlist</text>
+<text x="38" y="154" font-family="monospace" font-size="11" text-anchor="start" fill="#225" font-weight="bold">HOW -- step 1</text>
+<text x="324" y="154" font-family="monospace" font-size="11" text-anchor="start" fill="#225" font-weight="bold">HOW -- step 2</text>
+<text x="610" y="154" font-family="monospace" font-size="11" text-anchor="start" fill="#070" font-weight="bold">RESULT</text>
+<text x="38" y="174" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">34 transistors X&lt;n&gt; d g s b</text>
+<text x="324" y="174" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">short every R (union-find)</text>
+<text x="610" y="174" font-family="monospace" font-size="11" text-anchor="start" fill="#060" font-weight="normal">181 raw nodes -&gt; 28 logical nets</text>
+<text x="38" y="191" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">226 parasitic R (+ many C)</text>
+<text x="324" y="191" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">drop C (no DC connectivity)</text>
+<text x="610" y="191" font-family="monospace" font-size="11" text-anchor="start" fill="#060" font-weight="normal">bridges = 0  (self-check)</text>
+<text x="38" y="208" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">terminals = private XMSA2#d</text>
+<text x="324" y="208" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">name each cluster by its port</text>
+<line x1="450.0" y1="312" x2="450.0" y2="330" stroke="#777" stroke-width="2" marker-end="url(#ar)"/>
+<rect x="24" y="336" width="852" height="232" rx="6" fill="#d6f5d6" stroke="#333" stroke-width="1.5"/>
+<text x="38" y="362" font-family="monospace" font-size="15" text-anchor="start" fill="#111" font-weight="bold">S1  CCC + STORAGE  (Bryant)</text>
+<text x="38" y="382" font-family="monospace" font-size="11" text-anchor="start" fill="#555" font-weight="normal">reads: 28 logical nets</text>
+<text x="38" y="410" font-family="monospace" font-size="11" text-anchor="start" fill="#225" font-weight="bold">HOW -- step 1</text>
+<text x="324" y="410" font-family="monospace" font-size="11" text-anchor="start" fill="#225" font-weight="bold">HOW -- step 2</text>
+<text x="610" y="410" font-family="monospace" font-size="11" text-anchor="start" fill="#070" font-weight="bold">RESULT</text>
+<text x="38" y="430" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">influence graph: g/s -&gt; drain</text>
+<text x="610" y="430" font-family="monospace" font-size="11" text-anchor="start" fill="#060" font-weight="normal">master {ml_ax, ml_b}</text>
+<text x="38" y="447" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">Tarjan SCC size&gt;=2 = feedback</text>
+<text x="610" y="447" font-family="monospace" font-size="11" text-anchor="start" fill="#060" font-weight="normal">slave  {sl_a, sl_bx}</text>
+<text x="38" y="464" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">keep SCC nodes that are gates</text>
+<text x="610" y="464" font-family="monospace" font-size="11" text-anchor="start" fill="#060" font-weight="normal">-&gt; matched ml_*/sl_* with NO names</text>
+<text x="38" y="481" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">   (drop tristate stack nodes)</text>
+<text x="38" y="498" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">rank by distance to output Q</text>
+<line x1="450.0" y1="568" x2="450.0" y2="586" stroke="#777" stroke-width="2" marker-end="url(#ar)"/>
+<rect x="24" y="592" width="852" height="232" rx="6" fill="#ffe6cc" stroke="#333" stroke-width="1.5"/>
+<text x="38" y="618" font-family="monospace" font-size="15" text-anchor="start" fill="#111" font-weight="bold">S2  SENSITIZE  -&gt;  P1 PROOF</text>
+<text x="38" y="638" font-family="monospace" font-size="11" text-anchor="start" fill="#555" font-weight="normal">reads: device graph + arc</text>
+<text x="38" y="666" font-family="monospace" font-size="11" text-anchor="start" fill="#225" font-weight="bold">HOW -- step 1</text>
+<text x="324" y="666" font-family="monospace" font-size="11" text-anchor="start" fill="#225" font-weight="bold">HOW -- step 2</text>
+<text x="610" y="666" font-family="monospace" font-size="11" text-anchor="start" fill="#070" font-weight="bold">RESULT</text>
+<text x="38" y="686" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">switch-level eval (conduct to</text>
+<text x="324" y="686" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">Boolean difference: toggle D,</text>
+<text x="610" y="686" font-family="monospace" font-size="11" text-anchor="start" fill="#060" font-weight="normal">SE=0 (select), SI masked</text>
+<text x="38" y="703" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">   rails, fixed point)</text>
+<text x="324" y="703" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">   does master change? d/dD=1</text>
+<text x="610" y="703" font-family="monospace" font-size="11" text-anchor="start" fill="#060" font-weight="normal">P1 = PASS (proven, = golden)</text>
+<text x="38" y="720" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">break the latch feedback</text>
+<text x="324" y="720" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">classify side pins set vs masked</text>
+<text x="610" y="720" font-family="monospace" font-size="11" text-anchor="start" fill="#060" font-weight="normal">AGREE with arc.when</text>
+<line x1="450.0" y1="824" x2="450.0" y2="842" stroke="#777" stroke-width="2" marker-end="url(#ar)"/>
+<rect x="24" y="848" width="852" height="232" rx="6" fill="#f0d6ff" stroke="#333" stroke-width="1.5"/>
+<text x="38" y="874" font-family="monospace" font-size="15" text-anchor="start" fill="#111" font-weight="bold">S3  INITIALIZE</text>
+<text x="38" y="894" font-family="monospace" font-size="11" text-anchor="start" fill="#555" font-weight="normal">reads: CCC + arc + P1 bias</text>
+<text x="38" y="922" font-family="monospace" font-size="11" text-anchor="start" fill="#225" font-weight="bold">HOW -- step 1</text>
+<text x="324" y="922" font-family="monospace" font-size="11" text-anchor="start" fill="#225" font-weight="bold">HOW -- step 2</text>
+<text x="610" y="922" font-family="monospace" font-size="11" text-anchor="start" fill="#070" font-weight="bold">RESULT</text>
+<text x="38" y="942" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">hold conv: D=1 before edge</text>
+<text x="324" y="942" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">master written node value</text>
+<text x="610" y="942" font-family="monospace" font-size="11" text-anchor="start" fill="#060" font-weight="normal">required initial state</text>
+<text x="38" y="959" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">eval master (transparent, D=1,</text>
+<text x="324" y="959" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">   real: ml_ax=0 (one inversion!)</text>
+<text x="610" y="959" font-family="monospace" font-size="11" text-anchor="start" fill="#060" font-weight="normal">   + drive-and-settle plan</text>
+<text x="38" y="976" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">   feedback broken)</text>
+<text x="324" y="976" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">slave polarity -&gt; P2</text>
+<text x="38" y="993" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">slave = holds prior value</text>
+<text x="324" y="993" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">probes x1.&lt;net#k&gt; + pre-cycle</text>
+<line x1="450.0" y1="1080" x2="450.0" y2="1098" stroke="#777" stroke-width="2" marker-end="url(#ar)"/>
+<rect x="24" y="1104" width="852" height="232" rx="6" fill="#ffd6e0" stroke="#333" stroke-width="1.5"/>
+<text x="38" y="1130" font-family="monospace" font-size="15" text-anchor="start" fill="#111" font-weight="bold">P2  SIMULATE + VERIFY</text>
+<text x="38" y="1150" font-family="monospace" font-size="11" text-anchor="start" fill="#555" font-weight="normal">reads: deck -&gt; hspice -&gt; .mt0</text>
+<text x="38" y="1178" font-family="monospace" font-size="11" text-anchor="start" fill="#225" font-weight="bold">HOW -- step 1</text>
+<text x="324" y="1178" font-family="monospace" font-size="11" text-anchor="start" fill="#225" font-weight="bold">HOW -- step 2</text>
+<text x="610" y="1178" font-family="monospace" font-size="11" text-anchor="start" fill="#070" font-weight="bold">RESULT</text>
+<text x="38" y="1198" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">run deck TWICE: D=1 and D=0</text>
+<text x="324" y="1198" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">master must FOLLOW D</text>
+<text x="610" y="1198" font-family="monospace" font-size="11" text-anchor="start" fill="#060" font-weight="normal">P2 = PASS on real silicon</text>
+<text x="38" y="1215" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">same pre-cycle</text>
+<text x="324" y="1215" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">slave must NOT follow</text>
+<text x="610" y="1215" font-family="monospace" font-size="11" text-anchor="start" fill="#060" font-weight="normal">'settled to the RIGHT state'</text>
+<text x="38" y="1232" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">probe storage @ settle point</text>
+<text x="324" y="1232" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">clean rails (mid-rail = un-settled)</text>
+<text x="610" y="1232" font-family="monospace" font-size="11" text-anchor="start" fill="#060" font-weight="normal">(what MCQC cannot prove)</text>
+<text x="324" y="1249" font-family="monospace" font-size="11" text-anchor="start" fill="#111" font-weight="normal">pairs complementary</text>
+</svg>

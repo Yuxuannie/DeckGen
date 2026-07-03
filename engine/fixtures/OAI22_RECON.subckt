@@ -1,0 +1,17 @@
+* OAI22 reconstructed netlist -- SYNTHETIC anchor (spec SS6 2c, OR/AND duality).
+* ZN = !((A1+A2) * (B1+B2)). Single-stage complementary OAI (naturally inverting).
+* A1 -> ZN sensitizes at !A2 & (B1+B2) = 3 states; reduced form "!A2&B1" +
+* "!A2&B2" must MATCH. The AOI22 reduced whens applied here must DIVERGE -- the
+* engine derives from topology, it does not echo a fixed pattern.
+.subckt OAI22 A1 A2 B1 B2 ZN VDD VSS
+* PDN: (A1-n || A2-n) series (B1-n || B2-n) -> VSS
+XNA1 ZN  A1 mid VSS nch_svt_mac
+XNA2 ZN  A2 mid VSS nch_svt_mac
+XNB1 mid B1 VSS VSS nch_svt_mac
+XNB2 mid B2 VSS VSS nch_svt_mac
+* PUN: (A1-p series A2-p) || (B1-p series B2-p) -> VDD
+XPA1 ZN A1 pa VDD pch_svt_mac
+XPA2 pa A2 VDD VDD pch_svt_mac
+XPB1 ZN B1 pb VDD pch_svt_mac
+XPB2 pb B2 VDD VDD pch_svt_mac
+.ends
