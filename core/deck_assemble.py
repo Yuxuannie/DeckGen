@@ -177,6 +177,9 @@ def _seq_cluster_tag(family, depth, rel_dir):
     _EXTEND = ("to support it, add that family's golden template to the "
                "corpus and re-mine: python -m core.measurement.mine mine "
                "<template_dir> -o config/measurement_grammar.json")
+    _EXTRAP = ("; or re-run with allow_extrapolation to generate the sync "
+               "ladder from the G2 generator (stamped extrapolated in the "
+               "audit sidecar, not corpus-validated)")
     if family == "hold":
         if depth == 1:
             tag = "CP.syncx.D"
@@ -185,8 +188,8 @@ def _seq_cluster_tag(family, depth, rel_dir):
         else:
             raise SeqScope(
                 "depth %d beyond mined hold corpus (syncx=1..sync6=6); "
-                "nearest mined recipe is CP.sync6.D (depth 6) -- %s"
-                % (depth, _EXTEND))
+                "nearest mined recipe is CP.sync6.D (depth 6) -- %s%s"
+                % (depth, _EXTEND, _EXTRAP if depth > 6 else ""))
         return tag, "fall", "rise"
     if family == "mpw":
         other = {"rise": "fall", "fall": "rise"}.get(rel_dir)
@@ -199,8 +202,8 @@ def _seq_cluster_tag(family, depth, rel_dir):
         else:
             raise SeqScope(
                 "depth %d beyond mined mpw corpus (CPN=1, sync2..6); "
-                "nearest mined recipe is sync6.CP (depth 6) -- %s"
-                % (depth, _EXTEND))
+                "nearest mined recipe is sync6.CP (depth 6) -- %s%s"
+                % (depth, _EXTEND, _EXTRAP if depth > 6 else ""))
         return tag, rel_dir, other
     raise SeqScope("unknown deck family %r (want hold|mpw); mined families "
                    "cover hold and mpw only -- %s" % (family, _EXTEND))
@@ -360,12 +363,16 @@ def _subckt_ports(netlist_src, cell):
 
 
 def assemble_sequential(arc_info: dict, netlist_src: str, grammar: dict,
-                        engine_cache=None) -> dict:
+                        engine_cache=None, allow_extrapolation=False) -> dict:
     """Assemble a runnable sequential deck (hold or mpw family). Never raises: a
     bad/unsupported arc is a named ERROR row. Family from ARC_TYPE
     (hold -> CP.sync{N}.D; mpw|min_pulse_width -> sync{N}.CP/CPN); depth from the
     B2 structural class. engine_cache (optional per-run dict) lets sibling arcs
-    of the same cell reuse one parse + classify -- see _engine_ctx."""
+    of the same cell reuse one parse + classify -- see _engine_ctx.
+    allow_extrapolation (default OFF -- a wrong deck is worse than a refusal):
+    when the sync depth or direction variant is outside the mined corpus, build
+    the entry from the G2 generator instead of refusing; the deck's audit
+    sidecar is stamped selection.extrapolated=true."""
     from engine.stages import stage2_sensitize
     from engine.stages.stage1b_classify import classify, depth_of
     from engine.types import Arc
@@ -406,10 +413,21 @@ def assemble_sequential(arc_info: dict, netlist_src: str, grammar: dict,
                         "(transparent; distinct methodology) -- %s"
                         % (seq.reason or "verdict=latch"))
         depth = depth_of(seq)
+        entry = None
+        extrapolated = False
         try:
             tag, sel_rel, sel_other = _seq_cluster_tag(family, depth, rel_dir)
         except SeqScope as e:
-            return _err("out of recipe corpus: %s" % e)
+            if not (allow_extrapolation and depth > 6):
+                return _err("out of recipe corpus: %s" % e)
+            from core.measurement.generate import generate_entry, GenerateError
+            try:
+                entry, tag, sel_rel, sel_other = generate_entry(
+                    grammar, family=family, depth=depth, rel_dir=rel_dir)
+            except GenerateError as ge:
+                return _err("out of recipe corpus and extrapolation failed: "
+                            "%s (original refusal: %s)" % (ge, e))
+            extrapolated = True
 
         arc = Arc(cell=cell, arc_type=at, rel_pin=rel, rel_dir=rel_dir,
                   constr_pin=constr, constr_dir=constr_dir,
@@ -431,11 +449,25 @@ def assemble_sequential(arc_info: dict, netlist_src: str, grammar: dict,
                         "them to 0" % (cell, sens.p1_obligation or "no obligation"))
         bias = {p: d.value for p, d in sens.side_biases.items()}
 
-        try:
-            entry = select_entry(grammar, arc_type="mpw", rel_dir=sel_rel,
-                                 other_dir=sel_other, cluster_tag=tag)
-        except SelectionError as e:
-            return _err("no grammar entry for %s: %s" % (tag, e))
+        if entry is None:
+            try:
+                entry = select_entry(grammar, arc_type="mpw", rel_dir=sel_rel,
+                                     other_dir=sel_other, cluster_tag=tag)
+            except SelectionError as e:
+                # A sync depth whose OTHER direction is mined but this one is
+                # not (e.g. mpw fall beyond sync4) is also an extrapolation
+                # site: the generator owns the family, the variant is unmined.
+                from core.measurement.generate import (generate_entry,
+                                                       GenerateError)
+                if not allow_extrapolation:
+                    return _err("no grammar entry for %s: %s" % (tag, e))
+                try:
+                    entry, tag, sel_rel, sel_other = generate_entry(
+                        grammar, family=family, depth=depth, rel_dir=rel_dir)
+                except GenerateError as ge:
+                    return _err("no grammar entry for %s and extrapolation "
+                                "failed: %s (original: %s)" % (tag, ge, e))
+                extrapolated = True
         if "frame_text" not in entry:
             return _err("grammar entry for %s has no frame_text -- re-mine the "
                         "corpus (python -m core.measurement.mine mine <dir>)"
@@ -454,9 +486,12 @@ def assemble_sequential(arc_info: dict, netlist_src: str, grammar: dict,
                 "verdict": seq.verdict,
                 "grammar_key": dict(entry.get("key", {})),
                 "provenance": list(entry.get("provenance", [])),
-                "why": "structural classify: verdict=%s depth=%d -> recipe "
-                       "cluster %s (%s family)"
-                       % (seq.verdict, depth, tag, family),
+                "extrapolated": extrapolated,
+                "why": ("structural classify: verdict=%s depth=%d -> recipe "
+                        "cluster %s (%s family)%s"
+                        % (seq.verdict, depth, tag, family,
+                           "; EXTRAPOLATED by the G2 generator, not "
+                           "corpus-validated" if extrapolated else "")),
             },
             "engine": {
                 "bias": dict(bias),

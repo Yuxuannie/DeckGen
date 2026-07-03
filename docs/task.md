@@ -27,8 +27,22 @@ priority order (fast+accurate > usable > debuggable):
    residue) with residue report CLI
    (`python -m core.measurement.decompile report`); the explain sidecar's
    per-line records now carry the semantic rule + why (gate:
-   `tests/test_measurement_decompile.py`). Next: G2 generators
-   (delay family + sync{N} ladders), then G3 airgap corpus decompile.
+   `tests/test_measurement_decompile.py`).
+   **G2 DONE 2026-07-03**: parameterized generators
+   (`core/measurement/generate.py`) -- delay/common_inpin is one generator x
+   (rel_dir, out_dir); mpw sync{N}.CP and hold CP.sync{N}.D are one generator
+   each with t0x ladder / phase string / cross= indices as functions of depth
+   N. Parity gate: all 17 mined family instances byte-match the generator AND
+   self-splice their recipe into their own frame identically
+   (`python -m core.measurement.generate check`, gate:
+   `tests/test_measurement_generate.py`). Extrapolation flag landed default
+   OFF: depth>6 still refuses (refusal now names the flag);
+   `assemble_sequential(..., allow_extrapolation=True)` builds the entry from
+   the generator (frame = deepest mined donor + spliced recipe) and stamps
+   `selection.extrapolated: true` in the sidecar. Run-CLI/GUI wiring of the
+   flag deferred to G3 (spec: extrapolation policy decided with the real
+   airgap depth distribution in hand). Next: G3 airgap corpus decompile +
+   extrapolation policy.
 3. **Merge to main** -- the working branch is ~300 commits ahead of
    `point2a-non-cons`; PR + merge before the next airgap download.
 4. **Airgap layout reconciliation** before any library-scale run

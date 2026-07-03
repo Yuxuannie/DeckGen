@@ -395,7 +395,13 @@ Honest status so a fresh agent does not mis-assume:
   a per-line semantic `rule` + `why` from the recipe decompiler
   `core/measurement/decompile.py` — 100% of the local corpus's 2862 recipe
   lines owned by a named rule, byte-exact round-trip, verbatim residue
-  enumerated via `python -m core.measurement.decompile report`) and
+  enumerated via `python -m core.measurement.decompile report`; G2 adds
+  parameterized generators `core/measurement/generate.py` — delay +
+  sync{N} ladders as functions of depth N, all 17 mined instances
+  byte-matched via `python -m core.measurement.generate check`, plus an
+  extrapolation path, default OFF, that `assemble_sequential(...,
+  allow_extrapolation=True)` uses for depth>6 and stamps
+  `selection.extrapolated` in the sidecar) and
   (b) the Demo-1 parity scoreboard: each generated deck is diffed against the
   golden flow in-run; verdicts (byte / engine_extras / diff / no_golden /
   golden_error) land in the ledger, coverage.html, and the GUI Run report.
