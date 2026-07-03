@@ -11,6 +11,11 @@ def _fake_report():
         'by_category': {'unsupported_arc': 1},
         'by_parity': {'byte': 2, 'engine_extras': 1, 'diff': 1,
                        'no_golden': 1},
+        'parity_review': [
+            {'arc_id': 'hold_CELL1_Q_rise_CP_rise_NO_CONDITION_2_2',
+             'cell': 'CELL1', 'arc_type': 'hold', 'i1': 2, 'i2': 2,
+             'corner': 'ttgnp_0p800v_25c',
+             'deck_path': '/o/d/nominal_sim.sp'}],
         'by_corner': {'ttgnp_0p800v_25c': {'generated': 4, 'submitted': 0,
                                             'error': 1, 'skipped': 0}},
         'matrix': {('CELL1', 'hold', 1, 1): {'ttgnp_0p800v_25c': 'generated'}},
@@ -52,3 +57,21 @@ def test_coverage_json_defaults_by_parity_when_absent():
     del report['by_parity']
     out = gui._coverage_json(report)
     assert out['by_parity'] == {}
+
+
+def test_coverage_json_forwards_parity_review():
+    import gui
+    out = gui._coverage_json(_fake_report())
+    assert out['parity_review'] == [
+        {'arc_id': 'hold_CELL1_Q_rise_CP_rise_NO_CONDITION_2_2',
+         'cell': 'CELL1', 'arc_type': 'hold', 'i1': 2, 'i2': 2,
+         'corner': 'ttgnp_0p800v_25c',
+         'deck_path': '/o/d/nominal_sim.sp'}]
+
+
+def test_coverage_json_defaults_parity_review_when_absent():
+    import gui
+    report = _fake_report()
+    del report['parity_review']
+    out = gui._coverage_json(report)
+    assert out['parity_review'] == []

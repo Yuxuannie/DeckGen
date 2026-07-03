@@ -5,12 +5,13 @@ from core.coverage import build_coverage, coverage_ndjson, coverage_html
 
 
 def _row(cell, at, i1, i2, corner, state, category='', reason='',
-         netlist_path='', deck_path=''):
+         netlist_path='', deck_path='', parity=''):
     return {
         'arc_id': f'{at}_{cell}_Q_rise_CP_rise_NO_CONDITION_{i1}_{i2}',
         'cell': cell, 'arc_type': at, 'i1': i1, 'i2': i2, 'corner': corner,
         'state': state, 'category': category, 'reason': reason,
         'netlist_path': netlist_path, 'deck_path': deck_path,
+        'parity': parity,
     }
 
 
@@ -84,6 +85,47 @@ def test_ndjson_one_line_per_matrix_cell(tmp_path):
     recs = [json.loads(l) for l in lines]
     assert all({'cell', 'arc_type', 'i1', 'i2', 'corner', 'state'} <= set(r)
                for r in recs)
+
+
+def test_parity_review_lists_each_diff_deck():
+    # The 'N diff (review)' count must be backed by an actual review queue:
+    # one entry per diff verdict, carrying the deck path. byte/engine_extras/
+    # no_golden rows stay out of it.
+    uni = _universe(('C', 'hold', 1, 1, 'c1'), ('C', 'hold', 2, 2, 'c1'),
+                    ('C', 'hold', 3, 3, 'c1'))
+    rows = [_row('C', 'hold', 1, 1, 'c1', 'generated', parity='byte',
+                 deck_path='/o/d1/nominal_sim.sp'),
+            _row('C', 'hold', 2, 2, 'c1', 'generated', parity='diff',
+                 deck_path='/o/d2/nominal_sim.sp'),
+            _row('C', 'hold', 3, 3, 'c1', 'generated', parity='no_golden',
+                 deck_path='/o/d3/nominal_sim.sp')]
+    rep = build_coverage(rows, uni)
+    assert rep['by_parity'] == {'byte': 1, 'diff': 1, 'no_golden': 1}
+    assert len(rep['parity_review']) == 1
+    r = rep['parity_review'][0]
+    assert r['deck_path'] == '/o/d2/nominal_sim.sp'
+    assert r['arc_id'] == 'hold_C_Q_rise_CP_rise_NO_CONDITION_2_2'
+    assert r['corner'] == 'c1'
+
+
+def test_parity_review_empty_when_no_diffs():
+    uni = _universe(('C', 'hold', 1, 1, 'c1'))
+    rows = [_row('C', 'hold', 1, 1, 'c1', 'generated', parity='byte')]
+    assert build_coverage(rows, uni)['parity_review'] == []
+
+
+def test_html_review_queue_names_deck_and_golden(tmp_path):
+    uni = _universe(('C', 'hold', 1, 1, 'c1'))
+    rows = [_row('C', 'hold', 1, 1, 'c1', 'generated', parity='diff',
+                 deck_path='/o/d/nominal_sim.sp')]
+    rep = build_coverage(rows, uni)
+    p = os.path.join(str(tmp_path), 'coverage.html')
+    coverage_html(rep, p)
+    html = open(p, encoding='ascii').read()
+    assert 'Review queue (1 diff vs golden)' in html
+    assert '/o/d/nominal_sim.sp' in html
+    assert '/o/d/nominal_sim.golden.sp' in html
+    assert all(ord(ch) < 128 for ch in html)
 
 
 def test_html_has_qa_block_and_triage(tmp_path):

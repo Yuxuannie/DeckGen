@@ -279,7 +279,7 @@ def generate_one(work_item, node, lib_type, collateral_root, grammar, out_dir,
     # substitution deck for the SAME arc_info, every run. byte/engine_extras
     # feed the trust cohort; diff feeds the review cohort. Never fails the
     # row -- a golden-side problem is recorded, not raised.
-    parity = _golden_parity(arc_info, asm['deck_text'])
+    parity = _golden_parity(arc_info, asm['deck_text'], dpath)
 
     # G0 audit sidecar: same-pass explain data (selection evidence, engine
     # bias with whys, collateral sources, per-line origin map) written next
@@ -303,10 +303,15 @@ def generate_one(work_item, node, lib_type, collateral_root, grammar, out_dir,
                 kit_match=asm.get('kit_match'))
 
 
-def _golden_parity(arc_info, deck_text):
+def _golden_parity(arc_info, deck_text, deck_path=''):
     """classify_parity vs the golden flow, or a named non-verdict:
     'no_golden' (kit shipped no template for this arc) / 'golden_error:...'
-    (the golden flow itself failed -- not our deck's fault)."""
+    (the golden flow itself failed -- not our deck's fault).
+
+    On a 'diff' verdict the golden deck is written next to the generated one
+    (<deck>.golden.sp) so the divergence is reviewable -- in the GUI review
+    queue and offline -- without re-running the golden flow. A write failure
+    never fails the row."""
     from core.deck_builder import build_deck
     from core.deck_assemble_check import classify_parity
 
@@ -317,7 +322,15 @@ def _golden_parity(arc_info, deck_text):
         golden = ''.join(build_deck(arc_info, when=arc_info.get('WHEN')))
     except Exception as e:
         return 'golden_error: %s' % str(e)[:120]
-    return classify_parity(deck_text, golden)
+    verdict = classify_parity(deck_text, golden)
+    if verdict == 'diff' and deck_path.endswith('.sp'):
+        try:
+            with open(deck_path[:-3] + '.golden.sp', 'w',
+                      encoding='ascii', errors='replace') as fh:
+                fh.write(golden)
+        except Exception:
+            pass
+    return verdict
 
 
 def write_ledger(rows, path):

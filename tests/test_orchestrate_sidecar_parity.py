@@ -112,6 +112,32 @@ def test_parity_diff_when_golden_disagrees(monkeypatch, tmp_path):
     assert row['parity'] == 'diff'
 
 
+def test_parity_diff_writes_golden_reference_next_to_deck(monkeypatch,
+                                                          tmp_path):
+    # A 'diff' verdict must leave the golden deck on disk next to ours
+    # (nominal_sim.golden.sp) so the review queue / offline diff can show
+    # WHAT diverged, not just that something did.
+    tpl = tmp_path / 'golden.sp'
+    tpl.write_text('placeholder', encoding='ascii')
+    golden_text = "*** other title ***\n.end\n"
+    _patch(monkeypatch, tmp_path, template_path=str(tpl),
+           golden=[golden_text])
+    row, _ = _run(tmp_path)
+    assert row['parity'] == 'diff'
+    gpath = row['deck_path'][:-3] + '.golden.sp'
+    assert os.path.isfile(gpath)
+    assert open(gpath, encoding='ascii').read() == golden_text
+
+
+def test_parity_byte_writes_no_golden_reference(monkeypatch, tmp_path):
+    tpl = tmp_path / 'golden.sp'
+    tpl.write_text('placeholder', encoding='ascii')
+    _patch(monkeypatch, tmp_path, template_path=str(tpl), golden=[_DECK])
+    row, _ = _run(tmp_path)
+    assert row['parity'] == 'byte'
+    assert not os.path.exists(row['deck_path'][:-3] + '.golden.sp')
+
+
 def test_parity_golden_error_never_fails_the_row(monkeypatch, tmp_path):
     tpl = tmp_path / 'golden.sp'
     tpl.write_text('placeholder', encoding='ascii')

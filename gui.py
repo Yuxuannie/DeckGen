@@ -482,6 +482,7 @@ def _coverage_json(report):
         'summary': report.get('summary', {}),
         'by_category': report.get('by_category', {}),
         'by_parity': report.get('by_parity', {}),
+        'parity_review': report.get('parity_review', []),
         'by_corner': report.get('by_corner', {}),
         'triage': report.get('triage', []),
         'matrix': matrix,
@@ -610,6 +611,38 @@ def _api_run_coverage(task_id):
     if cov is None:
         return {'error': 'coverage not ready'}
     return _coverage_json(cov)
+
+
+def _api_run_diff(payload):
+    """Unified diff of a generated deck vs its golden reference, for the
+    Run tab review queue. The golden deck (<deck>.golden.sp) is written at
+    generation time for every 'diff' parity verdict. deck_path must live
+    under the task's out_dir -- this is a review endpoint, not a file
+    browser."""
+    import difflib
+    task_id = payload.get('task_id', '')
+    deck_path = payload.get('deck_path', '')
+    with _RUN_LOCK:
+        t = _RUN_TASKS.get(task_id)
+        out_dir = t['out_dir'] if t else ''
+    if t is None:
+        return {'error': 'Unknown task_id'}
+    real = os.path.realpath(deck_path)
+    if not real.startswith(os.path.realpath(out_dir) + os.sep):
+        return {'error': 'deck_path is outside the run output directory'}
+    if not os.path.isfile(real):
+        return {'error': 'deck not found: %s' % deck_path}
+    golden_path = real[:-3] + '.golden.sp' if real.endswith('.sp') else ''
+    if not golden_path or not os.path.isfile(golden_path):
+        return {'error': 'no golden reference next to this deck (only '
+                         "'diff' verdicts write one; runs from before this "
+                         'feature must be regenerated to review diffs)'}
+    deck = open(real, encoding='latin-1').read().splitlines()
+    golden = open(golden_path, encoding='latin-1').read().splitlines()
+    diff = list(difflib.unified_diff(golden, deck, fromfile='golden',
+                                     tofile='engine', lineterm=''))
+    return {'diff': '\n'.join(diff), 'deck_path': real,
+            'golden_path': golden_path}
 
 
 def _api_run_submit(task_id, slot_limit=50):
@@ -1997,6 +2030,8 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
             self._send_json(_api_run_cancel(data.get('task_id', ''))); return
         elif path == '/api/run/coverage':
             self._send_json(_api_run_coverage(data.get('task_id', ''))); return
+        elif path == '/api/run/diff':
+            self._send_json(_api_run_diff(data)); return
         elif path == '/api/run/submit':
             self._send_json(_api_run_submit(
                 data.get('task_id', ''), data.get('slot_limit', 50))); return

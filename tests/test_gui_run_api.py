@@ -147,6 +147,72 @@ def test_run_submit_shapes_arrays_and_bjobs(tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------------------
+# diff (review queue: generated deck vs golden reference)
+# --------------------------------------------------------------------------
+
+def _diff_task(gui, tmp_path, tid='difftask00001'):
+    """Register a finished fake task whose out_dir holds one deck + golden."""
+    out = tmp_path / 'run'
+    ddir = out / 'decks' / 'test_lib' / 'c1' / 'hold' / 'arc1'
+    ddir.mkdir(parents=True)
+    deck = ddir / 'nominal_sim.sp'
+    deck.write_text("*** title ***\nVSE SE 0 'vss_value'\n.end\n",
+                    encoding='ascii')
+    (ddir / 'nominal_sim.golden.sp').write_text(
+        '*** other title ***\n.end\n', encoding='ascii')
+    with gui._RUN_LOCK:
+        gui._RUN_TASKS[tid] = {'phase': 'generate', 'status': 'generated',
+                               'out_dir': str(out)}
+    return tid, str(deck)
+
+
+def test_run_diff_returns_unified_diff(tmp_path):
+    import gui
+    tid, deck = _diff_task(gui, tmp_path)
+    try:
+        res = gui._api_run_diff({'task_id': tid, 'deck_path': deck})
+        assert 'error' not in res
+        assert '--- golden' in res['diff'] and '+++ engine' in res['diff']
+        assert '-*** other title ***' in res['diff']
+        assert '+*** title ***' in res['diff']
+        assert res['golden_path'].endswith('nominal_sim.golden.sp')
+    finally:
+        with gui._RUN_LOCK:
+            gui._RUN_TASKS.pop(tid, None)
+
+
+def test_run_diff_rejects_paths_outside_out_dir(tmp_path):
+    import gui
+    tid, _ = _diff_task(gui, tmp_path, tid='difftask00002')
+    outside = tmp_path / 'elsewhere.sp'
+    outside.write_text('x\n', encoding='ascii')
+    try:
+        res = gui._api_run_diff({'task_id': tid, 'deck_path': str(outside)})
+        assert 'outside' in res.get('error', '')
+    finally:
+        with gui._RUN_LOCK:
+            gui._RUN_TASKS.pop(tid, None)
+
+
+def test_run_diff_reports_missing_golden(tmp_path):
+    import gui
+    tid, deck = _diff_task(gui, tmp_path, tid='difftask00003')
+    os.remove(deck[:-3] + '.golden.sp')
+    try:
+        res = gui._api_run_diff({'task_id': tid, 'deck_path': deck})
+        assert 'no golden reference' in res.get('error', '')
+    finally:
+        with gui._RUN_LOCK:
+            gui._RUN_TASKS.pop(tid, None)
+
+
+def test_run_diff_unknown_task():
+    import gui
+    res = gui._api_run_diff({'task_id': 'nope', 'deck_path': '/x.sp'})
+    assert res.get('error') == 'Unknown task_id'
+
+
+# --------------------------------------------------------------------------
 # view fragments + assembled page
 # --------------------------------------------------------------------------
 
@@ -154,10 +220,12 @@ def test_run_tab_fragment_structure():
     import gui_engine_views as v
     html = v.run_tab_html()
     for hook in ('id="view-run"', 'id="runCorner"', 'id="run-summary"',
-                 'id="run-triage"', 'id="runGenerateBtn"', 'id="runSubmitBtn"'):
+                 'id="run-review"', 'id="run-triage"', 'id="runGenerateBtn"',
+                 'id="runSubmitBtn"'):
         assert hook in html, hook
     js = v.run_js()
-    for fn in ('runGenerate', 'runPoll', 'runSubmit', 'runRenderCoverage'):
+    for fn in ('runGenerate', 'runPoll', 'runSubmit', 'runRenderCoverage',
+               'runRenderReview', 'runShowDiff'):
         assert fn in js, fn
     (html + js).encode('ascii')
 

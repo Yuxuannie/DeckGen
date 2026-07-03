@@ -61,12 +61,20 @@ def build_coverage(rows, universe):
 
     # Demo-1 scoreboard: tally the per-deck parity verdicts (rows that carry
     # one). byte + engine_extras = the trust cohort; diff = the review cohort.
+    # parity_review keeps the actual review queue -- one entry per 'diff'
+    # deck with its path, so the report can point at what needs eyes instead
+    # of only counting it.
     by_parity = {}
+    parity_review = []
     for r in rows:
         p = r.get('parity')
         if p:
             key = p.split(':', 1)[0]        # golden_error:<msg> -> golden_error
             by_parity[key] = by_parity.get(key, 0) + 1
+            if key == 'diff':
+                parity_review.append({k: r.get(k, '') for k in (
+                    'arc_id', 'cell', 'arc_type', 'i1', 'i2', 'corner',
+                    'deck_path')})
 
     summary = {
         'expected': expected,
@@ -80,6 +88,7 @@ def build_coverage(rows, universe):
         'summary': summary,
         'by_category': by_category,
         'by_parity': by_parity,
+        'parity_review': parity_review,
         'by_corner': by_corner,
         'matrix': matrix,
         'triage': triage,
@@ -136,6 +145,20 @@ def coverage_html(report, path):
             line += ' / %s' % _esc(' '.join(
                 '%s=%d' % kv for kv in rest.items()))
         out.append(line + '</p>')
+    # Review queue: the actual diff decks, not just their count. Each card
+    # names the arc and both files (the golden reference is written next to
+    # the deck at generation time) so review needs no ledger spelunking.
+    pr = report.get('parity_review') or []
+    if pr:
+        out.append('<h2>Review queue (%d diff vs golden)</h2>' % len(pr))
+        for r in pr:
+            dp = str(r.get('deck_path', ''))
+            gp = dp[:-3] + '.golden.sp' if dp.endswith('.sp') else ''
+            out.append(
+                '<div style="border:1px solid #c00;margin:4px;padding:4px">'
+                '<b>%s</b> @ %s<br>deck: %s<br>golden: %s</div>'
+                % (_esc(r.get('arc_id', '')), _esc(r.get('corner', '')),
+                   _esc(dp), _esc(gp)))
     if report['unaccounted']:
         out.append('<p style="color:#c00">unaccounted: %s</p>'
                    % _esc(report['unaccounted']))

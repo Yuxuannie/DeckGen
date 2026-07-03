@@ -736,6 +736,7 @@ def run_tab_html():
       <div id="run-progress-text" class="eng-mut"></div>
     </div>
     <div id="run-summary"></div>
+    <div id="run-review"></div>
     <div id="run-triage"></div>
     <div id="run-lsf"></div>
   </div>
@@ -746,7 +747,7 @@ def run_tab_html():
 def run_js():
     return r"""
 var RUN={taskId:'',polling:false,outDir:'',planArcs:[],planTruncated:false,
-  planTypes:[],genStart:0,pollFails:0};
+  planTypes:[],genStart:0,pollFails:0,review:[]};
 function runInit(){
   if(typeof engCorners==='function'&&typeof engFillSelect==='function')
     engFillSelect(document.getElementById('runCorner'),
@@ -972,7 +973,9 @@ function runRenderCoverage(d){
       '<code>ledger.ndjson</code> in that folder for the reason on every '+
       'arc.':' Each deck has a matching <code>nominal_sim.explain.json</code>'+
       ' audit sidecar next to it (selection evidence, engine bias whys, '+
-      'collateral sources, per-line origin map).')+'</div>':'';
+      'collateral sources, per-line origin map).')+
+    ' Full report: <code>coverage.html</code> + <code>ledger.ndjson</code>'+
+    ' in that folder.</div>':'';
   var bp=d.by_parity||{};
   var parity='';
   if(Object.keys(bp).length){
@@ -992,6 +995,7 @@ function runRenderCoverage(d){
     ' = generated '+su.generated+' + submitted '+(su.submitted||0)+
     ' + error '+su.generation_error+' + skipped '+su.skipped+loc+parity+
     '</div>';
+  runRenderReview(d.parity_review||[]);
   var tri=d.triage||[];
   var th=document.getElementById('run-triage');
   if(!tri.length){th.innerHTML=
@@ -1004,6 +1008,48 @@ function runRenderCoverage(d){
   th.innerHTML='<div class="run-card"><b>Triage ('+tri.length+
     ' generation errors)</b><table class="run-tbl"><tr><th>category</th>'+
     '<th>arc</th><th>reason</th></tr>'+body+'</table></div>';
+}
+// The review queue behind the "N diff (review)" chip: one row per deck whose
+// parity verdict was 'diff', with an inline unified diff vs the golden deck
+// (written next to the deck at generation time as nominal_sim.golden.sp).
+function runRenderReview(pr){
+  RUN.review=pr;
+  var rv=document.getElementById('run-review');
+  if(!pr.length){rv.innerHTML='';return;}
+  var body=pr.map(function(r,i){
+    return '<tr><td>'+esc(r.arc_id||'')+'</td><td>'+esc(r.corner||'')+
+      '</td><td><code>'+esc(r.deck_path||'')+'</code></td>'+
+      '<td><button class="btn" onclick="runShowDiff('+i+')">View diff'+
+      '</button></td></tr>'+
+      '<tr id="run-diff-row-'+i+'" style="display:none"><td colspan="4">'+
+      '<pre id="run-diff-'+i+'" style="white-space:pre-wrap;margin:4px 0">'+
+      '</pre></td></tr>';
+  }).join('');
+  rv.innerHTML='<div class="run-card"><b>Review queue ('+pr.length+
+    ' diff vs golden)</b><div class="eng-mut">These decks differ from the '+
+    'golden template-substitution deck beyond engine pin ties. The golden '+
+    'reference is saved next to each deck as '+
+    '<code>nominal_sim.golden.sp</code>.</div>'+
+    '<table class="run-tbl"><tr><th>arc</th><th>corner</th><th>deck</th>'+
+    '<th></th></tr>'+body+'</table></div>';
+}
+function runShowDiff(i){
+  var row=document.getElementById('run-diff-row-'+i);
+  if(!row)return;
+  if(row.style.display!=='none'){row.style.display='none';return;}
+  row.style.display='';
+  var pre=document.getElementById('run-diff-'+i);
+  pre.textContent='Loading diff...';
+  post('/api/run/diff',{task_id:RUN.taskId,
+      deck_path:(RUN.review[i]||{}).deck_path||''}).then(function(d){
+    if(d.error){pre.textContent=d.error;return;}
+    if(!d.diff){pre.textContent='(no differences?)';return;}
+    pre.innerHTML=d.diff.split('\n').map(function(l){
+      var c=l.charAt(0)==='+'?'#0a0':(l.charAt(0)==='-'?'#c00':
+        (l.charAt(0)==='@'?'#08c':''));
+      return c?('<span style="color:'+c+'">'+esc(l)+'</span>'):esc(l);
+    }).join('\n');
+  }).catch(function(){pre.textContent='Failed to load diff.';});
 }
 function runSubmit(){
   if(!RUN.taskId)return;
