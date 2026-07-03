@@ -19,7 +19,16 @@ priority order (fast+accurate > usable > debuggable):
    per-line origin map with conservation test). Every run also computes the
    Demo-1 scoreboard: per-deck parity vs the golden flow
    (byte / engine_extras / diff / no_golden / golden_error) in the ledger,
-   coverage.html, and the GUI Run report. Next: G1 decompiler + IR.
+   coverage.html, and the GUI Run report.
+   **G1 DONE 2026-07-03**: recipe decompiler + typed IR
+   (`core/measurement/decompile.py`) -- every grammar recipe line owned by a
+   named semantic rule with extracted params and a why; byte-exact round-trip
+   on all 55 local entries; 100% coverage (2862/2862 lines, zero verbatim
+   residue) with residue report CLI
+   (`python -m core.measurement.decompile report`); the explain sidecar's
+   per-line records now carry the semantic rule + why (gate:
+   `tests/test_measurement_decompile.py`). Next: G2 generators
+   (delay family + sync{N} ladders), then G3 airgap corpus decompile.
 3. **Merge to main** -- the working branch is ~300 commits ahead of
    `point2a-non-cons`; PR + merge before the next airgap download.
 4. **Airgap layout reconciliation** before any library-scale run

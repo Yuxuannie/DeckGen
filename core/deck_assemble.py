@@ -76,6 +76,12 @@ def fill_frame(frame_text, arc_info, side_bias, kit_when=None, audit=None):
         if alines is not None:
             rec = {"n": len(out), "src": src}
             rec.update(meta)
+            if src in ("frame", "subst") and "rule" not in rec:
+                # G1: per-line semantic rule + why from the decompiler
+                # (cached per unique line; collateral/bias lines route via
+                # regions.classify_line).
+                from core.measurement.decompile import explain_frame_line
+                rec.update(explain_frame_line(line))
             alines.append(rec)
 
     def push_bias(pin, section):
@@ -113,10 +119,18 @@ def fill_frame(frame_text, arc_info, side_bias, kit_when=None, audit=None):
             if sub is None:
                 sub = _build_substitution_map(arc_info, None, None, None)
             phs = [m for m in _PLACEHOLDER_RE.findall(line) if m in sub]
+            # Classify by the FRAME line, not the substituted output:
+            # substitution changes values, never the line's semantic shape
+            # -- except $HEADER_INFO, which expands to arbitrary header
+            # comments that only the frame line identifies.
+            fmeta = {}
+            if alines is not None:
+                from core.measurement.decompile import explain_frame_line
+                fmeta = explain_frame_line(line)
             # HEADER_INFO substitution embeds newlines; split so .inc dedup
             # and line accounting stay per-line.
             for piece in _substitute_vars(line, sub).split("\n"):
-                push(piece, src="subst", placeholders=phs)
+                push(piece, src="subst", placeholders=phs, **fmeta)
             continue
         push(line)
     if audit is not None:

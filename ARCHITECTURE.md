@@ -389,9 +389,13 @@ Honest status so a fresh agent does not mis-assume:
   — a feature, not a drift (the engine ties what the kit left floating). The
   2026-07-02 missing-collateral bugs (load cap, std_wv `.inc`, mpw slew/load
   mapping) are structurally impossible in the frame path. Every run now also
-  emits (a) a per-deck `nominal_sim.explain.json` audit sidecar (G0 of the
+  emits (a) a per-deck `nominal_sim.explain.json` audit sidecar (G0+G1 of the
   Phase G spec: selection evidence, engine bias whys, collateral sources,
-  per-line origin map, written by the same pass that writes the deck) and
+  per-line origin map, written by the same pass that writes the deck; G1 adds
+  a per-line semantic `rule` + `why` from the recipe decompiler
+  `core/measurement/decompile.py` — 100% of the local corpus's 2862 recipe
+  lines owned by a named rule, byte-exact round-trip, verbatim residue
+  enumerated via `python -m core.measurement.decompile report`) and
   (b) the Demo-1 parity scoreboard: each generated deck is diffed against the
   golden flow in-run; verdicts (byte / engine_extras / diff / no_golden /
   golden_error) land in the ledger, coverage.html, and the GUI Run report.
