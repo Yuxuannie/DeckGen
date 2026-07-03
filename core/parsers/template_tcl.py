@@ -581,13 +581,17 @@ _DEFINE_PINTYPE_RE = re.compile(
     flags=re.DOTALL)
 
 
+def _sis_path(tcl_path):
+    stem = _os.path.splitext(_os.path.basename(tcl_path))[0]
+    dirname = _os.path.dirname(tcl_path)
+    return _os.path.join(dirname, 'Template_sis', stem + '.sis')
+
+
 def _parse_sis_sidecar(tcl_path):
     """If a <stem>.sis file exists alongside tcl_path in a Template_sis/
     directory, parse it and return {pintype: {key: value}}.
     """
-    stem = _os.path.splitext(_os.path.basename(tcl_path))[0]
-    dirname = _os.path.dirname(tcl_path)
-    sis_path = _os.path.join(dirname, 'Template_sis', stem + '.sis')
+    sis_path = _sis_path(tcl_path)
     if not _os.path.isfile(sis_path):
         return {}
     with open(sis_path, 'r') as f:
@@ -600,7 +604,38 @@ def _parse_sis_sidecar(tcl_path):
     return result
 
 
+_FULL_PARSE_CACHE = {}   # abspath -> ((tcl_stat, sis_stat), parsed)
+
+
+def _stat_key(path):
+    try:
+        st = _os.stat(path)
+        return (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return None
+
+
 def parse_template_tcl_full(path):
+    """Cached front of _parse_template_tcl_full. A real-library template.tcl
+    covers thousands of cells and the pure-Python tokenizer takes seconds to
+    minutes on it; orchestrate.generate_one resolves it once PER WORK ITEM, so
+    without this cache a library-scale run re-parses the same file hundreds of
+    times (and looked hung from the GUI). Keyed on (mtime_ns, size) of both the
+    tcl and its .sis sidecar; per process. Callers must treat the returned
+    structure as read-only."""
+    ap = _os.path.abspath(path)
+    key = (_stat_key(ap), _stat_key(_sis_path(ap)))
+    if key[0] is not None:
+        hit = _FULL_PARSE_CACHE.get(ap)
+        if hit is not None and hit[0] == key:
+            return hit[1]
+    parsed = _parse_template_tcl_full(ap)
+    if key[0] is not None:
+        _FULL_PARSE_CACHE[ap] = (key, parsed)
+    return parsed
+
+
+def _parse_template_tcl_full(path):
     """Full MCQC-style template.tcl parse.
 
     Returns:

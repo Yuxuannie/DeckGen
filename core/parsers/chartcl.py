@@ -187,19 +187,40 @@ class ChartclParser:
 from core.parsers.chartcl_helpers import parse_chartcl_for_cells
 
 
+_PARSE_ALL_CACHE = {}   # (abspath, variant) -> ((mtime_ns, size), parser)
+
+
 def chartcl_parse_all(filepath, variant='general'):
     """Mirror runMonteCarlo.chartcl_parsing() sequence.
 
     Returns a fully-parsed ChartclParser instance.
+
+    Cached per (abspath, variant) on (mtime_ns, size), per process: a real
+    library's char.tcl is large and generate_one resolves it once per work
+    item, so a library-scale run would otherwise re-parse it hundreds of
+    times. Callers must treat the returned parser as read-only
+    (resolve_chartcl_for_arc is).
     """
-    p = ChartclParser(filepath, variant=variant)
+    ap = os.path.abspath(filepath)
+    try:
+        st = os.stat(ap)
+        key = (st.st_mtime_ns, st.st_size)
+    except OSError:
+        key = None
+    if key is not None:
+        hit = _PARSE_ALL_CACHE.get((ap, variant))
+        if hit is not None and hit[0] == key:
+            return hit[1]
+    p = ChartclParser(ap, variant=variant)
     p.parse_set_var()
     p.parse_condition_glitch()
     p.parse_condition_load()
     p.parse_condition_delay_degrade()
     p.parse_amd_smc_degrade()
     p.parse_amd_glitch_high_threshold()
-    p.set_cells = parse_chartcl_for_cells(filepath)
+    p.set_cells = parse_chartcl_for_cells(ap)
+    if key is not None:
+        _PARSE_ALL_CACHE[(ap, variant)] = (key, p)
     return p
 
 

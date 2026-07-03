@@ -55,6 +55,9 @@ def _closest_matches(needle, haystack, n=10):
     return (sub + pre + sorted(haystack))[:n]
 
 
+_MANIFEST_CACHE = {}   # manifest_path -> ((mtime_ns, size), parsed json)
+
+
 class CollateralStore:
     """Load manifest.json for one (node, lib_type) leaf and serve lookups."""
 
@@ -85,8 +88,23 @@ class CollateralStore:
         if not skip_autoscan and self._is_stale():
             self._rescan()
 
+        # A real-library manifest.json is MBs and resolve_all_from_collateral
+        # constructs a store per work item, so cache the parsed manifest per
+        # (path, mtime, size) per process. Treat as read-only.
+        try:
+            st = os.stat(self.manifest_path)
+            key = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            key = None
+        if key is not None:
+            hit = _MANIFEST_CACHE.get(self.manifest_path)
+            if hit is not None and hit[0] == key:
+                return hit[1]
         with open(self.manifest_path) as f:
-            return json.load(f)
+            manifest = json.load(f)
+        if key is not None:
+            _MANIFEST_CACHE[self.manifest_path] = (key, manifest)
+        return manifest
 
     def _is_stale(self):
         if not os.path.isfile(self.manifest_path):
