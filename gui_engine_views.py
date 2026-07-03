@@ -728,11 +728,8 @@ def run_tab_html():
       <button class="btn" id="runSubmitBtn" onclick="runSubmit()" disabled>
         Submit to LSF</button>
     </div>
-    <p class="run-note">Generate builds the decks locally and stops. Review the
-      coverage below, then Submit emits the bsub arrays -- nothing is queued to
-      LSF until you confirm. Stop halts generation and still writes a report for
-      whatever finished. Local generation is core-bound (Workers defaults to the
-      machine's cores); for full-library scope, Submit to LSF fans out wider.</p>
+    <p class="run-note">Generate writes decks locally; nothing goes to LSF
+      until you confirm Submit. Details: README, "Run / Report tab".</p>
     <div id="run-progress" style="display:none;margin:8px 0">
       <div class="ca-prog"><div class="ca-prog-bar">
         <div class="ca-prog-fill" id="run-bar-fill"></div></div></div>
@@ -749,7 +746,7 @@ def run_tab_html():
 def run_js():
     return r"""
 var RUN={taskId:'',polling:false,outDir:'',planArcs:[],planTruncated:false,
-  planTypes:[]};
+  planTypes:[],genStart:0,pollFails:0};
 function runInit(){
   if(typeof engCorners==='function'&&typeof engFillSelect==='function')
     engFillSelect(document.getElementById('runCorner'),
@@ -797,6 +794,18 @@ function runTypeToggle(cb){
   var cbs=document.querySelectorAll('.run-arc-cb');
   for(var i=0;i<cbs.length;i++)
     if(cbs[i].getAttribute('data-type')===cb.value)cbs[i].checked=cb.checked;
+  runApplyTypeFilter();
+}
+function runApplyTypeFilter(){
+  // The arc list follows the type row: rows of an unchecked type are hidden
+  // (works in truncated mode too, where rows have no per-arc checkbox).
+  var on={},tcbs=document.querySelectorAll('.run-type-cb');
+  for(var i=0;i<tcbs.length;i++)on[tcbs[i].value]=tcbs[i].checked;
+  var rows=document.querySelectorAll('.run-arc-row');
+  for(var j=0;j<rows.length;j++){
+    var t=rows[j].getAttribute('data-type');
+    rows[j].style.display=(t in on&&!on[t])?'none':'';
+  }
 }
 function runCheckedArcs(){
   var out=[],cbs=document.querySelectorAll('.run-arc-cb');
@@ -808,6 +817,7 @@ function runArcToggleAll(cb){
   for(var i=0;i<cbs.length;i++)cbs[i].checked=cb.checked;
   var tcbs=document.querySelectorAll('.run-type-cb');
   for(var j=0;j<tcbs.length;j++)tcbs[j].checked=cb.checked;
+  runApplyTypeFilter();
 }
 function runErr(id,msg){document.getElementById(id).innerHTML=
   '<div class="ca-empty">'+esc(msg)+'</div>';}
@@ -837,7 +847,8 @@ function runPlan(){
       var cb=trunc?'<td></td>':'<td><input type="checkbox" class="run-arc-cb"'+
         ' checked value="'+esc(a.arc_id)+'" data-type="'+
         esc(a.arc_type||'')+'"></td>';
-      return '<tr>'+cb+'<td>'+esc(a.arc_id)+'</td><td>'+esc(a.cell)+
+      return '<tr class="run-arc-row" data-type="'+esc(a.arc_type||'')+'">'+
+        cb+'<td>'+esc(a.arc_id)+'</td><td>'+esc(a.cell)+
         '</td></tr>';}).join('');
     // Arc-type filter row: counts cover the FULL selection even when the arc
     // list below is truncated. Non-truncated: bulk-toggles the arc rows (the
@@ -890,6 +901,7 @@ function runGenerate(){
     if(d.error){runErr('run-summary',d.error);runResetBtns();return;}
     RUN.taskId=d.task_id;
     document.getElementById('run-progress').style.display='block';
+    RUN.genStart=Date.now();RUN.pollFails=0;
     RUN.polling=true;runPoll();
   });
 }
@@ -906,14 +918,20 @@ function runResetBtns(){
 function runPoll(){
   if(!RUN.polling)return;
   post('/api/run/status',{task_id:RUN.taskId}).then(function(d){
+    RUN.pollFails=0;
+    if(d.error){RUN.polling=false;runResetBtns();
+      runErr('run-summary',d.error);return;}
     var pct=d.total?Math.round(100*d.progress/d.total):0;
     document.getElementById('run-bar-fill').style.width=pct+'%';
-    // total is published before the worker pool spawns, so progress can sit at
-    // 0/N for a bit while collateral loads and workers start -- say so.
+    // total is published before the worker pool spawns, so progress sits at
+    // 0/N while collateral loads and workers start -- show elapsed time so a
+    // long first parse (library-scale collateral) doesn't look like a hang.
+    var secs=RUN.genStart?Math.round((Date.now()-RUN.genStart)/1000):0;
     var txt=(d.progress>0)?
       ('Generating '+(d.progress||0)+'/'+(d.total||0)+' ('+pct+'%)'+
         (d.current?' - '+d.current:'')):
-      ('Preparing '+(d.total||0)+' arcs (loading collateral, starting workers)...');
+      ('Preparing '+(d.total||0)+' arcs (loading collateral, starting '+
+        'workers)... '+secs+'s');
     document.getElementById('run-progress-text').textContent=txt;
     if(d.status==='running'){setTimeout(runPoll,400);return;}
     RUN.polling=false;
@@ -925,6 +943,18 @@ function runPoll(){
       ' -- partial report below (unreached arcs counted as skipped).';
     runLoadCoverage();
     document.getElementById('runSubmitBtn').disabled=false;
+  }).catch(function(){
+    // Transient poll failure (server busy, tab regaining focus): the backend
+    // run continues regardless, so keep the loop alive instead of freezing
+    // the bar at its last value. Give up only after ~1 min of dead air.
+    if(!RUN.polling)return;
+    RUN.pollFails+=1;
+    if(RUN.pollFails>40){
+      RUN.polling=false;runResetBtns();
+      runErr('run-summary','Lost contact with the GUI server; the run may '+
+        'still be writing decks. Check ledger.ndjson in the output '+
+        'directory, then reload this page.');return;}
+    setTimeout(runPoll,1500);
   });
 }
 function runLoadCoverage(){

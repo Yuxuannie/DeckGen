@@ -2627,13 +2627,27 @@ class DeckgenHandler(http.server.BaseHTTPRequestHandler):
 # Entry point
 # ---------------------------------------------------------------------------
 
+class _GuiServer(http.server.ThreadingHTTPServer):
+    """Threaded so a slow or aborted request never wedges the page: with the
+    plain single-threaded HTTPServer, refreshing the browser mid-poll left the
+    server blocked and the GUI unreachable. Client-side aborts (refresh,
+    navigate away) surface as pipe errors -- expected, not worth a traceback."""
+    daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (BrokenPipeError, ConnectionResetError)):
+            return
+        super().handle_error(request, client_address)
+
+
 def main():
     parser = argparse.ArgumentParser(description='deckgen GUI v1.0')
     parser.add_argument('--port', type=int, default=8585, help='Port (default: 8585)')
     parser.add_argument('--no-browser', action='store_true', help='Do not open browser')
     args = parser.parse_args()
 
-    server = http.server.HTTPServer(('127.0.0.1', args.port), DeckgenHandler)
+    server = _GuiServer(('127.0.0.1', args.port), DeckgenHandler)
     url = f'http://127.0.0.1:{args.port}'
     print(f"deckgen GUI v1.0 at {url}")
     print("Press Ctrl+C to stop.")

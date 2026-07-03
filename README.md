@@ -38,6 +38,29 @@ The GUI supports:
 - Template match preview before generating
 - Copy button on generated decks
 
+### Run / Report tab
+
+Scope -> Preview scope -> Generate decks -> review coverage -> Submit to LSF.
+
+- **Generate** builds the decks locally and stops at the resting state --
+  nothing is queued to LSF until you confirm **Submit**, which emits the bsub
+  arrays.
+- **Preview scope** lists every selected arc. The arc-type checkboxes filter
+  the list and the run: uncheck a type (or any single arc) to exclude it
+  before generating. Above ~2000 arcs the per-arc checkboxes are dropped and
+  the type checkboxes become the filter.
+- **Stop** halts generation after the arcs already in flight and still writes
+  a partial report (unreached arcs are counted as `skipped:cancelled`, never
+  silently dropped).
+- **Workers** defaults to the machine's core count (capped at 32). Local
+  generation is core-bound; each worker parses the corner collateral once, so
+  on a full library the progress bar can sit at 0/N for a while before the
+  first tick. For full-library scope, Submit to LSF fans out wider than local
+  cores.
+- Every run writes `ledger.ndjson` (one row per arc with state + reason),
+  `coverage.html`, and per-deck `nominal_sim.explain.json` audit sidecars in
+  the output directory.
+
 ### CLI -- single arc
 
 ```bash

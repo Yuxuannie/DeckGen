@@ -51,6 +51,16 @@ priority order (fast+accurate > usable > debuggable):
    (ARCHITECTURE.md section 4). Then G3: re-mine the full hold+delay corpus,
    review decompile verbatim residue, decide extrapolation policy (and its
    run-CLI/GUI wiring) with the real depth distribution in hand.
+5. **Real-env (Linux, 2037-cell library) feedback -- FIXED 2026-07-03.**
+   (a) run-note trimmed to one line, detail moved to README "Run / Report
+   tab"; (b) arc-type checkboxes now hide/show the previewed arc rows in both
+   normal and truncated mode; (c) "stuck at Preparing N arcs": generate_one
+   re-parsed the full template.tcl + char.tcl + manifest.json PER WORK ITEM
+   per worker -- added per-process mtime caches to parse_template_tcl_full,
+   chartcl_parse_all, and CollateralStore manifest load; (d) BrokenPipeError
+   + unreachable page after Stop: GUI now uses ThreadingHTTPServer (pipe/
+   reset errors quieted), and runPoll survives transient poll failures
+   instead of freezing. Re-test at library scale pending on the real host.
 
 Historical content below is kept for archaeology; do not work from it.
 
